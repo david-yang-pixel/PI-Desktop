@@ -1,33 +1,7 @@
-# Release pipeline
-#
-# Trigger: push a tag `vX.Y.Z` (must match apps/desktop/package.json version).
-# The easiest way to cut a release:
-#
-#   node scripts/release.mjs 0.2.0 --tag   # bump versions + commit + create tag v0.2.0
-#   git push origin <branch> v0.2.0        # push → this workflow builds & publishes
-#
-# This fork builds the desktop for macOS arm64 only (dmg/zip, with its native
-# pi-desktop-host-core Rust sidecar) and publishes it, with the electron-updater
-# latest-mac.yml feed, to the GitHub Release (D686). The fork has no Developer
-# ID certificate, so tag artifacts are unsigned and stamped
-# `piDistribution: "unsigned"`, which makes the app deliver updates manually.
-# The upstream signed, notarized, and stapled lane (D450 / ADR 0289) is kept
-# below unchanged and runs only when the repository variable
-# MACOS_SIGN_RELEASE is 'true'. The Windows and Linux desktop steps are kept
-# too; no matrix row selects them.
-#
-# The workflow also builds headless `pi-host` bundles for Linux x64 and arm64
-# and publishes each as
-# pi-host-<version>-linux-<arch>.tar.gz plus a .sha256 sidecar. The desktop's
-# SSH bootstrap downloads that asset at the desktop's version and verifies the
-# published checksum before installing on the remote machine (rollout
-# 06-delivery/07-remote-control-rollout.md §6 acceptance 4; D375 / ADR 0284).
-
+# Temporary macOS runner and OAuth verification.
 name: Release
 
 on:
-  push:
-    tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
       sign_macos:
@@ -45,47 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
-    # Same gate as ci.yml. A tag push does not trigger ci.yml, so without this
-    # job a broken tree could be built and published untested.
-    name: Verify (build / typecheck / lint / test)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build workspace packages
-        run: pnpm build:js
-
-      - name: Typecheck Desktop
-        run: pnpm --filter @pi-desktop/desktop typecheck
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Unit tests
-        run: pnpm -r --if-present test
-
-      - name: Rust host-core test
-        run: cargo test -p host-core --locked
-
   build:
     name: Build ${{ matrix.name }}
-    needs: verify
     env:
       PI_DESKTOP_GITHUB_OAUTH_CLIENT_ID: ${{ vars.PI_DESKTOP_GITHUB_OAUTH_CLIENT_ID }}
       # Signing is opt-in per repository: nothing signs unless the repository
@@ -97,7 +32,7 @@ jobs:
       matrix:
         include:
           - name: macOS arm64
-            os: macos-15
+            os: macos-26
             arch: arm64
             runner_arch: arm64
             artifact: mac-arm64
@@ -110,6 +45,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: eb931c69d0ac463d8a33c347d621cc90e042b766
 
       - name: Verify native runner architecture
         # A mislabelled or emulated runner would wrap one architecture's
@@ -161,6 +98,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Verify the repository OAuth configuration
+        run: |
+          node --input-type=commonjs - <<'NODE'
+          const hash = require('node:crypto').createHash('sha256');
+          const id = process.env.PI_DESKTOP_GITHUB_OAUTH_CLIENT_ID?.trim() ?? '';
+          if (hash.update(id).digest('hex') !== '41ebbc4814713dd56e0d8a3f7b2e403e5e5edd216fc657f86fdeb14690bd22d5') {
+            throw new Error('The repository variable is empty or its Client ID does not match');
+          }
+          console.log('The repository OAuth Client ID matches the expected app');
+          NODE
 
       - name: Prepare package inputs
         run: |
@@ -382,6 +330,32 @@ jobs:
         if: matrix.platform == 'macos'
         run: mv apps/desktop/release/latest-mac.yml apps/desktop/release/latest-mac-${{ matrix.arch }}.yml
 
+      - name: Verify OAuth Client ID in the macOS ZIP
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/desktop/package.json').version")"
+          zip="apps/desktop/release/PI-Desktop-$version-arm64-mac.zip"
+          archive="$RUNNER_TEMP/oauth-verification-app.asar"
+          unzip -p "$zip" 'PI-Desktop.app/Contents/Resources/app.asar' > "$archive"
+          node --input-type=commonjs - "$archive" <<'NODE'
+          const assert = require('node:assert/strict');
+          const { createRequire } = require('node:module');
+          const { resolve } = require('node:path');
+          const fromDesktop = createRequire(resolve('apps/desktop/package.json'));
+          const fromBuilder = createRequire(fromDesktop.resolve('electron-builder/package.json'));
+          const fromLib = createRequire(fromBuilder.resolve('app-builder-lib/package.json'));
+          const asar = fromLib('@electron/asar');
+          const archive = process.argv[2];
+          const id = process.env.PI_DESKTOP_GITHUB_OAUTH_CLIENT_ID.trim();
+          const files = asar.listPackage(archive);
+          const containsId = (prefix) => files
+            .filter((name) => name.startsWith(prefix) && name.endsWith('.js'))
+            .some((name) => asar.extractFile(archive, name.slice(1)).includes(id));
+          assert(containsId('/out/main/'), 'Client ID is absent from the packaged Electron main process');
+          assert(!containsId('/out/preload/') && !containsId('/out/renderer/'), 'Client ID escaped the main bundle');
+          console.log('The expected repository Client ID is present in the packaged Electron main process');
+          NODE
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -398,171 +372,3 @@ jobs:
             apps/desktop/release/*.asar
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
-
-  pi-host-bundle:
-    name: Bundle pi-host (Linux ${{ matrix.arch }})
-    needs: verify
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Every Linux platform a paired remote host can run. Keep this list
-          # in lockstep with PUBLISHED_TARGETS in
-          # apps/desktop/electron/main/remote/pi-host-release.ts: a bundle the
-          # desktop refuses to install is dead weight, and a target the desktop
-          # offers without a bundle fails mid-download. It no longer follows
-          # the desktop build matrix: the fork ships host bundles for
-          # platforms it ships no desktop for.
-          - arch: x64
-            os: ubuntu-22.04
-            runner_arch: x86_64
-          - arch: arm64
-            os: ubuntu-22.04-arm
-            runner_arch: aarch64
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Compare tag with apps/desktop/package.json
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          APP_VERSION="$(node -p "require('./apps/desktop/package.json').version")"
-          if [ "$TAG_VERSION" != "$APP_VERSION" ]; then
-            echo "::error::Tag v$TAG_VERSION does not match apps/desktop/package.json version $APP_VERSION."
-            exit 1
-          fi
-
-      - name: Verify native runner architecture
-        if: matrix.runner_arch
-        run: |
-          set -euo pipefail
-          actual_arch="$(uname -m)"
-          expected_arch="${{ matrix.runner_arch }}"
-          if [ "$actual_arch" != "$expected_arch" ]; then
-            echo "::error::Expected $expected_arch runner, got $actual_arch."
-            exit 1
-          fi
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build inputs (host-core, workspace, sidecar bundle)
-        run: |
-          set -euo pipefail
-          # Ubuntu 22.04 keeps the host-core glibc floor at 2.35, matching the
-          # desktop Linux build so the bundled binary loads on the same distros.
-          cargo build --release --locked -p host-core &
-          host_build_pid=$!
-          trap 'kill "$host_build_pid" 2>/dev/null || true' EXIT
-
-          pnpm install --frozen-lockfile
-          pnpm build:js
-          pnpm --filter @pi-desktop/agent-runtime bundle
-          pnpm --filter @pi-desktop/pi-host build
-
-          wait "$host_build_pid"
-          trap - EXIT
-
-      - name: Verify host-core glibc floor
-        run: node scripts/check-linux-host-glibc.mjs target/release/pi-desktop-host-core
-
-      - name: Assemble pi-host bundle
-        run: node apps/pi-host/scripts/bundle.mjs --platform linux --arch ${{ matrix.arch }}
-
-      - name: Archive bundle with checksum
-        run: |
-          set -euo pipefail
-          VERSION="$(node -p "require('./apps/pi-host/package.json').version")"
-          name="pi-host-${VERSION}-linux-${{ matrix.arch }}"
-          out="apps/pi-host/dist-bundle"
-          if [ ! -d "$out/$name" ]; then
-            echo "::error::expected bundle directory $out/$name"
-            ls -la "$out" || true
-            exit 1
-          fi
-          tar -czf "$out/${name}.tar.gz" -C "$out" "$name"
-          ( cd "$out" && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
-          cat "$out/${name}.tar.gz.sha256"
-
-      - name: Upload pi-host bundle
-        uses: actions/upload-artifact@v7
-        with:
-          name: pi-host-linux-${{ matrix.arch }}
-          if-no-files-found: error
-          compression-level: 0
-          path: |
-            apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz
-            apps/pi-host/dist-bundle/pi-host-*-linux-${{ matrix.arch }}.tar.gz.sha256
-
-  publish:
-    name: Publish GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, pi-host-bundle]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: List artifacts
-        run: ls -la dist/
-
-      - name: Merge macOS updater metadata
-        working-directory: dist
-        run: |
-          set -euo pipefail
-          ruby <<'RUBY'
-          require "yaml"
-
-          paths = Dir["latest-mac-*.yml"].sort
-          expected_paths = ["latest-mac-arm64.yml"]
-          abort "Expected the macOS arm64 updater feed" unless paths == expected_paths
-
-          feeds = paths.map do |path|
-            YAML.safe_load(File.read(path), permitted_classes: [], aliases: false)
-          end
-          versions = feeds.map { |feed| feed.fetch("version") }.uniq
-          abort "macOS updater feeds disagree on version" unless versions.length == 1
-
-          files = feeds.flat_map { |feed| feed.fetch("files") }
-            .uniq { |file| file.fetch("url") }
-          zip = files.find { |file| file.fetch("url").end_with?(".zip") }
-          abort "macOS updater feeds contain no ZIP" if zip.nil?
-
-          merged = feeds.first.merge(
-            "version" => versions.first,
-            "files" => files,
-            "path" => zip.fetch("url"),
-            "sha512" => zip.fetch("sha512"),
-          )
-          File.write("latest-mac.yml", merged.to_yaml)
-          RUBY
-          rm latest-mac-arm64.yml
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          # D686: the fork ships the unsigned macOS arm64 DMG and ZIP with
-          # their blockmaps, the latest-mac.yml feed that update checks read
-          # (delivery is manual for unsigned builds), and the two Linux
-          # pi-host bundles with their checksums.
-          files: dist/*
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
