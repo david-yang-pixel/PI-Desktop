@@ -535,6 +535,15 @@ export function createQueueSlice({
           runtime.submittedComposerDrafts.delete(startedIn);
           runtime.retractOptimisticUserMessage(startedIn, optimisticMessage);
           const messageError = messageErrorFromUnknown(error);
+          if (messageError.code === "REMOTE_WORKSPACE_NOT_READY" && workspace) {
+            set((state) => ({
+              isRunning: state.activeSessionId === startedIn ? false : state.isRunning,
+              runningSessions: { ...state.runningSessions, [startedIn]: false },
+            }));
+            const accepted = await get().enqueuePrompt(content, draft, startedIn);
+            if (accepted) onAccepted?.(startedIn);
+            return accepted;
+          }
           const errorRow = assistantErrorMessage(messageError);
           set((state) => {
             return {

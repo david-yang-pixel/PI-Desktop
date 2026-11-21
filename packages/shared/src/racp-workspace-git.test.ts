@@ -6,6 +6,7 @@ import {
   WorkspaceGitJobRefSchema,
   WorkspaceGitListSchema,
   WorkspaceGitPrepareSchema,
+  WorkspaceGitReclaimSchema,
   WorkspaceGitRemoveSchema,
   WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitSessionRefSchema,
@@ -13,6 +14,7 @@ import {
   isGitBranchName,
   isGitHubOwner,
   isGitHubRepositoryName,
+  isRegenerableDirPath,
 } from "./racp-workspace-git.js";
 
 const installationId = "00000000-0000-4000-8000-000000000000";
@@ -145,5 +147,21 @@ describe("workspaceGit request schemas", () => {
     expect(Value.Check(WorkspaceGitJobRefSchema, { jobId: "" })).toBe(false);
     expect(Value.Check(WorkspaceGitJobRefSchema, { jobId: "j".repeat(65) })).toBe(false);
     expect(Value.Check(WorkspaceGitJobRefSchema, { jobId: "job-1", sessionId: "s" })).toBe(false);
+  });
+
+  it("validates regenerable build directory paths and reclaim requests", () => {
+    for (const ok of ["dist", "target", ".next", "apps/desktop/out", "packages/a/build-dir"]) {
+      expect(isRegenerableDirPath(ok), ok).toBe(true);
+    }
+    for (const bad of ["", "/", "/dist", "dist/", "a//b", ".", "..", "a/../b", ".git", "a/.git/b", "a\\b", "dist/*", "dist?", "a:b", "a\nb"]) {
+      expect(isRegenerableDirPath(bad), bad).toBe(false);
+    }
+    expect(Value.Check(WorkspaceGitPrepareSchema, { ...good, restoreOnly: true, rerunSetup: true, requireSetupSuccess: true })).toBe(true);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s" })).toBe(true);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s", regenerableDirs: ["dist", "apps/desktop/out"] })).toBe(true);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s", regenerableDirs: ["../escape"] })).toBe(false);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s", regenerableDirs: [".git"] })).toBe(false);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s", regenerableDirs: Array.from({ length: 65 }, (_, i) => `d${i}`) })).toBe(false);
+    expect(Value.Check(WorkspaceGitReclaimSchema, { installationId, sessionId: "s", force: true })).toBe(false);
   });
 });

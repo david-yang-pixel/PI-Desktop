@@ -145,6 +145,23 @@ impl GitRunner {
             .await
     }
 
+    /// Run a local inspection without network access or lossy path decoding.
+    pub async fn local_inspection(&self, dir: &Path, args: &[&str]) -> Result<GitOutput, GitError> {
+        let mut command = self.command(Location::WorkTree(dir), args);
+        command
+            .env("GIT_ALLOW_PROTOCOL", "")
+            .env("GIT_NO_LAZY_FETCH", "1");
+        let output = self.spawn_raw(command, args, None).await?;
+        let stdout = String::from_utf8(output.stdout).map_err(|error| {
+            GitError::Spawn(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+        })?;
+        Ok(GitOutput {
+            status: output.status.code().unwrap_or(-1),
+            stdout,
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
+    }
+
     /// Like `output`, with `input` written to git's stdin (for `--stdin`).
     pub async fn output_with_input(
         &self,
@@ -299,16 +316,21 @@ impl GitRunner {
         args: &[&str],
         input: Option<Vec<u8>>,
     ) -> Result<GitOutput, GitError> {
-        self.spawn_within(command, args, input, self.timeout).await
+        let output = self.spawn_raw(command, args, input).await?;
+        Ok(GitOutput {
+            // A signal-terminated git has no code; report it as a failure.
+            status: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
     }
 
-    async fn spawn_within(
+    async fn spawn_raw(
         &self,
         mut command: Command,
         args: &[&str],
         input: Option<Vec<u8>>,
-        timeout: Duration,
-    ) -> Result<GitOutput, GitError> {
+    ) -> Result<std::process::Output, GitError> {
         let mut child = command.spawn().map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 GitError::Missing
@@ -324,19 +346,13 @@ impl GitRunner {
                 let _ = stdin.write_all(&input).await;
             });
         }
-        let output = tokio::time::timeout(timeout, child.wait_with_output())
+        tokio::time::timeout(self.timeout, child.wait_with_output())
             .await
             .map_err(|_| GitError::Timeout {
                 args: args.join(" "),
-                secs: timeout.as_secs(),
+                secs: self.timeout.as_secs(),
             })?
-            .map_err(GitError::Spawn)?;
-        Ok(GitOutput {
-            // A signal-terminated git has no code; report it as a failure.
-            status: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        })
+            .map_err(GitError::Spawn)
     }
 
     fn command(&self, location: Location<'_>, args: &[&str]) -> Command {

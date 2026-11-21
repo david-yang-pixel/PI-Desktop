@@ -6,9 +6,16 @@ use serde_json::json;
 
 use crate::db::{ms_to_ts, now_ms, Database, RemoteWorkspace};
 use crate::workspace_git::layout::validate_variable_name;
+use crate::workspace_git::reclaim::validate_regenerable_dirs;
 use crate::workspace_git::registry::Variable;
 
 const NS: &str = "remoteEnvironments";
+pub const DEFAULT_IDLE_RECLAIM_HOURS: u32 = 72;
+pub const MAX_IDLE_RECLAIM_HOURS: u32 = 8760;
+
+fn default_idle_reclaim_hours() -> u32 {
+    DEFAULT_IDLE_RECLAIM_HOURS
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +27,10 @@ pub struct Input {
     setup_script: String,
     #[serde(default)]
     variables: Vec<Variable>,
+    #[serde(default)]
+    idle_reclaim_hours: Option<u32>,
+    #[serde(default)]
+    regenerable_dirs: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -30,10 +41,13 @@ pub struct Environment {
     host_key: String,
     setup_script: String,
     variables: Vec<Variable>,
+    #[serde(default = "default_idle_reclaim_hours")]
+    idle_reclaim_hours: u32,
+    #[serde(default)]
+    regenerable_dirs: Vec<String>,
     created_at: String,
     updated_at: String,
 }
-
 pub fn list(db: &Database) -> Result<Vec<Environment>> {
     db.kv_entries(NS)?
         .into_iter()
@@ -88,6 +102,26 @@ pub fn upsert(db: &Database, input: Input) -> Result<Environment> {
             .is_none_or(|previous| previous.host_key == input.host_key),
         "an existing environment cannot change hosts"
     );
+    let idle_reclaim_hours = match input.idle_reclaim_hours {
+        Some(hours) => {
+            ensure!(
+                hours <= MAX_IDLE_RECLAIM_HOURS,
+                "invalid idle reclaim hours"
+            );
+            hours
+        }
+        None => previous
+            .as_ref()
+            .map_or(DEFAULT_IDLE_RECLAIM_HOURS, |entry| entry.idle_reclaim_hours),
+    };
+    let regenerable_dirs = match input.regenerable_dirs {
+        Some(dirs) => {
+            validate_regenerable_dirs(&dirs).map_err(|error| anyhow::anyhow!(error.message))?
+        }
+        None => previous
+            .as_ref()
+            .map_or_else(Vec::new, |entry| entry.regenerable_dirs.clone()),
+    };
     let now = ms_to_ts(now_ms());
     let environment = Environment {
         id,
@@ -95,6 +129,8 @@ pub fn upsert(db: &Database, input: Input) -> Result<Environment> {
         host_key: input.host_key,
         setup_script: input.setup_script,
         variables: input.variables,
+        idle_reclaim_hours,
+        regenerable_dirs,
         created_at: previous.map_or_else(|| now.clone(), |e| e.created_at),
         updated_at: now,
     };

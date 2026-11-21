@@ -10,18 +10,22 @@ use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<AsyncMutex<()>>>>> = OnceLock::new();
 
+fn for_repository(common_dir: &Path) -> Arc<AsyncMutex<()>> {
+    LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(common_dir.to_path_buf())
+        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
 pub async fn lock(common_dir: &Path) -> OwnedMutexGuard<()> {
-    let entry = {
-        let mut locks = LOCKS
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        locks
-            .entry(common_dir.to_path_buf())
-            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-            .clone()
-    };
-    entry.lock_owned().await
+    for_repository(common_dir).lock_owned().await
+}
+
+pub fn try_lock(common_dir: &Path) -> Option<OwnedMutexGuard<()>> {
+    for_repository(common_dir).try_lock_owned().ok()
 }
 
 #[cfg(test)]

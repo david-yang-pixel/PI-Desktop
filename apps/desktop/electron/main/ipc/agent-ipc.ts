@@ -17,6 +17,7 @@ import type { Logger } from "../logger";
 import type { PersistenceOutbox } from "../persistence-outbox";
 import type { ComposerCommandService } from "./composer-ipc";
 import type { IpcRegistrar } from "./types";
+import { getRemoteRepositorySessions } from "./repository-session-ipc";
 
 export type AgentIpcDependencies = {
   registrar: IpcRegistrar;
@@ -880,7 +881,13 @@ export function registerAgentIpc({
   handle(IPC.invoke.agentQueuePush, async (req: AgentQueuePushRequest) => {
     rejectNativeAgentOperation(req.sessionId);
     if (!agentHostBridge) throw new Error("agent host unavailable");
-    return goalStartRequested(req) ? queueGoal(req) : agentHostBridge.queue.push(req);
+    const accepted = await (goalStartRequested(req) ? queueGoal(req) : agentHostBridge.queue.push(req));
+    // Queue admission is already durable. A failed wake must never reject or
+    // discard the accepted prompt.
+    void getRemoteRepositorySessions()?.workspaces.wake(req.sessionId).catch((error: unknown) => {
+      logger.app("runtime", "warn", "Could not wake repository workspace after queue admission", { sessionId: req.sessionId, data: String(error) });
+    });
+    return accepted;
   });
   handle(IPC.invoke.agentQueueList, async (req: { sessionId: string }) => {
     rejectNativeAgentOperation(req.sessionId);

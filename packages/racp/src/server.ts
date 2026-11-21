@@ -155,7 +155,7 @@ export class RacpConnection {
 export class RacpServer {
   readonly limits: RacpLimits;
   readonly policy: RacpPolicy;
-  readonly capabilities: RacpServerCapabilities;
+  private readonly baseCapabilities: RacpServerCapabilities;
   private readonly connections = new Map<string, RacpConnection>();
   private readonly handlers: Map<RacpOperation, OperationHandler>;
   private readonly now: () => number;
@@ -165,7 +165,7 @@ export class RacpServer {
     this.limits = { ...RACP_DEFAULT_LIMITS, ...options.limits };
     this.policy = { ...RACP_DEFAULT_POLICY, ...options.policy };
     this.now = options.now ?? (() => Date.now());
-    this.capabilities = {
+    this.baseCapabilities = {
       eventReplay: true,
       snapshot: true,
       approvals: true,
@@ -187,6 +187,12 @@ export class RacpServer {
       bindings: ["RACP-WS"],
     };
     this.handlers = createOperations();
+  }
+
+  get capabilities(): RacpServerCapabilities {
+    return this.options.operations.workspaceGit?.reclaim
+      ? { ...this.baseCapabilities, workspaceGitReclaim: true }
+      : this.baseCapabilities;
   }
 
   get log(): RacpServerOptions["log"] {

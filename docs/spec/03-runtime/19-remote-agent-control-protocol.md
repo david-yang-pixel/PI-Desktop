@@ -695,12 +695,13 @@ A missing `checkoutPresent` field leaves the checkout state unknown.
 | `workspace/gitCredentialSet` | `{ installationId, token }` | `{ ok: true }` | yes |
 | `workspace/gitCredentialClear` | `{}` | `{ ok: true }` | yes |
 | `workspace/gitRepository` | `{ repository }` | `{ path, cloned }` | no |
-| `workspace/gitPrepare` | `{ installationId, sessionId, repository, baseBranch, fromSessionId?, restoreOnly?, environment? }` | `{ jobId }` | yes |
+| `workspace/gitPrepare` | `{ installationId, sessionId, repository, baseBranch, fromSessionId?, restoreOnly?, rerunSetup?, requireSetupSuccess?, environment? }` | `{ jobId }` | yes |
 | `workspace/gitPush` | `{ installationId, sessionId }` | `{ jobId }` | yes |
 | `workspace/gitJob` | `{ jobId }` | `WorkspaceGitJob` | no |
 | `workspace/gitJobCancel` | `{ jobId }` | `{ ok: true }` | yes |
 | `workspace/gitStatus` | `{ installationId, sessionId }` | `WorkspaceGitStatus` | no |
 | `workspace/gitRemove` | `{ installationId, sessionId, force }` | `WorkspaceGitRemoveResult` | yes |
+| `workspace/gitReclaim` | `{ installationId, sessionId, regenerableDirs? }` | `WorkspaceGitReclaimResult` | yes |
 | `workspace/gitList` | `{ installationId }` | `{ worktrees: WorkspaceGitWorktree[] }` | no |
 
 Request schemas are closed objects in
@@ -792,6 +793,21 @@ type WorkspaceGitJob = {
 branch. Without `force`, uncommitted files or unpushed commits make it answer
 `{ removed: false, uncommittedFiles, unpushedCommits }` and change nothing.
 The remote branch is never deleted.
+
+**Idle reclamation.** A Host with `workspaceGitReclaim` supports the owner-only
+`workspace/gitReclaim` operation. Allowed responses report a pinned commit and
+reclaim time. Refusals report a reason and counts without including filenames or
+file contents. The Host rejects active or uncertain checkouts and protects
+uncommitted, untracked, unpublished, and ignored work. Only ignored content under
+`node_modules` or an explicitly declared build directory is eligible for removal.
+The shared repository, session branch and registration remain on the Host.
+
+An intentionally reclaimed worktree carries `reclaimedAt` and `reclaimedCommit`.
+To restore it, use `workspace/gitPrepare` with `restoreOnly`, `rerunSetup`, and
+`requireSetupSuccess`. This uses the saved commit and the latest supplied
+environment, with the saved environment as a fallback. `WORKSPACE_GIT_SETUP_FAILED`
+leaves the checkout available for setup retry and returns the setup result on the
+job. Successful restoration clears the Host's reclaim metadata.
 
 **Credential.** `workspace/gitCredentialSet` hands the Host the GitHub token
 for the calling connection. The Host keeps it in `pi-host` memory only and

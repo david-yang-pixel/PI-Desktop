@@ -1,6 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { RemoteEnvironment, RemoteHostSummary } from "@pi-desktop/shared";
+import {
+  DEFAULT_IDLE_RECLAIM_HOURS,
+  MAX_IDLE_RECLAIM_HOURS,
+  WORKSPACE_GIT_MAX_REGENERABLE_DIR_LENGTH,
+  WORKSPACE_GIT_MAX_REGENERABLE_DIRS,
+  isRegenerableDirPath,
+  type RemoteEnvironment,
+  type RemoteHostSummary,
+} from "@pi-desktop/shared";
 import { Button, Field, Input, Select, Textarea } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { WorktreeDialogFrame } from "../../worktree/WorktreeDialogFrame";
@@ -15,18 +23,36 @@ export function EnvironmentEditor({ hosts, environment, onSaved, onClose }: {
   const [name, setName] = useState(environment?.name ?? "");
   const [hostKey, setHostKey] = useState(environment?.hostKey ?? hosts[0]?.hostKey ?? "");
   const [script, setScript] = useState(environment?.setupScript ?? "");
+  const [reclaimHours, setReclaimHours] = useState(String(environment?.idleReclaimHours ?? DEFAULT_IDLE_RECLAIM_HOURS));
+  const [regenerableDirLines, setRegenerableDirLines] = useState((environment?.regenerableDirs ?? []).join("\n"));
   const [variables, setVariables] = useState(() => (environment?.variables ?? []).map((row) => ({ ...row, id: crypto.randomUUID() })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const close = useCallback(() => onClose(), [onClose]);
+  const hoursHintId = useId();
+  const directoriesHintId = useId();
+  const directoriesErrorId = useId();
+  const idleReclaimHours = Number(reclaimHours);
+  const validHours = reclaimHours !== "" && Number.isInteger(idleReclaimHours)
+    && idleReclaimHours >= 0 && idleReclaimHours <= MAX_IDLE_RECLAIM_HOURS;
+  const regenerableDirs = regenerableDirLines.split("\n").map((path) => path.trim()).filter(Boolean);
+  let directoriesError: string | undefined;
+  if (regenerableDirs.length > WORKSPACE_GIT_MAX_REGENERABLE_DIRS) {
+    directoriesError = t("sessionTarget.regenerableDirsLimit", { count: WORKSPACE_GIT_MAX_REGENERABLE_DIRS });
+  } else if (regenerableDirs.some((path) => !isRegenerableDirPath(path))) {
+    directoriesError = t("sessionTarget.regenerableDirsInvalid", { maxLength: WORKSPACE_GIT_MAX_REGENERABLE_DIR_LENGTH });
+  }
+  const canSave = !busy && Boolean(name.trim()) && Boolean(hostKey) && validHours && !directoriesError;
 
   async function save() {
+    if (!canSave) return;
     setBusy(true);
     setError(undefined);
     try {
       const result = await api.upsertEnvironment({
         id: environment?.id, name: name.trim(), hostKey, setupScript: script,
         variables: variables.map(({ name, value }) => ({ name: name.trim(), value })),
+        idleReclaimHours, regenerableDirs,
       });
       onSaved(result.environment);
     } catch (cause) {
@@ -39,7 +65,7 @@ export function EnvironmentEditor({ hosts, environment, onSaved, onClose }: {
     setVariables((rows) => rows.map((item) => item.id === id ? { ...item, [key]: value } : item));
   }
   return <WorktreeDialogFrame id="remote-environment" title={t(environment ? "sessionTarget.editEnvironment" : "sessionTarget.newEnvironment")} busy={busy} onClose={close}
-    actions={<Button disabled={busy || !name.trim() || !hostKey} onClick={() => void save()}>{t("sessionTarget.save")}</Button>}>
+    actions={<Button disabled={!canSave} onClick={() => void save()}>{t("sessionTarget.save")}</Button>}>
     <Field label={t("sessionTarget.environmentName")}><Input value={name} maxLength={80} onChange={(event) => setName(event.target.value)} /></Field>
     <Field label={t("sessionTarget.environmentHost")}><Select disabled={Boolean(environment)} value={hostKey} onChange={(event) => setHostKey(event.target.value)}>
       {hosts.map((host) => <option key={host.hostKey} value={host.hostKey}>{host.label}</option>)}
@@ -47,6 +73,25 @@ export function EnvironmentEditor({ hosts, environment, onSaved, onClose }: {
     <Field label={t("sessionTarget.setupScript")} hint={t("sessionTarget.setupScriptHint")}>
       <Textarea value={script} maxLength={65_536} rows={5} onChange={(event) => setScript(event.target.value)} />
     </Field>
+    <div>
+      <Field label={t("sessionTarget.idleReclaimHours")}>
+        <Input type="number" min={0} max={MAX_IDLE_RECLAIM_HOURS} step={1} value={reclaimHours}
+          aria-describedby={hoursHintId} aria-invalid={!validHours || undefined}
+          onChange={(event) => setReclaimHours(event.target.value)} />
+      </Field>
+      <p id={hoursHintId} className="session-target-note" role={validHours ? undefined : "alert"}>
+        {t("sessionTarget.idleReclaimHoursHint", { maxHours: MAX_IDLE_RECLAIM_HOURS })}
+      </p>
+    </div>
+    <div>
+      <Field label={t("sessionTarget.regenerableDirs")}>
+        <Textarea rows={3} value={regenerableDirLines} aria-invalid={Boolean(directoriesError) || undefined}
+          aria-describedby={directoriesError ? `${directoriesHintId} ${directoriesErrorId}` : directoriesHintId}
+          onChange={(event) => setRegenerableDirLines(event.target.value)} />
+      </Field>
+      <p id={directoriesHintId} className="session-target-note">{t("sessionTarget.regenerableDirsHint")}</p>
+      {directoriesError && <p id={directoriesErrorId} role="alert">{directoriesError}</p>}
+    </div>
     <Field label={t("sessionTarget.variables")}>
       <div className="session-target-fields">
         {variables.map((variable) => <div className="session-target-row" key={variable.id}>

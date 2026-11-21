@@ -31,6 +31,7 @@ use crate::workspace_git::layout::{
     short_id, validate_branch, validate_installation_id, validate_session_id,
     validate_variable_name, work_branch, Layout, Repository,
 };
+use crate::workspace_git::reclaim::{self, Refusal, RegisteredPaths};
 use crate::workspace_git::registry::{self, SetupStatus, Variable, WorktreeRecord};
 use crate::workspace_git::repository::{self, NetworkContext, Phase};
 use crate::workspace_git::setup::{self, SetupRun};
@@ -166,6 +167,8 @@ struct PrepareParams {
     #[serde(default)]
     rerun_setup: bool,
     #[serde(default)]
+    require_setup_success: bool,
+    #[serde(default)]
     environment: Option<EnvironmentInput>,
 }
 
@@ -184,6 +187,16 @@ struct PushParams {
 struct SessionParams {
     installation_id: String,
     session_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReclaimParams {
+    workspaces_root: String,
+    installation_id: String,
+    session_id: String,
+    #[serde(default)]
+    regenerable_dirs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -240,7 +253,8 @@ struct PrepareRequest {
     from_session_id: Option<String>,
     restore_only: bool,
     rerun_setup: bool,
-    environment_provided: bool,
+    require_setup_success: bool,
+    has_environment: bool,
     variables: Vec<Variable>,
     setup_script: Option<String>,
 }
@@ -255,7 +269,7 @@ impl PrepareRequest {
         if let Some(from) = &params.from_session_id {
             validate_session_id(from)?;
         }
-        let environment_provided = params.environment.is_some();
+        let has_environment = params.environment.is_some();
         let environment = params.environment.unwrap_or(EnvironmentInput {
             variables: Vec::new(),
             setup_script: None,
@@ -297,13 +311,18 @@ impl PrepareRequest {
             from_session_id: params.from_session_id,
             restore_only: params.restore_only,
             rerun_setup: params.rerun_setup,
-            environment_provided,
+            require_setup_success: params.require_setup_success,
+            has_environment,
             variables,
             // A blank script is no script.
             setup_script: environment
                 .setup_script
                 .filter(|script| !script.trim().is_empty()),
         })
+    }
+
+    fn strict_restore(&self) -> bool {
+        self.restore_only && self.rerun_setup && self.require_setup_success
     }
 
     fn work_branch(&self) -> String {
@@ -394,6 +413,10 @@ pub(super) async fn handle_with(
             let p: SessionParams = parse(params)?;
             status(state, context, &p).await.map_err(to_rpc)
         }
+        "workspaceGit.reclaim" => {
+            let p: ReclaimParams = parse(params)?;
+            start_reclaim(state, context, p).await.map_err(to_rpc)
+        }
         "workspaceGit.removeSafely" => {
             let p: SessionParams = parse(params)?;
             remove(
@@ -450,13 +473,18 @@ fn lock(jobs: &SharedJobs) -> std::sync::MutexGuard<'_, jobs::JobTable> {
     jobs.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The session's record, read from the registry. Paths always come from here.
-async fn mutation_lock(
-    installation_id: &str,
-    session_id: &str,
-) -> tokio::sync::OwnedMutexGuard<()> {
-    let lock_path = PathBuf::from(format!("workspace-git:{installation_id}:{session_id}"));
-    crate::session_worktrees::repo_lock::lock(&lock_path).await
+fn exclusive_access(
+    state: &AppState,
+    installation: &str,
+    session: &str,
+) -> Result<tokio::sync::OwnedRwLockWriteGuard<()>, WorkspaceGitError> {
+    if let Some(job_id) = lock(&state.workspace_git_jobs).running_job(installation, session) {
+        return Err(WorkspaceGitError::busy(job_id));
+    }
+    state
+        .workspace_git_locks
+        .try_write(installation, session)
+        .ok_or_else(|| WorkspaceGitError::new("WORKSPACE_GIT_BUSY", "the worktree is in use"))
 }
 
 async fn record_of(
@@ -475,55 +503,53 @@ async fn start_prepare(
     context: &Arc<WorkspaceGitContext>,
     request: PrepareRequest,
 ) -> Result<Value, WorkspaceGitError> {
-    let _mutation = mutation_lock(&request.installation_id, &request.session_id).await;
-    let (jobs, job_id, cancel) = {
+    let (jobs, job_id, cancel, access) = {
         let st = state.lock().await;
+        let access = exclusive_access(&st, &request.installation_id, &request.session_id)?;
         let jobs = st.workspace_git_jobs.clone();
         let mut table = lock(&jobs);
-        // A running job wins over an existing record: during the setup script
-        // the record already exists, and the session is still busy.
-        if let Some(job_id) = table.running_job(&request.installation_id, &request.session_id) {
-            return Err(WorkspaceGitError::busy(job_id));
-        }
-        // A retry after a lost reply, or a double click: the worktree exists,
-        // so the answer is that worktree, not a second one.
-        if let Some(mut record) =
-            registry::get(&st.db, &request.installation_id, &request.session_id)?
+        if let Some(record) = registry::get(&st.db, &request.installation_id, &request.session_id)?
         {
             if record.repository != request.repository {
                 return Err(WorkspaceGitError::invalid(
                     "this session is already bound to another repository",
                 ));
             }
-            if is_real_dir(Path::new(&record.path)) {
-                if !request.rerun_setup {
-                    let job_id = table.completed(
-                        JobKind::Prepare,
-                        &request.installation_id,
-                        &request.session_id,
-                        Outcome::Prepared(record.wire()),
-                    );
-                    return Ok(json!({ "jobId": job_id }));
-                }
-                if request.environment_provided {
-                    record.variables = request.variables.clone();
-                    record.setup_script = request.setup_script.clone();
-                }
-                if record.setup_script.is_none() {
-                    record.setup_status = SetupStatus::None;
-                    record.setup_log_tail = None;
-                    registry::insert(&st.db, &record)?;
-                    let job_id = table.completed(
-                        JobKind::Prepare,
-                        &request.installation_id,
-                        &request.session_id,
-                        Outcome::Prepared(record.wire()),
-                    );
-                    return Ok(json!({ "jobId": job_id }));
-                }
-                record.setup_status = SetupStatus::Running;
-                record.setup_log_tail = None;
-                registry::insert(&st.db, &record)?;
+            if record
+                .recovery
+                .reclaim_intent
+                .as_ref()
+                .is_some_and(|intent| !intent.quarantined)
+            {
+                return Err(reclaim::interrupted());
+            }
+            let retry_setup = record.recovery.reclaimed_at.is_none()
+                && record.recovery.reclaimed_commit.is_none()
+                && request.rerun_setup
+                && request.require_setup_success;
+            if record.recovery.blocks_access() && !request.strict_restore() && !retry_setup {
+                return Err(WorkspaceGitError::failed(
+                    "the workspace requires strict setup before it can be used",
+                ));
+            }
+            if !request.rerun_setup && is_real_dir(Path::new(&record.path)) {
+                let outcome = if request.require_setup_success
+                    && record.setup_status == SetupStatus::Failed
+                {
+                    Outcome::SetupFailed {
+                        worktree: record.wire(),
+                        error: setup_failed(),
+                    }
+                } else {
+                    Outcome::Prepared(record.wire())
+                };
+                let job_id = table.completed(
+                    JobKind::Prepare,
+                    &request.installation_id,
+                    &request.session_id,
+                    outcome,
+                );
+                return Ok(json!({ "jobId": job_id }));
             }
         } else if request.restore_only {
             return Err(not_found());
@@ -534,7 +560,7 @@ async fn start_prepare(
             &request.session_id,
         )?;
         drop(table);
-        (jobs, job_id, cancel)
+        (jobs, job_id, cancel, access)
     };
     tokio::spawn(run_prepare(
         state.clone(),
@@ -543,6 +569,7 @@ async fn start_prepare(
         job_id.clone(),
         request,
         cancel,
+        access,
     ));
     Ok(json!({ "jobId": job_id }))
 }
@@ -554,6 +581,7 @@ async fn run_prepare(
     job_id: String,
     request: PrepareRequest,
     mut cancel: watch::Receiver<bool>,
+    access: tokio::sync::OwnedRwLockWriteGuard<()>,
 ) {
     // Dropping the git future kills its process (`kill_on_drop`) and removes
     // a half-written clone directory.
@@ -573,16 +601,7 @@ async fn run_prepare(
         None => Outcome::Cancelled,
         Some(Err(error)) => Outcome::Failed(error),
         Some(Ok(record)) => {
-            run_setup(
-                &state,
-                &jobs,
-                &job_id,
-                &request,
-                record,
-                may_discard,
-                cancel,
-            )
-            .await
+            run_setup(&state, &context, &jobs, &job_id, &request, record, cancel).await
         }
     };
     if outcome == Outcome::Cancelled
@@ -599,7 +618,7 @@ async fn run_prepare(
         && (outcome == Outcome::Cancelled || matches!(outcome, Outcome::Failed(_)))
     {
         // Never leave an existing worktree stuck in `setup_status = Running`.
-        if let Ok(Some(record)) =
+        if let Ok(Some(mut record)) =
             record_of(&state, &request.installation_id, &request.session_id).await
         {
             if record.setup_status == SetupStatus::Running {
@@ -608,20 +627,22 @@ async fn run_prepare(
                     Outcome::Failed(error) => error.message.clone(),
                     _ => "Setup did not complete.".to_string(),
                 };
-                let st = state.lock().await;
-                if let Err(error) = registry::set_setup(
-                    &st.db,
-                    &request.installation_id,
-                    &request.session_id,
-                    SetupStatus::Failed,
-                    Some(note),
-                ) {
+                record.setup_status = SetupStatus::Failed;
+                record.setup_log_tail = Some(note);
+                let save = if record.recovery.blocks_access() {
+                    registry::persist_recovery
+                } else {
+                    registry::insert
+                };
+                if let Err(error) = save(&state.lock().await.db, &record) {
                     tracing::warn!(%error, "could not recover setup status after failed rerun");
                 }
             }
         }
     }
-    lock(&jobs).finish(&job_id, outcome);
+    let mut table = lock(&jobs);
+    drop(access);
+    table.finish(&job_id, outcome);
 }
 
 /// Ensure the main checkout, create the worktree, and register it.
@@ -636,13 +657,11 @@ async fn create_worktree(
     let worktree_path = request.worktree_path();
     let work_branch = request.work_branch();
     request.layout.ensure_private_directories()?;
-    if let Some(mut record) =
-        record_of(state, &request.installation_id, &request.session_id).await?
-    {
-        if request.rerun_setup && is_real_dir(Path::new(&record.path)) {
-            return Ok(record);
-        }
+    if let Some(record) = record_of(state, &request.installation_id, &request.session_id).await? {
         lock(jobs).set_phase(job_id, JobPhase::CreatingWorktree);
+        if request.rerun_setup {
+            return restore_for_setup(state, context, request, record).await;
+        }
         worktree::restore(
             &context.git,
             Path::new(&record.main_path),
@@ -650,20 +669,6 @@ async fn create_worktree(
             &record.work_branch,
         )
         .await?;
-        if request.rerun_setup {
-            if request.environment_provided {
-                record.variables = request.variables.clone();
-                record.setup_script = request.setup_script.clone();
-            }
-            record.setup_status = if record.setup_script.is_some() {
-                SetupStatus::Running
-            } else {
-                SetupStatus::None
-            };
-            record.setup_log_tail = None;
-            let st = state.lock().await;
-            registry::insert(&st.db, &record)?;
-        }
         return Ok(record);
     }
     if request.restore_only {
@@ -757,98 +762,174 @@ async fn register(
             SetupStatus::None
         },
         setup_log_tail: None,
+        recovery: registry::Recovery {
+            strict_setup_pending: request.require_setup_success && request.setup_script.is_some(),
+            ..Default::default()
+        },
     };
     let st = state.lock().await;
     registry::insert(&st.db, &record)?;
     Ok(record)
 }
 
-/// Run the environment's setup script, when there is one. A failing script
-/// does not fail the job: the worktree is ready, and its setup status says so.
+async fn restore_for_setup(
+    state: &SharedState,
+    context: &WorkspaceGitContext,
+    request: &PrepareRequest,
+    mut record: WorktreeRecord,
+) -> Result<WorktreeRecord, WorkspaceGitError> {
+    let paths = RegisteredPaths::verify(&request.layout, &record)?;
+    let _repository = crate::session_worktrees::repo_lock::lock(&paths.common).await;
+    let present = match std::fs::symlink_metadata(&paths.checkout) {
+        Ok(metadata) if metadata.is_dir() && !record.recovery.checkout_creation_pending => true,
+        Ok(_) => return Err(reclaim::interrupted()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
+    reclaim::verify_retained_branch(&context.git, &paths, &record).await?;
+    if let Some(intent) = &record.recovery.reclaim_intent {
+        reclaim::verify_completed_intent(&paths, intent)?;
+        record.recovery.reclaim_intent = None;
+    }
+    if present {
+        reclaim::checkout_admin(&context.git, &paths, &record.work_branch).await?;
+    }
+    if request.has_environment {
+        record.variables.clone_from(&request.variables);
+        record.setup_script.clone_from(&request.setup_script);
+    }
+    record.setup_status = if record.setup_script.is_some() {
+        SetupStatus::Running
+    } else {
+        SetupStatus::None
+    };
+    record.setup_log_tail = None;
+    record.recovery.strict_setup_pending = request.require_setup_success;
+    record.recovery.checkout_creation_pending = !present;
+    registry::persist_recovery(&state.lock().await.db, &record)?;
+    if !present {
+        // The branch already exists. Git refuses any competing checkout or
+        // stale admin entry. Changing the ref or cleaning old files is unsafe.
+        reclaim::restore_checkout(&context.git, &paths, &record).await?;
+        record.recovery.checkout_creation_pending = false;
+        registry::persist_recovery(&state.lock().await.db, &record)?;
+    }
+    Ok(record)
+}
+
+fn setup_failed() -> WorkspaceGitError {
+    WorkspaceGitError::new(
+        "WORKSPACE_GIT_SETUP_FAILED",
+        "workspace setup must succeed before the checkout is ready",
+    )
+}
+
 async fn run_setup(
     state: &SharedState,
+    context: &WorkspaceGitContext,
     jobs: &SharedJobs,
     job_id: &str,
     request: &PrepareRequest,
-    record: WorktreeRecord,
-    may_discard: bool,
+    mut record: WorktreeRecord,
     cancel: watch::Receiver<bool>,
 ) -> Outcome {
-    let Some(script) = record
-        .setup_script
-        .as_deref()
-        .filter(|_| record.setup_status == SetupStatus::Running)
-    else {
+    let strict = record.recovery.strict_setup_pending;
+    if record.setup_status != SetupStatus::Running && !strict {
         return Outcome::Prepared(record.wire());
-    };
-    lock(jobs).set_phase(job_id, JobPhase::RunningSetup);
-    let root = PathBuf::from(&record.path);
-    let (shell_id, env) = {
-        let st = state.lock().await;
-        let shell_id = command_shell_catalog(&st)
-            .ok()
-            .and_then(|catalog| catalog.effective)
-            .map(|shell| shell.id);
-        let env = environment::for_tool(&st.db, &root, Some(&request.proxy_url));
-        (shell_id, env)
-    };
-    let jobs_for_output = jobs.clone();
-    let job_id_for_output = job_id.to_string();
-    let on_output: Arc<dyn Fn(String) + Send + Sync> = Arc::new(move |tail: String| {
-        lock(&jobs_for_output).set_setup_log_tail(&job_id_for_output, Some(tail));
-    });
-    let (status, log) = match shell_id {
-        Some(shell_id) => {
-            setup::run(SetupRun {
-                root: &root,
-                script,
-                shell_id,
-                env,
-                session_id: &request.session_id,
-                short_id: &short_id(&request.installation_id, &request.session_id),
-                cancellation: cancel.clone(),
-                on_output: Some(on_output),
-            })
-            .await
-        }
-        None => (
-            SetupStatus::Failed,
-            "no command shell is available on this host".to_string(),
-        ),
-    };
-    if *cancel.borrow() {
-        if !may_discard {
-            let cancel_log = if log.trim().is_empty() {
-                "Setup was cancelled.".to_string()
-            } else {
-                format!("{log}\n[setup cancelled]")
-            };
+    }
+    if let Some(script) = record.setup_script.as_deref() {
+        lock(jobs).set_phase(job_id, JobPhase::RunningSetup);
+        let root = Path::new(&record.path);
+        let (shell_id, env) = {
             let st = state.lock().await;
-            if let Err(error) = registry::set_setup(
-                &st.db,
-                &request.installation_id,
-                &request.session_id,
+            let shell_id = command_shell_catalog(&st)
+                .ok()
+                .and_then(|catalog| catalog.effective)
+                .map(|shell| shell.id);
+            let env = environment::for_tool(&st.db, root, Some(&request.proxy_url));
+            (shell_id, env)
+        };
+        let jobs_for_output = jobs.clone();
+        let job_id_for_output = job_id.to_owned();
+        let on_output = Arc::new(move |tail| {
+            lock(&jobs_for_output).set_setup_log_tail(&job_id_for_output, Some(tail));
+        });
+        let (status, log) = match shell_id {
+            Some(shell_id) => {
+                setup::run(SetupRun {
+                    root,
+                    script,
+                    shell_id,
+                    env,
+                    session_id: &request.session_id,
+                    short_id: &short_id(&request.installation_id, &request.session_id),
+                    cancellation: cancel.clone(),
+                    on_output: Some(on_output),
+                })
+                .await
+            }
+            None => (
                 SetupStatus::Failed,
-                Some(cancel_log),
-            ) {
-                tracing::warn!(%error, "could not record cancelled setup status");
+                "no command shell is available on this host".to_string(),
+            ),
+        };
+        record.setup_status = status;
+        record.setup_log_tail = Some(log);
+    }
+    if strict && record.setup_status != SetupStatus::Failed {
+        let verified = async {
+            let paths = RegisteredPaths::verify(&request.layout, &record)?;
+            let _repository = crate::session_worktrees::repo_lock::lock(&paths.common).await;
+            reclaim::verify_retained_branch(&context.git, &paths, &record).await?;
+            reclaim::checkout_admin(&context.git, &paths, &record.work_branch).await?;
+            Ok::<_, WorkspaceGitError>(())
+        }
+        .await;
+        if let Err(error) = verified {
+            record.setup_status = SetupStatus::Failed;
+            record.setup_log_tail = Some(error.message);
+        }
+    }
+    if *cancel.borrow() {
+        if strict || request.rerun_setup {
+            record.setup_status = SetupStatus::Failed;
+            if record
+                .setup_log_tail
+                .as_ref()
+                .is_none_or(|log| log.trim().is_empty())
+            {
+                record.setup_log_tail = Some("Setup was cancelled.".into());
+            }
+            let save = if strict {
+                registry::persist_recovery
+            } else {
+                registry::insert
+            };
+            if let Err(error) = save(&state.lock().await.db, &record) {
+                return Outcome::Failed(error.into());
             }
         }
         return Outcome::Cancelled;
     }
-    let st = state.lock().await;
-    let updated = registry::set_setup(
-        &st.db,
-        &request.installation_id,
-        &request.session_id,
-        status,
-        Some(log),
-    )
-    .and_then(|()| registry::get(&st.db, &request.installation_id, &request.session_id));
-    match updated {
-        Ok(Some(record)) => Outcome::Prepared(record.wire()),
-        Ok(None) => Outcome::Failed(not_found()),
-        Err(error) => Outcome::Failed(error.into()),
+    let failed = strict && record.setup_status == SetupStatus::Failed;
+    if strict && !failed {
+        record.recovery = Default::default();
+    }
+    let save = if strict {
+        registry::persist_recovery
+    } else {
+        registry::insert
+    };
+    if let Err(error) = save(&state.lock().await.db, &record) {
+        return Outcome::Failed(error.into());
+    }
+    if failed {
+        Outcome::SetupFailed {
+            worktree: record.wire(),
+            error: setup_failed(),
+        }
+    } else {
+        Outcome::Prepared(record.wire())
     }
 }
 
@@ -883,21 +964,20 @@ async fn start_push(
     layout(&params.workspaces_root)?;
     let proxy_url = proxy_url(params.git_proxy.as_ref())?;
     session_key(&params.installation_id, &params.session_id)?;
-    let _mutation = mutation_lock(&params.installation_id, &params.session_id).await;
-    let (jobs, job_id, cancel, record) = {
+    let (jobs, job_id, cancel, record, access) = {
         let st = state.lock().await;
+        let access = exclusive_access(&st, &params.installation_id, &params.session_id)?;
         let jobs = st.workspace_git_jobs.clone();
         let mut table = lock(&jobs);
-        if let Some(job_id) = table.running_job(&params.installation_id, &params.session_id) {
-            return Err(WorkspaceGitError::busy(job_id));
-        }
         let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
-            .filter(|record| is_real_dir(Path::new(&record.path)))
+            .filter(|record| {
+                !record.recovery.blocks_access() && is_real_dir(Path::new(&record.path))
+            })
             .ok_or_else(not_found)?;
         let (job_id, cancel) =
             table.start(JobKind::Push, &params.installation_id, &params.session_id)?;
         drop(table);
-        (jobs, job_id, cancel, record)
+        (jobs, job_id, cancel, record, access)
     };
     tokio::spawn(run_push(
         context.clone(),
@@ -906,6 +986,7 @@ async fn start_push(
         record,
         proxy_url,
         cancel,
+        access,
     ));
     Ok(json!({ "jobId": job_id }))
 }
@@ -917,6 +998,7 @@ async fn run_push(
     record: WorktreeRecord,
     proxy_url: String,
     mut cancel: watch::Receiver<bool>,
+    access: tokio::sync::OwnedRwLockWriteGuard<()>,
 ) {
     lock(&jobs).set_phase(&job_id, JobPhase::Pushing);
     let outcome = match record.repository.validated() {
@@ -950,7 +1032,9 @@ async fn run_push(
             }
         }
     };
-    lock(&jobs).finish(&job_id, outcome);
+    let mut table = lock(&jobs);
+    drop(access);
+    table.finish(&job_id, outcome);
 }
 
 // ---- status and remove ----------------------------------------------------------
@@ -961,12 +1045,31 @@ async fn status(
     params: &SessionParams,
 ) -> Result<Value, WorkspaceGitError> {
     session_key(&params.installation_id, &params.session_id)?;
-    let record = record_of(state, &params.installation_id, &params.session_id)
-        .await?
-        .ok_or_else(not_found)?;
+    let (record, _access) = {
+        let st = state.lock().await;
+        let access = st
+            .workspace_git_locks
+            .try_read(&params.installation_id, &params.session_id);
+        if access.is_none()
+            && lock(&st.workspace_git_jobs)
+                .running_job(&params.installation_id, &params.session_id)
+                .is_none()
+        {
+            return Err(WorkspaceGitError::new(
+                "WORKSPACE_GIT_BUSY",
+                "the worktree is in use",
+            ));
+        }
+        let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
+            .ok_or_else(not_found)?;
+        (record, access)
+    };
     let path = Path::new(&record.path);
     let main = Path::new(&record.main_path);
-    let counts = if is_real_dir(path) {
+    let counts = if record.recovery.reclaim_intent.is_none()
+        && !record.recovery.checkout_creation_pending
+        && is_real_dir(path)
+    {
         worktree::status(&context.git, path, &record.work_branch).await?
     } else {
         worktree::branch_status(&context.git, main, &record.work_branch, 0).await?
@@ -999,15 +1102,15 @@ async fn remove(
     params: &RemoveParams,
 ) -> Result<Value, WorkspaceGitError> {
     session_key(&params.installation_id, &params.session_id)?;
-    let _removal = mutation_lock(&params.installation_id, &params.session_id).await;
-    let record = {
+    let (record, _access) = {
         let st = state.lock().await;
-        if let Some(job_id) =
-            lock(&st.workspace_git_jobs).running_job(&params.installation_id, &params.session_id)
-        {
-            return Err(WorkspaceGitError::busy(job_id));
+        let access = exclusive_access(&st, &params.installation_id, &params.session_id)?;
+        let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
+            .ok_or_else(not_found)?;
+        if record.recovery.reclaim_intent.is_some() || record.recovery.checkout_creation_pending {
+            return Err(reclaim::interrupted());
         }
-        registry::get(&st.db, &params.installation_id, &params.session_id)?.ok_or_else(not_found)?
+        (record, access)
     };
     let (removed, uncommitted_files, unpushed_commits) = worktree::remove_checked(
         &context.git,
@@ -1024,4 +1127,40 @@ async fn remove(
     Ok(json!({
         "removed": removed, "uncommittedFiles": uncommitted_files, "unpushedCommits": unpushed_commits,
     }))
+}
+
+async fn start_reclaim(
+    state: &SharedState,
+    context: &Arc<WorkspaceGitContext>,
+    params: ReclaimParams,
+) -> Result<Value, WorkspaceGitError> {
+    session_key(&params.installation_id, &params.session_id)?;
+    let layout = layout(&params.workspaces_root)?;
+    let dirs = reclaim::validate_regenerable_dirs(&params.regenerable_dirs)?;
+    let (record, access) = {
+        let st = state.lock().await;
+        let Ok(access) = exclusive_access(&st, &params.installation_id, &params.session_id) else {
+            return Ok(reclaim::refused(Refusal::Busy));
+        };
+        let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
+            .ok_or_else(not_found)?;
+        (record, access)
+    };
+    // A disconnected or timed-out client must not release the exclusive
+    // guard while a filesystem operation from this request is still running.
+    let state = state.clone();
+    let context = context.clone();
+    tokio::spawn(async move {
+        let _access = access;
+        reclaim::execute(&context.git, &layout, record, dirs, |record| {
+            let state = state.clone();
+            async move {
+                registry::persist_recovery(&state.lock().await.db, &record)?;
+                Ok(())
+            }
+        })
+        .await
+    })
+    .await
+    .map_err(|_| reclaim::interrupted())?
 }

@@ -118,13 +118,14 @@ export type RemoteWorkspaceCapabilities = {
   workspaceFiles: boolean;
   workspaceGit: boolean;
   workspaceGitSafeRemoval?: boolean;
+  workspaceGitReclaim?: boolean;
 };
 
 /** The owner-only git workspace operations (D687). */
 const WORKSPACE_GIT_METHODS: ReadonlySet<string> = new Set([
   "workspace/gitCredentialSet", "workspace/gitCredentialClear", "workspace/gitRepository", "workspace/gitPrepare",
   "workspace/gitPush", "workspace/gitJob", "workspace/gitJobCancel", "workspace/gitStatus", "workspace/gitRemove",
-  "workspace/gitList",
+  "workspace/gitList", "workspace/gitReclaim",
 ]);
 
 /**
@@ -163,6 +164,7 @@ export function createRacpRemoteHostClient(
       workspaceFiles: capabilities.workspaceFiles === true,
       workspaceGit: capabilities.workspaceGit === true,
       ...(capabilities.workspaceGitSafeRemoval === true ? { workspaceGitSafeRemoval: true } : {}),
+      ...(capabilities.workspaceGitReclaim === true ? { workspaceGitReclaim: true } : {}),
     };
   };
   const requireWorkspace = (capability?: keyof RemoteWorkspaceCapabilities) => {

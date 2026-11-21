@@ -11,6 +11,7 @@ import {
   createHostQueueStore,
   createHostSessionPort,
   listPendingToolRequests,
+  type HostRpc,
 } from "@pi-desktop/host-runtime";
 import { DeviceTokenAuthenticator, RacpServer, bindRacpWebSocket, type RacpHostOperations, type WsBinding } from "@pi-desktop/racp";
 import { APP_VERSION, type AgentEventEnvelope } from "@pi-desktop/shared";
@@ -22,6 +23,7 @@ import { createHostOperations } from "./host-operations.js";
 import { createLogger, type HostLogger } from "./logger.js";
 import { TerminalService, loadPty } from "./terminal.js";
 import { prepareAdminDirectory, startAdminSocket } from "./admin-socket.js";
+import { detectWorkspaceGitReclaim } from "./workspace-git.js";
 
 export type PiHostApp = {
   hostId: string;
@@ -54,6 +56,7 @@ export async function startPiHost(config: PiHostConfig, options: { log?: HostLog
   const authenticator = new DeviceTokenAuthenticator(store);
 
   const state: { host: HostProcess | null; sidecar: AgentSidecar | null; stopping: boolean } = { host: null, sidecar: null, stopping: false };
+  const reclaimHosts = new WeakSet<HostRpc>();
   const getHost = () => state.host;
   const getSidecar = () => state.sidecar;
 
@@ -139,6 +142,11 @@ export async function startPiHost(config: PiHostConfig, options: { log?: HostLog
     state.host = host;
     try {
       await host.handshake();
+      const reclaimSupported = await detectWorkspaceGitReclaim(host).catch((error: unknown) => {
+        log("warn", "git workspace reclaim capability probe failed", { error: String(error) });
+        return false;
+      });
+      if (reclaimSupported) reclaimHosts.add(host);
       await host.call("session.recoverInflightMessages").catch((error: unknown) => log("warn", "in-flight recovery failed", { error: String(error) }));
     } catch (error) {
       if (state.host === host) state.host = null;
@@ -255,6 +263,7 @@ export async function startPiHost(config: PiHostConfig, options: { log?: HostLog
       dataDir: config.dataDir,
       workspacesRoot: config.workspacesRoot,
       gitProxy,
+      workspaceGitReclaimSupported: (host) => reclaimHosts.has(host),
       disposeSession: async (sessionId) => {
         const sidecar = getSidecar();
         if (!sidecar) return;

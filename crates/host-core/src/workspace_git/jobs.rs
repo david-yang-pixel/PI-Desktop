@@ -101,6 +101,10 @@ pub enum Outcome {
     Prepared(Value),
     Pushed(Pushed),
     Failed(WorkspaceGitError),
+    SetupFailed {
+        worktree: Value,
+        error: WorkspaceGitError,
+    },
     Cancelled,
 }
 
@@ -255,6 +259,14 @@ impl JobTable {
             // A failed or cancelled job keeps the phase it stopped in.
             Outcome::Failed(error) => {
                 entry.job.state = JobState::Failed;
+                entry.job.error = Some(JobError {
+                    code: error.code.to_string(),
+                    message: error.message,
+                });
+            }
+            Outcome::SetupFailed { worktree, error } => {
+                entry.job.state = JobState::Failed;
+                entry.job.worktree = Some(worktree);
                 entry.job.error = Some(JobError {
                     code: error.code.to_string(),
                     message: error.message,

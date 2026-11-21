@@ -318,7 +318,7 @@ pub(super) async fn handle(
     }
     tools::validate_timeout_ms(p.timeout_ms)
         .map_err(|(code, message)| rpc_err(1002, message, &code))?;
-    let (mut cancellation, hashline, shell, extra_env) = {
+    let (mut cancellation, hashline, shell, extra_env, worktree_access) = {
         let mut st = state.lock().await;
         let shell = if p.tool_name == "Bash" {
             let catalog = command_shell_catalog(&st)?;
@@ -342,6 +342,32 @@ pub(super) async fn handle(
         } else {
             String::new()
         };
+        let registered = crate::workspace_git::registry::find_by_path(&st.db, &root)
+            .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?;
+        let workspace_unavailable = || {
+            rpc_err(
+                1027,
+                "workspace is not available",
+                "REMOTE_WORKSPACE_NOT_READY",
+            )
+        };
+        let worktree_access = if let Some(record) = registered {
+            let access = st
+                .workspace_git_locks
+                .try_read(&record.installation_id, &record.session_id)
+                .ok_or_else(workspace_unavailable)?;
+            if record.recovery.blocks_access()
+                || !crate::session_worktrees::remove::is_real_dir(Path::new(&record.path))
+            {
+                return Err(workspace_unavailable());
+            }
+            Some(access)
+        } else {
+            None
+        };
+        if !root.is_dir() {
+            return Err(workspace_unavailable());
+        }
         let cancellation = st
             .register_bash_cancellation(&p.session_id, &p.tool_call_id)
             .map_err(|code| rpc_err(1008, "tool already executing", &code))?;
@@ -351,7 +377,13 @@ pub(super) async fn handle(
         } else {
             Vec::new()
         };
-        (Some(cancellation), st.hashline.clone(), shell, extra_env)
+        (
+            Some(cancellation),
+            st.hashline.clone(),
+            shell,
+            extra_env,
+            worktree_access,
+        )
     };
     if tool_cancellation_requested(&cancellation) {
         state
@@ -361,43 +393,63 @@ pub(super) async fn handle(
         return serde_json::to_value(failure(&p, "TOOL_ABORTED", "tool aborted", started))
             .map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"));
     }
-    let options = tools::ToolExecutionOptions {
-        timeout_ms: tools::effective_timeout_ms(&p.tool_name, p.timeout_ms),
-        bash_options: if p.tool_name == "Bash" {
-            Some(tools::BashExecutionOptions {
-                session_id: p.session_id.clone(),
-                tool_call_id: p.tool_call_id.clone(),
-                command_shell_id: shell,
-                timeout_ms: tools::effective_timeout_ms(&p.tool_name, p.timeout_ms),
-                cancellation: cancellation.clone(),
-                output_tx: Some(tx),
-                // Remote workspaces are never isolated (ADR 0329); a git
-                // worktree prepared for a session brings its own environment.
-                extra_env,
-                run_in_background: false,
-                continuation_turn_id: None,
-                app_state: None,
-            })
+    let managed = worktree_access.is_some();
+    let execute = async move {
+        let _worktree_access = worktree_access;
+        let options = tools::ToolExecutionOptions {
+            timeout_ms: tools::effective_timeout_ms(&p.tool_name, p.timeout_ms),
+            bash_options: if p.tool_name == "Bash" {
+                Some(tools::BashExecutionOptions {
+                    session_id: p.session_id.clone(),
+                    tool_call_id: p.tool_call_id.clone(),
+                    command_shell_id: shell,
+                    timeout_ms: tools::effective_timeout_ms(&p.tool_name, p.timeout_ms),
+                    cancellation: cancellation.clone(),
+                    output_tx: Some(tx),
+                    // Remote workspaces are never isolated (ADR 0329); a git
+                    // worktree prepared for a session brings its own environment.
+                    extra_env,
+                    run_in_background: false,
+                    continuation_turn_id: None,
+                    app_state: None,
+                })
+            } else {
+                None
+            },
+            allow_external_paths: false,
+            hashline: Some(tools::HashlineContext {
+                session_id: &p.session_id,
+                store: &hashline,
+            }),
+            visualization_root: None,
+        };
+        let run =
+            tools::execute_tool_with_path_access(Some(&root), None, &p.tool_name, &p.args, options);
+        let mut result = if managed {
+            // Bash owns cancellation and process cleanup. A blocking filesystem
+            // operation may continue after its future is dropped, so wait for it
+            // before releasing the checkout as well.
+            run.await
         } else {
-            None
-        },
-        allow_external_paths: false,
-        hashline: Some(tools::HashlineContext {
-            session_id: &p.session_id,
-            store: &hashline,
-        }),
-        visualization_root: None,
+            tokio::select! {
+                result = run => result,
+                _ = wait_for_tool_cancellation(&mut cancellation) => failure(&p,"TOOL_ABORTED","tool aborted",started),
+            }
+        };
+        result.tool_call_id = p.tool_call_id.clone();
+        state
+            .lock()
+            .await
+            .clear_bash_cancellation(&p.session_id, &p.tool_call_id);
+        serde_json::to_value(result).map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
     };
-    let mut result = tokio::select! {
-        result = tools::execute_tool_with_path_access(Some(&root),None,&p.tool_name,&p.args,options) => result,
-        _ = wait_for_tool_cancellation(&mut cancellation) => failure(&p,"TOOL_ABORTED","tool aborted",started),
-    };
-    result.tool_call_id = p.tool_call_id.clone();
-    state
-        .lock()
-        .await
-        .clear_bash_cancellation(&p.session_id, &p.tool_call_id);
-    serde_json::to_value(result).map_err(|e| rpc_err(1000, e.to_string(), "INTERNAL"))
+    if managed {
+        tokio::spawn(execute)
+            .await
+            .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?
+    } else {
+        execute.await
+    }
 }
 
 #[cfg(test)]

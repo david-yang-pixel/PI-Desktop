@@ -69,11 +69,14 @@ const INSTALLATION_ID_PATTERN = "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[
 
 /** No C0 or C1 control character, so the value can never split a header. */
 const TOKEN_PATTERN = "^[^\\u0000-\\u001f\\u007f-\\u009f]+$";
+const REGENERABLE_DIR_PATTERN =
+  "^(?!/)(?!.*(?:/|^)(?:\\.|\\.\\.|\\.git)(?:/|$))(?!.*//)(?!.*/$)[^\\u0000-\\u001f\\u007f\\\\*?\\[\\]:]{1,256}$";
 
 const GITHUB_OWNER = new RegExp(GITHUB_OWNER_PATTERN, "u");
 const GITHUB_REPOSITORY_NAME = new RegExp(GITHUB_REPOSITORY_NAME_PATTERN, "u");
 const GIT_BRANCH_NAME = new RegExp(GIT_BRANCH_NAME_PATTERN, "u");
 const ENVIRONMENT_VARIABLE_NAME = new RegExp(ENVIRONMENT_VARIABLE_NAME_PATTERN, "u");
+const REGENERABLE_DIR = new RegExp(REGENERABLE_DIR_PATTERN, "u");
 
 export function isGitHubOwner(value: string): boolean {
   return typeof value === "string" && GITHUB_OWNER.test(value);
@@ -91,6 +94,10 @@ export function isEnvironmentVariableName(value: string): boolean {
   return typeof value === "string" && ENVIRONMENT_VARIABLE_NAME.test(value);
 }
 
+export function isRegenerableDirPath(value: string): boolean {
+  return typeof value === "string" && REGENERABLE_DIR.test(value);
+}
+
 // ---------------------------------------------------------------------------
 // Limits
 // ---------------------------------------------------------------------------
@@ -98,6 +105,10 @@ export function isEnvironmentVariableName(value: string): boolean {
 export const WORKSPACE_GIT_MAX_VARIABLES = 64;
 export const WORKSPACE_GIT_MAX_VARIABLE_VALUE_LENGTH = 8192;
 export const WORKSPACE_GIT_MAX_SETUP_SCRIPT_LENGTH = 65_536;
+export const WORKSPACE_GIT_MAX_REGENERABLE_DIRS = 64;
+export const WORKSPACE_GIT_MAX_REGENERABLE_DIR_LENGTH = 256;
+export const DEFAULT_IDLE_RECLAIM_HOURS = 72;
+export const MAX_IDLE_RECLAIM_HOURS = 8760;
 
 // ---------------------------------------------------------------------------
 // Request schemas (closed objects)
@@ -152,8 +163,10 @@ export const WorkspaceGitPrepareSchema = Type.Object({
   fromSessionId: Type.Optional(SessionId()),
   /** Restore an existing registration without creating a new checkout from the base. */
   restoreOnly: Type.Optional(Type.Boolean()),
-  /** Re-run the environment's setup script on an existing worktree without recreating it. */
+  /** Re-run environment setup on a restored or existing worktree. */
   rerunSetup: Type.Optional(Type.Boolean()),
+  /** Fail the prepare job when setup fails, preserving the worktree for retry. */
+  requireSetupSuccess: Type.Optional(Type.Boolean()),
   environment: Type.Optional(WorkspaceGitEnvironmentSchema),
 }, { additionalProperties: false });
 export type WorkspaceGitPrepare = Static<typeof WorkspaceGitPrepareSchema>;
@@ -172,6 +185,21 @@ export const WorkspaceGitRemoveSchema = Type.Object({
 }, { additionalProperties: false });
 export type WorkspaceGitRemove = Static<typeof WorkspaceGitRemoveSchema>;
 
+export const WorkspaceGitReclaimSchema = Type.Object({
+  installationId: InstallationId(),
+  sessionId: SessionId(),
+  regenerableDirs: Type.Optional(
+    Type.Array(
+      Type.String({
+        minLength: 1,
+        maxLength: WORKSPACE_GIT_MAX_REGENERABLE_DIR_LENGTH,
+        pattern: REGENERABLE_DIR_PATTERN,
+      }),
+      { maxItems: WORKSPACE_GIT_MAX_REGENERABLE_DIRS },
+    ),
+  ),
+}, { additionalProperties: false });
+export type WorkspaceGitReclaim = Static<typeof WorkspaceGitReclaimSchema>;
 export const WorkspaceGitJobRefSchema = Type.Object({
   jobId: Type.String({ minLength: 1, maxLength: 64 }),
 }, { additionalProperties: false });
@@ -202,6 +230,8 @@ export type WorkspaceGitWorktree = {
   mainPath: string;
   baseCommit: string;
   createdAt: string;
+  reclaimedAt?: string;
+  reclaimedCommit?: string;
   setup: { status: WorkspaceGitSetupStatus; logTail?: string };
 };
 
@@ -245,6 +275,30 @@ export type WorkspaceGitStatus = {
 
 /** `removed: false` carries the counts that made the Host refuse without `force`. */
 export type WorkspaceGitRemoveResult = { removed: boolean; uncommittedFiles: number; unpushedCommits: number };
+
+export const WORKSPACE_GIT_RECLAIM_REFUSAL_REASONS = [
+  "busy",
+  "uncommittedChanges",
+  "unpushedCommits",
+  "protectedIgnoredFiles",
+  "gitStateUncertain",
+] as const;
+export type WorkspaceGitReclaimRefusalReason = (typeof WORKSPACE_GIT_RECLAIM_REFUSAL_REASONS)[number];
+
+export type WorkspaceGitReclaimResult =
+  | {
+      reclaimed: true;
+      commit: string;
+      reclaimedAt: string;
+      alreadyReclaimed?: boolean;
+    }
+  | {
+      reclaimed: false;
+      reason: WorkspaceGitReclaimRefusalReason;
+      uncommittedFiles: number;
+      unpushedCommits: number;
+      protectedIgnoredFiles: number;
+    };
 
 /** Prefix of every session work branch. */
 export const WORKSPACE_GIT_WORK_BRANCH_PREFIX = "pi-desktop/" as const;

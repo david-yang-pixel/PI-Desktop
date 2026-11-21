@@ -1,10 +1,11 @@
 import {
-  ErrorCodes, IPC, isGitBranchName, isGitHubOwner, isGitHubRepositoryName,
-  type RemoteEnvironmentInput,
+  ErrorCodes, IPC, isGitBranchName, isGitHubOwner, isGitHubRepositoryName, isRegenerableDirPath,
+  MAX_IDLE_RECLAIM_HOURS, WORKSPACE_GIT_MAX_REGENERABLE_DIRS, type RemoteEnvironmentInput, type WorkspaceGitReclaimResult,
 } from "@pi-desktop/shared";
 import type { GitHubConnector } from "../github/connector";
 import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
 import { onConfirmedQuit } from "../bootstrap/confirmed-quit";
+import { createIdleWorkspaceReclaimer, idleSince } from "../remote/idle-workspace-reclaimer";
 import { createSessionWorkspaceGit } from "../remote/session-workspace-git";
 import { createSessionWorkspaces, remoteError, type HostCall } from "../remote/session-workspaces";
 import type { IpcRegistrar } from "./types";
@@ -13,6 +14,7 @@ let active: {
   workspaces: ReturnType<typeof createSessionWorkspaces>;
   git: ReturnType<typeof createSessionWorkspaceGit>;
   connector: GitHubConnector;
+  reclaimer: ReturnType<typeof createIdleWorkspaceReclaimer>;
 } | null = null;
 
 export function getRemoteRepositorySessions() { return active; }
@@ -37,9 +39,16 @@ function environment(input: unknown): RemoteEnvironmentInput {
   const data = object(input);
   if ((data.setupScript !== undefined && (typeof data.setupScript !== "string" || Array.from(data.setupScript).length > 65_536))
     || (data.variables !== undefined && (!Array.isArray(data.variables) || data.variables.length > 64))) throw invalid();
+  const { idleReclaimHours, regenerableDirs } = data;
+  if (idleReclaimHours !== undefined && (typeof idleReclaimHours !== "number" || !Number.isInteger(idleReclaimHours)
+    || idleReclaimHours < 0 || idleReclaimHours > MAX_IDLE_RECLAIM_HOURS)) throw invalid();
+  if (regenerableDirs !== undefined && (!Array.isArray(regenerableDirs) || regenerableDirs.length > WORKSPACE_GIT_MAX_REGENERABLE_DIRS
+    || !regenerableDirs.every((path): path is string => typeof path === "string" && isRegenerableDirPath(path)))) throw invalid();
   return {
     ...(data.id !== undefined ? { id: string(data.id) } : {}),
     name: string(data.name, 320), hostKey: string(data.hostKey),
+    ...(idleReclaimHours !== undefined ? { idleReclaimHours } : {}),
+    ...(regenerableDirs !== undefined ? { regenerableDirs } : {}),
     ...(typeof data.setupScript === "string" ? { setupScript: data.setupScript } : {}),
     ...(Array.isArray(data.variables) ? { variables: data.variables.map((raw) => {
       const row = object(raw);
@@ -55,16 +64,40 @@ export function registerRemoteRepositorySessions(deps: {
   connector: GitHubConnector;
   emit(channel: string, payload: unknown): void;
   log(message: string, error: unknown): void;
+  runWhileIdle(sessionId: string, operation: () => Promise<void>): Promise<void>;
+  acquireSessionOperation(sessionId: string): Promise<() => void>;
+  hasQueuedPrompt(sessionId: string): boolean;
+  isBusy(sessionId: string): boolean;
 }) {
   const { registrar, call, connector, emit, log } = deps;
-  const workspaces = createSessionWorkspaces({ call, hosts: getActiveRemoteHostsBoot, connector, emit, log });
-  const git = createSessionWorkspaceGit({ call, workspaces, connector, emit });
-  active = { workspaces, git, connector };
+  const workspaces = createSessionWorkspaces({ call, hosts: getActiveRemoteHostsBoot, connector, emit, log, hasQueuedPrompt: deps.hasQueuedPrompt });
+  const git = createSessionWorkspaceGit({ call, workspaces, connector, emit, log });
+  const supported = (hostKey: string) => getActiveRemoteHostsBoot()?.workspaceGit.supportsReclaim(hostKey) === true;
+  const reclaimer = createIdleWorkspaceReclaimer({
+    connectedHosts: async () => (await getActiveRemoteHostsBoot()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey),
+    supported, environments: workspaces.list, bindings: () => workspaces.listBindings(["ready"]), log,
+    async reclaim(candidate) {
+      let result: WorkspaceGitReclaimResult | undefined;
+      await deps.runWhileIdle(candidate.sessionId, async () => {
+        const release = await deps.acquireSessionOperation(candidate.sessionId);
+        try {
+          const [current, environments] = await Promise.all([workspaces.binding(candidate.sessionId), workspaces.list()]);
+          if (!current || current.hostKey !== candidate.hostKey || current.state !== "ready" || !supported(current.hostKey)
+            || deps.isBusy(candidate.sessionId) || git.isOperating(candidate.sessionId)) return;
+          const environment = environments.find((entry) => entry.id === current.environmentId);
+          if (!environment || idleSince(current, environment, Date.now()) === undefined) return;
+          result = await workspaces.reclaim(current, environment.regenerableDirs);
+        } finally { release(); }
+      });
+      return result;
+    },
+  });
+  active = { workspaces, git, connector, reclaimer };
   const boot = getActiveRemoteHostsBoot();
   boot?.workspaceGit.setCredentialProvider(() => connector.token());
   void boot?.workspaceGit.refreshCredential();
   const unsubscribe = connector.onChange(() => { void getActiveRemoteHostsBoot()?.workspaceGit.refreshCredential(); });
-  onConfirmedQuit(() => { unsubscribe(); workspaces.dispose(); active = null; });
+  onConfirmedQuit(() => { unsubscribe(); reclaimer.dispose(); workspaces.dispose(); active = null; });
   const handle = (channel: string, handler: (...args: unknown[]) => Promise<unknown>) =>
     registrar.handleWithEvent(channel, (event, ...args) => {
       registrar.assertMainWindowSender(event);

@@ -39,15 +39,27 @@ export function WorkspacePreparationStatus({ sessionId, workspace }: { sessionId
       )}
     </div>;
   }
+  if (workspace.state === "reclaiming") return <div className="composer-status" role="status">
+    {t("sessionTarget.preparation.reclaiming")}
+  </div>;
+  if (workspace.state === "reclaimed") return <div className="composer-status" role="status">
+    <strong>{t("sessionTarget.preparation.reclaimed")}</strong>{" "}
+    {t("sessionTarget.preparation.restoreHint")}
+  </div>;
+  const setupLog = workspace.setup?.logTail && <details>
+    <summary>{t("sessionTarget.preparation.showLog")}</summary>
+    <pre className="worktree-setup-log">{workspace.setup.logTail}</pre>
+  </details>;
   if (workspace.state === "failed") return <div className="composer-status" role="alert">
     {t("sessionTarget.preparation.failed", { message: workspace.error?.message })}
+    {setupLog}
     <Button variant="secondary" disabled={busy} onClick={() => void run(() => api.retryRemoteSessionWorkspace(sessionId))}>{t("sessionTarget.preparation.retry")}</Button>
     <Button variant="secondary" disabled={busy} onClick={() => void run(() => remove(sessionId))}>{t("sessionTarget.preparation.deleteSession")}</Button>
   </div>;
   if (workspace.state !== "ready" || workspace.setup?.status !== "failed" || dismissed) return null;
   return <div className="composer-status">
     {t("sessionTarget.preparation.setupFailed")}
-    {workspace.setup.logTail && <details><summary>{t("sessionTarget.preparation.showLog")}</summary><pre>{workspace.setup.logTail}</pre></details>}
+    {setupLog}
     <Button variant="secondary" disabled={busy} onClick={() => void run(() => api.retryRemoteSessionWorkspace(sessionId))}>{t("sessionTarget.preparation.retry")}</Button>
     <Button variant="secondary" disabled={busy} onClick={() => setDismissed(true)}>{t("sessionTarget.dismiss")}</Button>
   </div>;

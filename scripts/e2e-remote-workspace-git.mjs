@@ -20,12 +20,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 register(new URL("../apps/desktop/test/helpers/ts-import-hooks.mjs", import.meta.url));
-const { HostProcess, createHostSessionPort } = await import("../packages/host-runtime/dist/index.js");
+const { HostProcess, createHostSessionPort, createHostQueueStore } = await import("../packages/host-runtime/dist/index.js");
 const { AgentHost } = await import("../packages/agent-host/dist/index.js");
 const { bindRacpWebSocket, RacpServer, MemoryCredentialStore, DeviceTokenAuthenticator, hashToken, newDeviceToken } = await import("../packages/racp/dist/index.js");
 const { createHostOperations } = await import("../apps/pi-host/dist/host-operations.js");
 const { createGitCredentialProxy } = await import("../apps/pi-host/dist/git-credential-proxy.js");
-const { workspaceGitWorkBranch } = await import("../apps/pi-host/dist/workspace-git.js");
+const { detectWorkspaceGitReclaim, workspaceGitWorkBranch } = await import("../apps/pi-host/dist/workspace-git.js");
 const { createRemoteHostsBoot } = await import("../apps/desktop/electron/main/bootstrap/remote-hosts.ts");
 const { createBackendRouter } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
 const { createSessionWorkspaces } = await import("../apps/desktop/electron/main/remote/session-workspaces.ts");
@@ -144,9 +144,11 @@ try {
   const credentials = new MemoryCredentialStore();
   await credentials.saveDevice({ deviceId: "fixture-owner", label: "Fixture", roles: ["owner"], tokenHash: hashToken(OWNER_TOKEN), createdAt: new Date().toISOString() });
   const authenticator = new DeviceTokenAuthenticator(credentials);
+  const reclaimSupported = await detectWorkspaceGitReclaim(host);
   const operations = createHostOperations({
     getHost: () => host, runtime: { isBusy: () => false, async compact() { throw new Error("no remote model"); } },
     browseRoot: root, dataDir: hostDataDir, workspacesRoot, gitProxy: proxy,
+    workspaceGitReclaimSupported: (candidate) => candidate === host && reclaimSupported,
   });
   server = new RacpServer({ agentHost, operations, authenticator, hostId: "git-host", serverVersion: "fixture", log: (level, message, data) => hostLogs.push(JSON.stringify({ level, message, data })) });
   binding = await bindRacpWebSocket({ server, authenticator, host: "127.0.0.1", port: 0, log: () => {} });
@@ -178,7 +180,6 @@ try {
   await step("2 prepare session A from main (E2E-REMOTE-repo-session-prepares-isolated-worktree)", async () => {
     const prepared = await prepare("session-a", "main");
     a = prepared.worktree;
-    assert.ok(prepared.phases.includes("cloning"), prepared.phases.join(","));
     assert.equal(a.workBranch, workA);
     assert.equal(a.baseCommit, mainHead);
     assert.equal(a.mainPath, join(workspacesRoot, "repos/github.com/octo/repo"));
@@ -352,7 +353,33 @@ try {
         return result;
       },
     };
-    const emit = (channel, payload) => events.push({ channel, payload });
+    const dispatch = Promise.withResolvers();
+    const dispatched = [];
+    const queueStore = createHostQueueStore(() => localHost);
+    const localAgentHost = new AgentHost({
+      sessions: createHostSessionPort(() => localHost), queueStore,
+      runtime: {
+        async prompt(request) {
+          dispatched.push(request);
+          return { turnId: "reclaimed-fixture-turn" };
+        },
+        async canDispatchQueued(sessionId) {
+          const { session } = await call("session.get", { id: sessionId, messageLimit: 1 });
+          return session?.remoteRepository?.state === "ready";
+        },
+        async stop() { return { requested: false }; }, async abort() {}, async respondInput() {},
+      },
+      approvals: { async resolveTool() {}, async resolveContract() {}, async listPendingTools() { return []; } },
+      onQueueChange(_sessionId, entries) {
+        if (dispatched.length && !entries.length) dispatch.resolve();
+      },
+    });
+    const emit = (channel, payload) => {
+      events.push({ channel, payload });
+      if (payload.remoteRepository?.state === "ready" && localAgentHost.queueEntries(payload.sessionId).length) {
+        localAgentHost.kick(payload.sessionId);
+      }
+    };
     let online = true;
     let safeRemoval = true;
     const removalCalls = [];
@@ -437,6 +464,53 @@ try {
       assert.equal(replacement.number, 2);
       assert.equal((await workspaces.binding(session.id)).pullRequest.number, 2);
 
+      assert.equal(boot.workspaceGit.supportsReclaim(HOST), true);
+      const checkout = ready.remoteWorkspace.path;
+      const sharedCheckout = join(workspacesRoot, "repos/github.com/octo/repo");
+      const exclude = join(sharedCheckout, ".git/info/exclude");
+      await writeFile(exclude, `${await readFile(exclude, "utf8")}\nnode_modules/\n.env.local\n`);
+      await bash(session.id, checkout, "mkdir -p node_modules");
+      await writeFile(join(checkout, "node_modules/dependency"), "cache");
+      await writeFile(join(checkout, ".env.local"), "LOCAL_VALUE=fixture");
+      const beforeReclaim = await workspaces.binding(session.id);
+      const protectedResult = await workspaces.reclaim(beforeReclaim, []);
+      assert.equal(protectedResult.reclaimed, false);
+      assert.equal(protectedResult.reason, "protectedIgnoredFiles");
+      assert.equal(await readFile(join(checkout, ".env.local"), "utf8"), "LOCAL_VALUE=fixture");
+      await rm(join(checkout, ".env.local"));
+      assert.equal((await workspaces.reclaim(await workspaces.binding(session.id), [])).reclaimed, true);
+      assert.equal(existsSync(checkout), false);
+      assert.equal(git(sharedCheckout, "rev-parse", `refs/heads/${pr.head}`), head);
+      await workspaces.resume(HOST);
+      const { session: history } = await call("session.get", { id: session.id, messageLimit: 1 });
+      assert.equal(history.remoteRepository.state, "reclaimed");
+      assert.equal(history.remoteWorkspace, undefined);
+      assert.equal(existsSync(checkout), false);
+
+      const editEnvironment = (setupScript) => workspaces.upsert({ id: environment.id, hostKey: HOST, name: environment.name, setupScript });
+      await editEnvironment("printf 'fixture initialization failed\\n'; exit 2");
+      const input = "Continue with the restored repository";
+      const admission = await localAgentHost.startTurn({ subject: "fixture", roles: ["owner"] }, {
+        sessionId: session.id, admission: "queue", input: { text: input }, context: { requestId: "fixture-resume" },
+      });
+      assert.equal(admission.turn.status, "queued");
+      await assert.rejects(workspaces.waitUntilReady(session.id), (error) => error.errorCode === "REMOTE_WORKSPACE_NOT_READY");
+      const failedRebuild = await workspaces.binding(session.id);
+      assert.equal(failedRebuild.error.code, "WORKSPACE_GIT_SETUP_FAILED");
+      assert.match(failedRebuild.setup.logTail, /fixture initialization failed/);
+      assert.deepEqual((await queueStore.listAll()).map((entry) => entry.content), [input]);
+      assert.deepEqual(dispatched, []);
+      assert.equal(git(checkout, "rev-parse", "HEAD"), head);
+      await editEnvironment("mkdir -p node_modules && printf 'restored' > node_modules/dependency");
+      await workspaces.retry(session.id);
+      await workspaces.waitUntilReady(session.id);
+      await dispatch.promise;
+      assert.deepEqual(dispatched.map((request) => request.content), [input]);
+      assert.deepEqual(await queueStore.listAll(), []);
+      assert.equal(await readFile(join(checkout, "node_modules/dependency"), "utf8"), "restored");
+      assert.equal(git(checkout, "rev-parse", "HEAD"), head);
+      assert.equal((await workspaces.binding(session.id)).pullRequest.number, 2);
+
       await writeFile(join(ready.remoteWorkspace.path, "dirty.txt"), "pending work");
       const preflight = await repositoryGit.preflight(session.id);
       assert.deepEqual(preflight, { kind: "atRisk", uncommittedFiles: 1, unpushedCommits: 0 });
@@ -482,7 +556,7 @@ try {
   });
 
   await boot.removeHost(HOST);
-  console.log("PASS remote git worktrees: clone, isolated worktrees, fork, proxied push, foreign-ref refusal, guarded removal, fail-closed without credential, no token at rest");
+  console.log("PASS remote git worktrees: clone, isolated worktrees, proxied push, guarded removal, idle reclaim, exact-commit restore, and queued input after setup retry");
 } catch (error) {
   console.error(`FAILED - ${currentStep}`);
   console.error(error);

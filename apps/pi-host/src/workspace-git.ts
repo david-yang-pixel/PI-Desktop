@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { RacpError } from "@pi-desktop/agent-host";
 import type { HostRpc } from "@pi-desktop/host-runtime";
 import type { RacpHostOperations } from "@pi-desktop/racp";
-import { WORKSPACE_GIT_WORK_BRANCH_PREFIX, type WorkspaceGitRepository, type WorkspaceGitWorktree } from "@pi-desktop/shared";
+import { WORKSPACE_GIT_WORK_BRANCH_PREFIX, type WorkspaceGitReclaimResult, type WorkspaceGitRepository, type WorkspaceGitWorktree } from "@pi-desktop/shared";
 
 import type { GitCredentialProxy } from "./git-credential-proxy.js";
 
@@ -37,9 +37,27 @@ export function workspaceGitWorkBranch(installationId: string, sessionId: string
   return `${WORKSPACE_GIT_WORK_BRANCH_PREFIX}${workspaceGitShortId(installationId, sessionId)}`;
 }
 
+function hostErrorCode(error: unknown): string | undefined {
+  return (error as { errorCode?: string; data?: { errorCode?: string } } | null)?.data?.errorCode ??
+    (error as { errorCode?: string } | null)?.errorCode;
+}
+
+/** Missing required IDs makes this probe fail before any workspace can be selected. */
+export async function detectWorkspaceGitReclaim(host: HostRpc): Promise<boolean> {
+  try {
+    await host.call("workspaceGit.reclaim", {});
+    return false;
+  } catch (error) {
+    const code = hostErrorCode(error);
+    if (code === "INVALID_ARGUMENT") return true;
+    if (code === "METHOD_NOT_FOUND") return false;
+    throw error;
+  }
+}
+
 function hostError(error: unknown): never {
   if (error instanceof RacpError) throw error;
-  const code = (error as { data?: { errorCode?: string } })?.data?.errorCode ?? (error as { errorCode?: string })?.errorCode;
+  const code = hostErrorCode(error);
   const message = error instanceof Error ? error.message : String(error);
   if (code?.startsWith("WORKSPACE_GIT_")) {
     const jobId = (error as { data?: { jobId?: unknown } })?.data?.jobId;
@@ -55,6 +73,7 @@ export function createWorkspaceGit(deps: {
   getHost: () => HostRpc | null;
   workspacesRoot: string;
   proxy: GitCredentialProxy;
+  reclaimSupported?: (host: HostRpc) => boolean;
 }): WorkspaceGitOperations & { proxyUrlFor(connectionId: string, sessionId: string): string | undefined; proxyUrlForPath(connectionId: string, sessionId: string, path: string): Promise<string | undefined> } {
   const { getHost, workspacesRoot, proxy } = deps;
   /** The installation a live connection last named; it selects that connection's scopes. */
@@ -67,6 +86,11 @@ export function createWorkspaceGit(deps: {
   const closed = new Set<string>();
   const scopeKey = (installationId: string, sessionId: string) => JSON.stringify([installationId, sessionId]);
   const unavailable = () => new RacpError("AGENT_UNAVAILABLE", "host-core is not running", { retriable: true });
+  const requireReclaimSupport = (host: HostRpc) => {
+    if (!deps.reclaimSupported?.(host)) {
+      throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer git workspace reclaim or strict wake");
+    }
+  };
 
   /** One host-core call; a host that was replaced meanwhile never counts as success. */
   async function call<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -106,8 +130,23 @@ export function createWorkspaceGit(deps: {
     return result.worktrees ?? [];
   }
 
+  const reclaim: NonNullable<WorkspaceGitOperations["reclaim"]> = async ({ installationId, sessionId, regenerableDirs }) => {
+    const host = getHost();
+    if (!host) throw unavailable();
+    requireReclaimSupport(host);
+    // The registration survives reclaim. A wake may also register a scope
+    // before this reply arrives, so reclaim leaves proxy scopes alone.
+    return call<WorkspaceGitReclaimResult>("workspaceGit.reclaim", {
+      installationId, sessionId, ...(regenerableDirs === undefined ? {} : { regenerableDirs }),
+    });
+  };
+
   return {
     safeRemoval: true,
+    get reclaim() {
+      const host = getHost();
+      return host && deps.reclaimSupported?.(host) ? reclaim : undefined;
+    },
     async setCredential(input, owner) {
       if (!getHost()) throw unavailable();
       attach(owner, input.installationId);
@@ -131,7 +170,10 @@ export function createWorkspaceGit(deps: {
       return call("workspaceGit.repository", { repository: input.repository });
     },
     async prepare(input, owner) {
-      if (!getHost()) throw unavailable();
+      const host = getHost();
+      if (!host) throw unavailable();
+      const strictSetup = input.requireSetupSuccess === true;
+      if (strictSetup) requireReclaimSupport(host);
       attach(owner, input.installationId);
       const key = scopeKey(input.installationId, input.sessionId);
       const scope = scopes.get(key);
@@ -150,11 +192,13 @@ export function createWorkspaceGit(deps: {
           throw new RacpError("INVALID_ARGUMENT", "the session already belongs to a repository");
         }
       }
+      if (strictSetup && getHost() !== host) throw unavailable();
       const url = registerScope(input.installationId, input.sessionId, input.repository);
-      const { rerunSetup, ...prepareInput } = input;
+      const { rerunSetup, requireSetupSuccess, ...prepareInput } = input;
       const result = await call<Awaited<ReturnType<WorkspaceGitOperations["prepare"]>>>("workspaceGit.prepare", {
         ...prepareInput,
         ...(rerunSetup === true ? { rerunSetup: true } : {}),
+        ...(requireSetupSuccess === true ? { requireSetupSuccess: true } : {}),
         gitProxy: { url },
       });
       preparations.set(key, { jobId: result.jobId, sessionId: input.sessionId, installationId: input.installationId });

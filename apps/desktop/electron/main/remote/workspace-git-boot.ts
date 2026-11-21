@@ -16,6 +16,7 @@ import {
   type WorkspaceGitEnvironment,
   type WorkspaceGitJob,
   type WorkspaceGitRemoveResult,
+  type WorkspaceGitReclaimResult,
   type WorkspaceGitRepository,
   type WorkspaceGitStatus,
   type WorkspaceGitWorktree,
@@ -34,10 +35,13 @@ export type WorkspaceGitBoot = {
   /** Whether the host offers git workspaces; realigns it once when it does not. */
   supported(hostKey: string): Promise<boolean>;
   supportsSafeRemoval(hostKey: string): boolean;
+  supportsReclaim(hostKey: string): boolean;
+  reclaim(hostKey: string, sessionId: string, regenerableDirs: string[]): Promise<WorkspaceGitReclaimResult>;
   repository(hostKey: string, repository: WorkspaceGitRepository): Promise<{ path: string; cloned: boolean }>;
   prepare(hostKey: string, input: {
     sessionId: string; repository: WorkspaceGitRepository; baseBranch: string;
     fromSessionId?: string; environment?: WorkspaceGitEnvironment; restoreOnly?: boolean; rerunSetup?: boolean;
+    rebuild?: boolean;
   }): Promise<{ jobId: string }>;
   push(hostKey: string, sessionId: string): Promise<{ jobId: string }>;
   job(hostKey: string, jobId: string): Promise<WorkspaceGitJob>;
@@ -51,7 +55,7 @@ export type WorkspaceGitBoot = {
 export type WorkspaceGitHost = {
   adapter: {
     client: { request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> };
-    workspaceCapabilities?(): { workspaceGit?: boolean; workspaceGitSafeRemoval?: boolean } | undefined;
+    workspaceCapabilities?(): { workspaceGit?: boolean; workspaceGitSafeRemoval?: boolean; workspaceGitReclaim?: boolean } | undefined;
   };
 };
 
@@ -106,6 +110,7 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
   const realignments = new Map<string, Promise<void>>();
 
   const advertises = (host: WorkspaceGitHost | undefined) => host?.adapter.workspaceCapabilities?.()?.workspaceGit === true;
+  const supportsReclaim = (hostKey: string) => deps.connectedHost(hostKey)?.adapter.workspaceCapabilities?.()?.workspaceGitReclaim === true;
   const unavailable = () => Object.assign(new Error("remote host is unavailable"), { errorCode: "AGENT_UNAVAILABLE" });
 
   /** Send or clear the credential on one host. Never throws, never logs a value. */
@@ -162,13 +167,17 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     return host;
   }
 
-  async function call<T>(hostKey: string, method: string, params: (installationId: string) => Record<string, unknown>, options: { needsCredential?: boolean; needsSafeRemoval?: boolean } = {}): Promise<T> {
+  async function call<T>(hostKey: string, method: string, params: (installationId: string) => Record<string, unknown>, options: { needsCredential?: boolean; needsSafeRemoval?: boolean; rebuild?: boolean } = {}): Promise<T> {
     const host = await capableHost(hostKey);
     let installationId: string;
     try {
       installationId = await deps.getInstallationId();
     } catch {
       throw fail(ErrorCodes.WORKSPACE_GIT_UNAVAILABLE, "this desktop's installation identity is unavailable");
+    }
+    if (options.rebuild) {
+      if (!supportsReclaim(hostKey)) throw fail(ErrorCodes.HOST_VERSION_MISMATCH, "Upgrade pi-host to restore a reclaimed workspace");
+      await pushes.get(hostKey);
     }
     if (options.needsCredential) {
       // A connect may still be delivering the credential this call depends on.
@@ -214,6 +223,18 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
       const capabilities = deps.connectedHost(hostKey)?.adapter.workspaceCapabilities?.();
       return capabilities?.workspaceGit === true && capabilities.workspaceGitSafeRemoval === true;
     },
+    supportsReclaim,
+    async reclaim(hostKey, sessionId, regenerableDirs) {
+      const host = deps.connectedHost(hostKey);
+      if (!host || !supportsReclaim(hostKey)) throw unavailable();
+      const installationId = await deps.getInstallationId();
+      if (deps.connectedHost(hostKey) !== host || !supportsReclaim(hostKey)) throw unavailable();
+      const result = await host.adapter.client.request<WorkspaceGitReclaimResult>("workspace/gitReclaim", {
+        installationId, sessionId, regenerableDirs,
+      }, REQUEST_TIMEOUT_MS);
+      if (deps.connectedHost(hostKey) !== host) throw unavailable();
+      return result;
+    },
     repository(hostKey, repository) {
       return call(hostKey, "workspace/gitRepository", () => ({ repository: { owner: repository.owner, name: repository.name } }));
     },
@@ -224,10 +245,11 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
         repository: { owner: input.repository.owner, name: input.repository.name },
         baseBranch: input.baseBranch,
         ...(input.fromSessionId !== undefined ? { fromSessionId: input.fromSessionId } : {}),
-        ...(input.restoreOnly === true ? { restoreOnly: true } : {}),
-        ...(input.rerunSetup === true ? { rerunSetup: true } : {}),
+        ...(input.restoreOnly === true || input.rebuild ? { restoreOnly: true } : {}),
+        ...(input.rebuild || input.rerunSetup === true ? { rerunSetup: true } : {}),
+        ...(input.rebuild ? { requireSetupSuccess: true } : {}),
         ...(input.environment !== undefined ? { environment: input.environment } : {}),
-      }), { needsCredential: !input.restoreOnly && !input.rerunSetup });
+      }), { needsCredential: !input.restoreOnly && !input.rerunSetup && !input.rebuild, rebuild: input.rebuild });
     },
     push(hostKey, sessionId) {
       return call(hostKey, "workspace/gitPush", (installationId) => ({ installationId, sessionId }), { needsCredential: true });

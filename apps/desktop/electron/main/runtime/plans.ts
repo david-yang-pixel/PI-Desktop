@@ -6,6 +6,7 @@ import type {
   TurnEndedPayload,
   TurnEndReason,
 } from "./session-coordination";
+import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 
 /**
  * Identity and per-call switches of one turn finalization. `turnId` is
@@ -219,6 +220,9 @@ function finishTurn(
             ...(recoverInflight ? { recoverInflight: true } : {}),
           });
           settledTurnId = turnId;
+          await getRemoteRepositorySessions()?.workspaces.touch(id).catch((error: unknown) => {
+            logger.app("persistence", "warn", "Could not record repository turn activity", { sessionId: id, data: String(error) });
+          });
           if (result.notification) {
             sendToRenderer(IPC.event.notificationChanged, {
               notification: result.notification,

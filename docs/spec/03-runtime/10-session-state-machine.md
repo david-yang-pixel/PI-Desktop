@@ -256,9 +256,21 @@ A binding starts as `preparing` and becomes `ready` after its worktree exists.
 A failed prepare is retryable. The durable prompt queue holds input until the
 binding is ready. On restart a restored queue still waits for a controller
 to attach. A worktree readiness event rechecks the queue and preserves that
-hold. If the Host reports a missing checkout for a ready session, Desktop
-returns it to preparation and asks the Host to restore the registered
-branch. Tools and session file views require the ready worktree and
-return `REMOTE_WORKSPACE_NOT_READY` for unbound or unready repository sessions.
-A setup script failure is reported in `remoteRepository.setup` and leaves the
-worktree ready for use.
+hold. If the Host reports an accidentally missing checkout for a ready session,
+Desktop returns it to preparation and restores the registered branch. Tools and
+session file views require the ready worktree and return
+`REMOTE_WORKSPACE_NOT_READY` for unbound or unready repository sessions. Initial
+setup failure appears in `remoteRepository.setup` and leaves the worktree usable.
+
+Idle reclamation first places the binding in `reclaiming` and pauses prompt
+dispatch. The Host rechecks the checkout under its workspace lock. A refusal
+returns the binding to `ready`. A confirmed reclaim sets `reclaimed` and retains
+the session history, environment, and work branch. Reconnect reconciles the
+Host's outcome. Opening reclaimed history loads the transcript alone.
+
+When new input is durably queued for a reclaimed session, Desktop starts
+restoration at the preserved commit and runs the environment setup. The binding
+becomes `ready` only after setup succeeds or when there is no setup script. On
+failure the queued message remains editable and removable, and the existing
+workspace retry action retries setup before releasing the queue. The reclaimed
+state offers no separate restore action.

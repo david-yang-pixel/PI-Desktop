@@ -5,7 +5,8 @@ import {
   WorkspaceToolExecuteSchema, WorkspaceToolAbortSchema, WorkspaceFilesRequestSchema,
   WorkspacePluginFilesRequestSchema,
   WorkspaceGitCredentialClearSchema, WorkspaceGitCredentialSetSchema, WorkspaceGitJobRefSchema, WorkspaceGitListSchema,
-  WorkspaceGitPrepareSchema, WorkspaceGitRemoveSchema, WorkspaceGitRepositoryRequestSchema, WorkspaceGitSessionRefSchema,
+  WorkspaceGitPrepareSchema, WorkspaceGitReclaimSchema, WorkspaceGitRemoveSchema, WorkspaceGitRepositoryRequestSchema,
+  WorkspaceGitSessionRefSchema,
   isEnvironmentVariableName, isGitBranchName, isGitHubOwner, isGitHubRepositoryName,
   RacpCursorSchema,
   RacpInputResponseSchema,
@@ -200,6 +201,7 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     }
     return context.operations.workspaceGit;
   };
+  const workspaceGitReclaimUnavailable = () => new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer git workspace reclaim or strict wake");
   const invalidGitName = (field: string) => new RacpError("INVALID_ARGUMENT", `invalid params at /${field}: name is not allowed`);
   const checkGitRepository = <T extends { repository: { owner: string; name: string } }>(input: T): T => {
     if (!isGitHubOwner(input.repository.owner)) throw invalidGitName("repository/owner");
@@ -221,6 +223,9 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
   handlers.set("workspace/gitPrepare", async (context, params) => {
     const service = requireWorkspaceGit(context);
     const input = checkGitRepository(check(WorkspaceGitPrepareSchema, params));
+    if (input.requireSetupSuccess === true && !context.capabilities.workspaceGitReclaim) {
+      throw workspaceGitReclaimUnavailable();
+    }
     if (!isGitBranchName(input.baseBranch)) throw invalidGitName("baseBranch");
     input.environment?.variables.forEach((variable, index) => {
       if (!isEnvironmentVariableName(variable.name)) throw invalidGitName(`environment/variables/${index}/name`);
@@ -237,6 +242,11 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
   });
   handlers.set("workspace/gitStatus", async (context, params) =>
     requireWorkspaceGit(context).status(check(WorkspaceGitSessionRefSchema, params)));
+  handlers.set("workspace/gitReclaim", async (context, params) => {
+    const service = requireWorkspaceGit(context);
+    if (!context.capabilities.workspaceGitReclaim || !service.reclaim) throw workspaceGitReclaimUnavailable();
+    return service.reclaim(check(WorkspaceGitReclaimSchema, params));
+  });
   handlers.set("workspace/gitRemove", async (context, params) =>
     requireWorkspaceGit(context).remove(check(WorkspaceGitRemoveSchema, params)));
   handlers.set("workspace/gitList", async (context, params) => ({

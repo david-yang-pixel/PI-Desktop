@@ -32,6 +32,18 @@ adapter and currently fails explicitly, while a local model helper can specify
 its local cwd. There is no interactive terminal UI (ADR 0108); local Agent Bash
 commands still run against the remote workspace. This is not full R2 acceptance.
 
+For repository sessions, open **Settings → Remote Hosts → Environments** to
+adjust the idle reclaim interval. The default is 72 hours, and `0` disables
+reclamation for that environment. Desktop checks connected Hosts and catches up
+on reconnect. A reclaimed checkout frees disk space while retaining the session,
+work branch and shared clone. Send a message to restore the checkout and run its
+setup. A failed restore keeps the new message queued for retry.
+
+Ignored files are protected by default. Ignored `node_modules` directories and
+ignored build directories declared in the environment or in a tracked
+`.pi/workspace.json` can be regenerated. Project declarations use paths relative
+to the repository root, for example `{"reclaim":{"regenerableDirs":["dist"]}}`.
+
 **Release prerequisite:** automatic SSH install uses published release assets.
 Building this branch does not update an existing release. Publish a matching
 platform Host bundle before distributing the automatic-install path. For local

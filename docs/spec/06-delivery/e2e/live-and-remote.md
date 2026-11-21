@@ -829,3 +829,14 @@ The same fixture pushes the prepared work branch into a real Git server
 before the PR service sees it. The connector fixture returns one open PR
 for repeated requests. The test verifies uncommitted work survives an ordinary
 delete and that confirmed deletion preserves the pushed branch.
+
+## E2E-REMOTE-idle-reclaim-restores-the-original-commit
+
+`pnpm test:e2e:remote-workspace-git` uses a temporary Host and a fixture Git
+server. An ignored personal file blocks reclamation. After the file is removed,
+the Host reclaims the checkout and preserves the work branch. Reading history
+and reconnect reconciliation leave the checkout absent. A restore attempt runs
+the environment setup and reports its failure. Retrying runs the updated setup
+in place, preserves the saved commit, and retains the existing PR association.
+Desktop tests cover the idle threshold, disabling reclamation, overlapping
+scans, a lost response, and the pending-message gate during failed setup.

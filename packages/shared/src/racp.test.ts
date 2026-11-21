@@ -337,6 +337,7 @@ describe("catalog and roles", () => {
       "workspace/gitJobCancel": true,
       "workspace/gitStatus": false,
       "workspace/gitRemove": true,
+      "workspace/gitReclaim": true,
       "workspace/gitList": false,
     };
     const operations: Record<string, unknown> = RACP_OPERATIONS;
@@ -347,10 +348,11 @@ describe("catalog and roles", () => {
     expect(rolesAllowOperation(["controller", "approver"], "workspace/gitPrepare" as never)).toBe(false);
   });
 
-  it("advertises Git and guarded removal as optional server capabilities", () => {
-    const capabilities = { ...initializeResult.capabilities, workspaceGit: true, workspaceGitSafeRemoval: true };
+  it("advertises Git, guarded removal, and reclaim as optional server capabilities", () => {
+    const capabilities = { ...initializeResult.capabilities, workspaceGit: true, workspaceGitSafeRemoval: true, workspaceGitReclaim: true };
     expect(Value.Check(RacpInitializeResultSchema, { ...initializeResult, capabilities })).toBe(true);
     expect(Value.Check(RacpInitializeResultSchema, { ...initializeResult, capabilities: { ...capabilities, workspaceGitSafeRemoval: "yes" } })).toBe(false);
+    expect(Value.Check(RacpInitializeResultSchema, { ...initializeResult, capabilities: { ...capabilities, workspaceGitReclaim: "yes" } })).toBe(false);
     expect(Value.Check(RacpInitializeResultSchema, initializeResult)).toBe(true);
     expect(Value.Check(RacpInitializeResultSchema, { ...initializeResult, capabilities: { ...capabilities, workspaceGit: "yes" } })).toBe(false);
   });
@@ -360,7 +362,7 @@ describe("catalog and roles", () => {
     for (const code of [
       "WORKSPACE_GIT_UNAVAILABLE", "WORKSPACE_GIT_AUTH_REQUIRED", "WORKSPACE_GIT_REPOSITORY_NOT_FOUND",
       "WORKSPACE_GIT_BRANCH_NOT_FOUND", "WORKSPACE_GIT_NOT_FOUND", "WORKSPACE_GIT_BUSY", "WORKSPACE_GIT_JOB_NOT_FOUND",
-      "WORKSPACE_GIT_FAILED", "WORKSPACE_GIT_TRANSPORT_REFUSED",
+      "WORKSPACE_GIT_FAILED", "WORKSPACE_GIT_SETUP_FAILED", "WORKSPACE_GIT_TRANSPORT_REFUSED",
     ]) {
       expect(codes[code], code).toEqual({ retriable: false });
       expect(Object.values(ErrorCodes)).toContain(code);

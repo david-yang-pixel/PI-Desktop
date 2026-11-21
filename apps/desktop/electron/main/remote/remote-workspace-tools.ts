@@ -57,6 +57,10 @@ export function createRemoteWorkspaceToolRelay(host: HostReply, deps: Dependenci
           ...(request.expectedCommandShellId ? { expectedCommandShellId: request.expectedCommandShellId } : {}),
           ...(request.expectedCommandShellDialect ? { expectedCommandShellDialect: request.expectedCommandShellDialect } : {}),
         });
+        if (deps.isCurrent()) {
+          await host.call("sessionWorkspace.touchActivity", { sessionId: request.sessionId })
+            .catch((error) => deps.log("Could not record repository tool activity", error));
+        }
         if (!deps.isCurrent() || cancelled.has(key)) throw Object.assign(new Error("remote tool was cancelled"), { errorCode: "TOOL_ABORTED" });
       } catch (error) {
         result = failure(error);

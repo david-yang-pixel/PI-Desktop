@@ -165,6 +165,7 @@ mod tests {
                 setup_script: None,
                 setup_status: SetupStatus::None,
                 setup_log_tail: None,
+                recovery: Default::default(),
             },
         )
         .unwrap();
