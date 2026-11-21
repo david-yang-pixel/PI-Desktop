@@ -605,14 +605,28 @@ session root as working directory and stream through `terminal.output`.
 New Desktop remote projects keep the Agent, transcript, project metadata, model
 selection and provider transport locally. These additive, owner-only operations
 serve their remote tool workspace without creating a Host project or session.
-Legacy remote-Agent operations above remain unchanged.
+A Host that advertises `workspaceEnvironment` also supports saved environment
+configuration for sessions without a repository:
+
+- An owner can supply `environment: { variables, setupScript? }` to
+  `session/create`. Setup runs in the new Host-owned session's tool workspace
+  before creation returns. The Host saves variables with the session for Bash.
+- `workspace/setupEnvironment` is owner-only and accepts `{ path, environment }`
+  for a Desktop-owned remote folder. It runs setup in the canonical directory
+  without creating a Host session. Desktop sends the saved variables with
+  subsequent Bash requests for the session.
+- A setup run returns `{ status: "ok" | "failed", logTail }` with a bounded log
+  tail. For `session/create` it is the optional `setup` response field. Both
+  paths use the same environment limits and reserved names as Git workspaces.
 
 - `workspace/toolShell` accepts `{}` and returns `{ shell: CommandShellOption }`.
   Desktop supplies this effective Host shell to its local Agent. Bash execution
   verifies the same shell id and dialect, including a second check before spawn.
 - `workspace/toolExecute` accepts `{ path, sessionId, turnId, toolCallId,
   toolName, args, timeoutMs?, expectedCommandShellId?,
-  expectedCommandShellDialect? }`. Only Read, Glob, Grep, Write, Edit and Bash are
+  expectedCommandShellDialect?, variables? }`. The optional variables require
+  a Bash request and `workspaceEnvironment` support. Only Read, Glob, Grep,
+  Write, Edit and Bash are
   accepted; extra top-level fields and provider/credential inputs are rejected.
   `path` is the owner-selected absolute workspace root, independently
   canonicalized by the Host. Local permissions and tool admission precede this
@@ -814,11 +828,10 @@ for the calling connection. The Host keeps it in `pi-host` memory only and
 drops it on `workspace/gitCredentialClear` and when that connection closes
 (security §3.7). Desktop sends it again after every connect and reconnect.
 
-**Tool environment.** `workspace/toolExecute` is unchanged on the wire. When
-its root is inside a worktree the Host prepared, Bash also receives the
-worktree's variables, `PI_WORKTREE_ROOT`, `PI_PROJECT_ROOT`, and the git
-configuration that sends the session's repository through the credential
-proxy. Any other root behaves exactly as before.
+**Tool environment.** When `workspace/toolExecute` runs in a worktree the
+Host prepared, Bash receives the worktree's saved variables, `PI_WORKTREE_ROOT`,
+`PI_PROJECT_ROOT`, and the Git configuration for the repository credential
+proxy. A registered Git worktree does not accept caller-supplied variables.
 
 ### 6.3 Deferred operations
 

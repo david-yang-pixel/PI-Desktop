@@ -36,8 +36,15 @@ For repository sessions, open **Settings → Remote Hosts → Environments** to
 adjust the idle reclaim interval. The default is 72 hours, and `0` disables
 reclamation for that environment. Desktop checks connected Hosts and catches up
 on reconnect. A reclaimed checkout frees disk space while retaining the session,
-work branch and shared clone. Send a message to restore the checkout and run its
-setup. A failed restore keeps the new message queued for retry.
+work branch and shared clone. After reclaim, the Host also attempts a bounded
+incremental repack of the shared clone's Git objects while retaining refs and
+worktree history. Send a message to restore the checkout and run its setup. A
+failed restore keeps the new message queued for retry.
+
+Settings loads leftover worktrees for connected Hosts and refreshes them on
+reconnect and after a removal. You can also refresh manually. Removing a
+leftover opens a confirmation that shows its uncommitted file and unpushed
+commit counts.
 
 Ignored files are protected by default. Ignored `node_modules` directories and
 ignored build directories declared in the environment or in a tracked

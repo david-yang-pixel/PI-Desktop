@@ -152,8 +152,9 @@ export function createSessionCatalog(
       const host = requireHost(getHost);
       const projectPath = await projectPathFor(input.projectId, host);
       const result = await host
-        .call<{ session?: HostSessionRecord | null }>("session.create", {
+        .call<{ session?: HostSessionRecord | null; setup?: import("@pi-desktop/shared").WorkspaceEnvironmentSetupResult }>("session.create", {
           ...(input.title ? { title: input.title } : {}),
+          ...(input.environment ? { environment: input.environment } : {}),
           ...(input.mode ? { mode: input.mode } : {}),
           ...(input.providerId ? { providerId: input.providerId } : {}),
           ...(input.modelId ? { modelId: input.modelId } : {}),
@@ -174,7 +175,7 @@ export function createSessionCatalog(
           })
           .catch(hostError);
       }
-      return get(host, result.session.id);
+      return { ...await get(host, result.session.id), ...(result.setup ? { setup: result.setup } : {}) };
     },
     async configure(sessionId, input) {
       const host = requireHost(getHost);

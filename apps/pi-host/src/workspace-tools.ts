@@ -31,6 +31,13 @@ export function createWorkspaceTools(
     await entry.host.call("tools.workspaceAbort", { sessionId: entry.sessionId, toolCallId: entry.toolCallId });
   };
   return {
+    async setupEnvironment({ path, environment }) {
+      const host = getHost();
+      if (!host) throw unavailable();
+      const result = await host.call<import("@pi-desktop/shared").WorkspaceEnvironmentSetupResult>("tools.workspaceSetupEnvironment", { path, environment });
+      if (getHost() !== host) throw unavailable();
+      return result;
+    },
     async execute(input: WorkspaceToolExecute, owner: Owner): Promise<WorkspaceToolResult> {
       if (!owner.deviceId || !TOOLS.has(input.toolName) || !isAbsolute(input.path) || /[\u0000-\u001f]/.test(input.path)
         || Buffer.byteLength(JSON.stringify(input.args)) > MAX_BYTES) throw new RacpError("INVALID_ARGUMENT", "invalid workspace tool request");

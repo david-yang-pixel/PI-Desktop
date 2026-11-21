@@ -119,6 +119,7 @@ export type RemoteWorkspaceCapabilities = {
   workspaceGit: boolean;
   workspaceGitSafeRemoval?: boolean;
   workspaceGitReclaim?: boolean;
+  workspaceEnvironment?: boolean;
 };
 
 /** The owner-only git workspace operations (D687). */
@@ -165,6 +166,7 @@ export function createRacpRemoteHostClient(
       workspaceGit: capabilities.workspaceGit === true,
       ...(capabilities.workspaceGitSafeRemoval === true ? { workspaceGitSafeRemoval: true } : {}),
       ...(capabilities.workspaceGitReclaim === true ? { workspaceGitReclaim: true } : {}),
+      ...(capabilities.workspaceEnvironment === true ? { workspaceEnvironment: true } : {}),
     };
   };
   const requireWorkspace = (capability?: keyof RemoteWorkspaceCapabilities) => {

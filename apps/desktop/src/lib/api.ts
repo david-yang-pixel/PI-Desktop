@@ -152,6 +152,7 @@ import type {
   RemoteHostRegisterProjectResult,
   RemoteHostSessionsResult,
   RemoteHostCreateSessionRequest,
+  WorkspaceEnvironmentSetupResult,
   RemoteHostCreateSessionResult,
   RemoteHostSyncProvidersRequest,
   RemoteHostSyncProvidersResult,
@@ -426,6 +427,7 @@ export type CreateSessionInput = Partial<SessionSummary> & {
   /** Run the session in its own git worktree (ADR 0329). */
   isolated?: boolean;
   deferRemoteWorkspace?: boolean;
+  remoteEnvironmentId?: string;
 };
 
 function normalizeSession(session: SessionSummary): SessionSummary {
@@ -824,7 +826,7 @@ export const api = {
       sessions: result.sessions.map(normalizeSession),
     })),
   createSession: (input?: CreateSessionInput) =>
-    invoke<{ session: SessionSummary; worktree?: CreatedSessionWorktree }>(
+    invoke<{ session: SessionSummary; worktree?: CreatedSessionWorktree; setup?: WorkspaceEnvironmentSetupResult }>(
       IPC.invoke.sessionCreate,
       input ?? {},
     ).then((result) => ({ ...result, session: normalizeSession(result.session) })),

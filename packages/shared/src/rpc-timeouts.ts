@@ -98,6 +98,7 @@ export function rpcTimeoutMs(
     return WORKTREE_DELEGATE_RPC_TIMEOUT_MS;
   }
   if (method === "configSync.syncNow") return undefined;
-  if (method === "tools.execute" || method === "tools.workspaceExecute") return undefined;
+  if (method === "tools.execute" || method === "tools.workspaceExecute" || method === "tools.workspaceSetupEnvironment") return undefined;
+  if (method === "session.create" && _params && typeof _params === "object" && "environment" in _params) return undefined;
   return DEFAULT_RPC_TIMEOUT_MS;
 }

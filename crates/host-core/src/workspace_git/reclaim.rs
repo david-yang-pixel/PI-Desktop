@@ -786,6 +786,62 @@ fn reclaimed(record: &WorktreeRecord, already: bool) -> Result<Value> {
     Ok(value)
 }
 
+/// Called with the repository lock after the recovery record is complete.
+#[cfg(unix)]
+async fn compact_shared_objects(git: &GitRunner, paths: &RegisteredPaths) -> Result<()> {
+    let objects = paths.common.join("objects");
+    let pack = objects.join("pack");
+    verify_dir(&objects)?;
+    verify_dir(&pack)?;
+    verify_dir(&objects.join("info"))?;
+    verify_mounts(&objects)?;
+    if !absent(&objects.join("info/alternates"))? || !absent(&objects.join("info/http-alternates"))?
+    {
+        return Err(uncertain());
+    }
+    // Git traverses the loose-object fanout directories when dropping copies
+    // already in packs. Do not let that traversal reach another object store.
+    for entry in fs::read_dir(&objects)? {
+        if entry?.file_type()?.is_symlink() {
+            return Err(uncertain());
+        }
+    }
+    // A redirected pack could make Git consider a local loose object
+    // redundant even though its only packed copy is outside this repository.
+    for entry in fs::read_dir(&pack)? {
+        if !entry?.file_type()?.is_file() {
+            return Err(uncertain());
+        }
+    }
+    // The incremental form packs loose objects and removes redundant loose
+    // copies. It does not expire objects, reflogs, or worktree metadata.
+    let output = git
+        .run_local_with_timeout(
+            &paths.main,
+            &[
+                "--no-replace-objects",
+                "repack",
+                "-d",
+                "-n",
+                "-l",
+                "-q",
+                "--no-write-bitmap-index",
+                "--threads=2",
+                "--window-memory=32m",
+            ],
+            std::time::Duration::from_secs(5),
+        )
+        .await
+        .map_err(|error| repository::from_git_error("repack", error))?;
+    if !output.success() {
+        return Err(WorkspaceGitError::failed(format!(
+            "git repack exited with status {}",
+            output.status
+        )));
+    }
+    Ok(())
+}
+
 /// The caller holds the exclusive session guard for the entire operation.
 /// Each persist commits the complete record before the next destructive step.
 pub async fn execute<F>(
@@ -932,5 +988,9 @@ where
     record.setup_status = SetupStatus::None;
     record.setup_log_tail = None;
     persist(record.clone()).await?;
+    #[cfg(unix)]
+    if let Err(error) = compact_shared_objects(git, &paths).await {
+        tracing::warn!(%error, "could not compact shared workspace Git objects after reclaim");
+    }
     reclaimed(&record, false)
 }

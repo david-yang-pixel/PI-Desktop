@@ -12,6 +12,9 @@ import {
   isModelConfigImportSource,
   isModeId,
   type ModelConfigImportDraft,
+  type ProjectGroupRecord,
+  type WorkspaceEnvironmentSetupResult,
+  type WorkspaceGitEnvironment,
   type Mode,
   type SessionThinkingLevel,
 } from "@pi-desktop/shared";
@@ -249,10 +252,32 @@ export function registerSessionIpc({
     const mode = input.mode ?? "agent";
     const modeSnapshot = await modeCatalog.snapshotFor(mode);
     const { providers, defaults } = await sessionCapabilityContext();
-    const { deferRemoteWorkspace, ...sessionInput } = input;
+    const { deferRemoteWorkspace, remoteEnvironmentId, environment: _untrustedEnvironment, ...sessionInput } = input;
+    let setup: WorkspaceEnvironmentSetupResult | undefined;
+    let environment: WorkspaceGitEnvironment | undefined;
+    if (remoteEnvironmentId !== undefined) {
+      const invalid = () => Object.assign(new Error("Invalid remote folder environment"), { errorCode: ErrorCodes.INVALID_ARGUMENT });
+      if (typeof remoteEnvironmentId !== "string" || !remoteEnvironmentId || remoteEnvironmentId.length > 512
+        || typeof sessionInput.projectPath !== "string" || sessionInput.isolated || deferRemoteWorkspace) throw invalid();
+      const workspaces = getRepositorySessions?.()?.workspaces;
+      const boot = getActiveRemoteHostsBoot();
+      if (!workspaces || !boot) throw invalid();
+      const [{ groups }, selected] = await Promise.all([
+        currentHost.call<{ groups: ProjectGroupRecord[] }>("project.groups.list"),
+        workspaces.getEnvironment(remoteEnvironmentId),
+      ]);
+      const group = groups.find((candidate) => candidate.primaryPath === sessionInput.projectPath);
+      if (!group?.remote || group.repository || group.remote.hostKey !== selected.hostKey) throw invalid();
+      if (selected.setupScript.trim() || selected.variables.length) {
+        setup = await boot.prepareWorkspaceEnvironment(selected.hostKey, {
+          path: group.remote.path, environment: { setupScript: selected.setupScript, variables: selected.variables },
+        });
+        environment = { variables: selected.variables };
+      }
+    }
     const res = await currentHost.call<{ session?: (RuntimeSession & { id?: string }) | null }>(
       "session.create",
-      { ...sessionInput, mode, modeSnapshot },
+      { ...sessionInput, mode, modeSnapshot, ...(environment ? { environment } : {}) },
     );
     if (res.session?.id && res.session.projectPath?.startsWith("remote-project:") && deferRemoteWorkspace !== true) {
       const repositorySessions = getRepositorySessions?.();
@@ -263,7 +288,7 @@ export function registerSessionIpc({
     }
     logger.app("session", "info", "session created", { sessionId: res.session?.id });
     if (!res.session) return res;
-    return { ...res, session: enrichSession(res.session, providers, defaults) };
+    return { ...res, session: enrichSession(res.session, providers, defaults), ...(setup ? { setup } : {}) };
   });
   handle(
     IPC.invoke.sessionFork,

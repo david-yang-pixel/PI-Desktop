@@ -28,13 +28,14 @@ same Host and repository.
 The composer also allows No repository. Without a selected project folder,
 this uses the existing RACP session/create flow without a project id. The
 remote Host owns the session and its scratch directory, and provides the
-default model. This path requires no GitHub credential, worktree, or RACP
-schema change. Saved setup scripts and variables continue to apply to
-repository workspaces.
+default model. A selected remote folder continues to use the Desktop-owned
+session and its local model. Either path can use saved environment setup and
+variables on a Host that advertises `workspaceEnvironment`, without a GitHub
+credential or worktree.
 
 ## Consequences
 
 The main clone provides common Git storage. A per-session checkout protects
-working files and permits parent-only commits to survive a fork. SQLite and
-RACP schema versions stay the same. A dedicated project per session would
+working files and permits parent-only commits to survive a fork. Environment
+support adds optional RACP fields within the existing protocol version. A dedicated project per session would
 duplicate navigation state. A new SQL table would require a schema migration.

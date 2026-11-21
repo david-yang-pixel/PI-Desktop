@@ -145,23 +145,30 @@ pub(super) async fn execute_remote_tool(
     }
     let request_id = uuid::Uuid::new_v4().to_string();
     let (sender, receiver) = oneshot::channel();
-    state
-        .lock()
-        .await
-        .remote_execs
-        .insert(request_id.clone(), sender);
-    emit_notification(
-        tx,
-        "tools.remoteExecute",
-        json!({
+    let variables = {
+        let mut st = state.lock().await;
+        let variables = if p.tool_name == "Bash" {
+            match super::session_environment::load(&st.db, &p.session_id) {
+                Ok(variables) => variables,
+                Err(error) => return failure(p, "INTERNAL", &error.message, started),
+            }
+        } else {
+            Vec::new()
+        };
+        st.remote_execs.insert(request_id.clone(), sender);
+        variables
+    };
+    let mut request = json!({
             "requestId": request_id, "sessionId": p.session_id, "turnId": p.turn_id,
             "toolCallId": p.tool_call_id, "toolName": p.tool_name, "args": p.args,
             "remoteWorkspace": remote, "timeoutMs": p.timeout_ms,
             "expectedCommandShellId": p.expected_command_shell_id,
             "expectedCommandShellDialect": p.expected_command_shell_dialect,
-        }),
-    )
-    .await;
+    });
+    if !variables.is_empty() {
+        request["variables"] = json!(variables);
+    }
+    emit_notification(tx, "tools.remoteExecute", request).await;
     let timeout_ms = tools::effective_timeout_ms(&p.tool_name, p.timeout_ms).unwrap_or(120_000);
     let outcome = tokio::select! {
         outcome = tokio::time::timeout(Duration::from_millis(timeout_ms.saturating_add(15_000)), receiver) => match outcome {
@@ -303,6 +310,12 @@ pub(super) async fn handle(
             .as_ref(),
     )
     .map_err(|error| rpc_err(1002, error.message, "INVALID_PARAMS"))?;
+    let variables = input
+        .as_object_mut()
+        .and_then(|object| object.remove("variables"))
+        .map(super::session_environment::variables)
+        .transpose()?
+        .unwrap_or_default();
     input["mode"] = json!("agent");
     let p: ToolsExecuteParams = serde_json::from_value(input)
         .map_err(|e| rpc_err(1002, e.to_string(), "INVALID_PARAMS"))?;
@@ -354,6 +367,13 @@ pub(super) async fn handle(
                 "REMOTE_WORKSPACE_NOT_READY",
             )
         };
+        if !variables.is_empty() && (registered.is_some() || p.tool_name != "Bash") {
+            return Err(rpc_err(
+                1002,
+                "unexpected workspace variables",
+                "INVALID_PARAMS",
+            ));
+        }
         let worktree_access = if let Some(record) = registered {
             let access = st
                 .workspace_git_locks
@@ -374,8 +394,9 @@ pub(super) async fn handle(
         let cancellation = st
             .register_bash_cancellation(&p.session_id, &p.tool_call_id)
             .map_err(|code| rpc_err(1008, "tool already executing", &code))?;
-        // Empty unless `root` is inside a registered git worktree.
-        let extra_env = if p.tool_name == "Bash" {
+        let extra_env = if !variables.is_empty() {
+            super::session_environment::pairs(variables).collect()
+        } else if p.tool_name == "Bash" {
             crate::workspace_git::environment::for_tool(&st.db, &root, git_proxy_url.as_deref())
         } else {
             Vec::new()

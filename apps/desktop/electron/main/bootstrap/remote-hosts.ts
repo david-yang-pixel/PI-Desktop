@@ -1,7 +1,8 @@
 /** Paired Host lifecycle. Persistence stays in the encrypted registry; session
  * projection and transport recovery live in their own domain modules. */
 import {
-  IPC,
+  IPC, WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS,
+  type WorkspaceEnvironmentSetup, type WorkspaceEnvironmentSetupResult, type WorkspaceGitEnvironment,
   type RacpEventEnvelope, type RacpItemSummary, type RacpProjectSummary, type RacpSession,
   type RemoteHostBootstrapRequest, type RemoteHostBootstrapResult,
   type RemoteHostCreateSessionRequest, type RemoteHostSummary, type RemoteHostBrowseProjectsResult,
@@ -34,6 +35,7 @@ export type RemoteWorkspaceToolInput = {
   hostKey: string; path: string; sessionId: string; turnId: string;
   toolCallId: string; toolName: string; args: unknown; timeoutMs?: number;
   expectedCommandShellId?: string; expectedCommandShellDialect?: string;
+  variables?: WorkspaceGitEnvironment["variables"];
 };
 export type BootRemoteHostsOptions = {
   dataDir: string;
@@ -69,7 +71,8 @@ export interface RemoteHostsBoot {
   projects(hostKey: string): Promise<RacpProjectSummary[]>;
   browseProjects(hostKey: string, path?: string): Promise<RemoteHostBrowseProjectsResult>;
   registerProject(hostKey: string, path: string): Promise<RacpProjectSummary & { path?: string }>;
-  createSession(request: RemoteHostCreateSessionRequest): Promise<SessionSummary>;
+  createSession(request: RemoteHostCreateSessionRequest): Promise<SessionSummary & { setup?: WorkspaceEnvironmentSetupResult }>;
+  prepareWorkspaceEnvironment(hostKey: string, input: WorkspaceEnvironmentSetup): Promise<WorkspaceEnvironmentSetupResult | undefined>;
   syncProviders(request: RemoteHostSyncProvidersRequest): Promise<RemoteHostSyncProvidersResult>;
   executeWorkspaceTool(request: RemoteWorkspaceToolInput): Promise<unknown>;
   abortWorkspaceTool(request: { hostKey: string; sessionId: string; toolCallId: string }): Promise<void>;
@@ -393,6 +396,18 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     return task;
   };
 
+  async function requireWorkspaceEnvironment(key: string) {
+    await ensureReady(key);
+    const live = connectedHost(key);
+    if (!live) throw unavailable();
+    if (!live.adapter.workspaceCapabilities?.()?.workspaceEnvironment) {
+      throw Object.assign(new Error("Upgrade pi-host to use Environment setup and variables in sessions without a repository"), {
+        errorCode: "HOST_VERSION_MISMATCH",
+      });
+    }
+    return live;
+  }
+
   const workspaceGit = createWorkspaceGitBoot({
     connectedHost,
     ensureReady: (key) => ensureReady(key),
@@ -541,8 +556,30 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
         sessionId: input.sessionId, toolCallId: input.toolCallId,
       });
     },
+    async prepareWorkspaceEnvironment(hostKey, input) {
+      const live = await requireWorkspaceEnvironment(hostKey);
+      if (!input.environment.setupScript?.trim()) return undefined;
+      const result = await live.adapter.client.request<WorkspaceEnvironmentSetupResult>(
+        "workspace/setupEnvironment", input, WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS,
+      );
+      if (connectedHost(hostKey) !== live) throw unavailable();
+      return result;
+    },
     async createSession(input) {
-      const session = await catalog.createSession(input);
+      let environment: WorkspaceGitEnvironment | undefined;
+      if (input.environmentId) {
+        const workspaces = getRemoteRepositorySessions()?.workspaces;
+        if (!workspaces) throw unavailable();
+        const selected = await workspaces.getEnvironment(input.environmentId);
+        if (selected.hostKey !== input.hostKey) {
+          throw Object.assign(new Error("Environment belongs to another Host"), { errorCode: "INVALID_ARGUMENT" });
+        }
+        if (selected.variables.length || selected.setupScript.trim()) {
+          await requireWorkspaceEnvironment(input.hostKey);
+          environment = { variables: selected.variables, setupScript: selected.setupScript };
+        }
+      }
+      const session = await catalog.createSession(input, environment);
       changed();
       return session;
     },

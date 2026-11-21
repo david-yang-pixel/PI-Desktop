@@ -179,6 +179,7 @@ export class RacpServer {
       toolRelay: false,
       terminal: Boolean(options.operations.terminal),
       workspaceTools: Boolean(options.operations.workspaceTools),
+      ...(options.operations.workspaceTools?.setupEnvironment ? { workspaceEnvironment: true } : {}),
       workspaceFiles: Boolean(options.operations.workspaceFiles),
       workspacePluginFiles: Boolean(options.operations.workspacePluginFiles),
       workspaceGit: Boolean(options.operations.workspaceGit),

@@ -29,8 +29,12 @@ same checkout when the first attempt fails.
 
 ## Consequences
 
-No shared clone eviction is necessary for checkout reclamation. Protected or
-ambiguous workspaces can continue to use disk space until the operator resolves
+After a successful reclaim, the Linux and macOS Host attempts an incremental
+Git repack under the shared repository lock. It packs loose objects and removes
+redundant loose copies while preserving the clone, refs, existing history, and
+linked worktree metadata. The repack has a five-second limit. A repack failure
+leaves the completed reclaim available for wake. Protected or ambiguous
+workspaces can continue to use disk space until the operator resolves
 the reason for retention. Hosted work turns still depend on Desktop. Hosts that
 have not negotiated reclamation remain eligible for the existing workspace
 operations without automatic reclamation.

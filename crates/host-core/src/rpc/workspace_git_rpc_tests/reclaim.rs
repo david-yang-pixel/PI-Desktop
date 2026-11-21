@@ -140,6 +140,112 @@ async fn reclaim_and_strict_wake_preserve_the_branch_and_retry_setup_in_place() 
     );
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn reclaim_compacts_loose_objects_without_expiring_shared_repository_state() {
+    let f = Fixture::new();
+    let session = "compact";
+    f.prepare(session, "main").await;
+    let main = f.main_path();
+    let path = f.worktree_path(session);
+    let reclaimed_commit = commit_file(&path, "published.txt", "published");
+    publish(&path);
+
+    let unknown = f.dir.path().join("unknown-worktree");
+    git_cmd(
+        &main,
+        &["worktree", "add", "--detach", unknown.to_str().unwrap()],
+    );
+    let detached_commit = commit_file(&unknown, "private.txt", "unpublished detached commit");
+    fs::write(unknown.join("dirty"), "work in progress").unwrap();
+    fs::write(main.join("main-local"), "main checkout data").unwrap();
+
+    let history_ref = "refs/heads/local-history";
+    let main_commit = rev_parse(&main, "HEAD");
+    git_cmd(
+        &main,
+        &[
+            "update-ref",
+            "--create-reflog",
+            history_ref,
+            &detached_commit,
+        ],
+    );
+    let reflog_commit = commit_file(&unknown, "private.txt", "reflog-only commit");
+    git_cmd(&main, &["update-ref", history_ref, &reflog_commit]);
+    git_cmd(&main, &["update-ref", history_ref, &main_commit]);
+    git_cmd(&unknown, &["checkout", "--detach", &detached_commit]);
+
+    // The redundant loose copy should be deleted, while a loose object that
+    // only exists here must survive even under aggressive user GC settings.
+    git_cmd(&main, &["config", "gc.pruneExpire", "now"]);
+    git_cmd(&main, &["config", "gc.reflogExpire", "now"]);
+    git_cmd(&main, &["config", "gc.reflogExpireUnreachable", "now"]);
+    git_cmd(&main, &["config", "gc.worktreePruneExpire", "now"]);
+    let orphan_file = f.dir.path().join("orphan");
+    fs::write(&orphan_file, "unreachable payload").unwrap();
+    let orphan = git_cmd(&main, &["hash-object", "-w", orphan_file.to_str().unwrap()]);
+    let loose_object = |oid: &str| main.join(".git/objects").join(&oid[..2]).join(&oid[2..]);
+    assert!(loose_object(&reclaimed_commit).is_file());
+    let refs = git_cmd(&main, &["show-ref", "--head"]);
+    let reflog = git_cmd(&main, &["reflog", "show", history_ref]);
+    let checkout_reflog = git_cmd(&unknown, &["reflog", "show", "HEAD"]);
+
+    assert_eq!(reclaim(&f, session).await["reclaimed"], true);
+    assert!(!loose_object(&reclaimed_commit).exists());
+    assert!(loose_object(orphan.trim()).is_file());
+    assert_eq!(git_cmd(&main, &["show-ref", "--head"]), refs);
+    assert_eq!(git_cmd(&main, &["reflog", "show", history_ref]), reflog);
+    assert_eq!(
+        git_cmd(&unknown, &["reflog", "show", "HEAD"]),
+        checkout_reflog
+    );
+    assert_eq!(rev_parse(&unknown, "HEAD"), detached_commit);
+    assert_eq!(
+        git_cmd(&main, &["cat-file", "-t", &reflog_commit]).trim(),
+        "commit"
+    );
+    assert_eq!(
+        fs::read_to_string(unknown.join("dirty")).unwrap(),
+        "work in progress"
+    );
+    assert_eq!(
+        fs::read_to_string(main.join("main-local")).unwrap(),
+        "main checkout data"
+    );
+    assert_eq!(worktree_count(&main), 2);
+    let (job, _) = f.wait(&f.start_prepare(strict(&f, session)).await).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(rev_parse(&path, "HEAD"), reclaimed_commit);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn reclaim_skips_compaction_of_redirected_objects_and_can_still_wake() {
+    use std::os::unix::fs::symlink;
+
+    let f = Fixture::new();
+    let session = "redirected-objects";
+    f.prepare(session, "main").await;
+    let path = f.worktree_path(session);
+    let commit = commit_file(&path, "published.txt", "published");
+    publish(&path);
+
+    let fanout = f.main_path().join(".git/objects").join(&commit[..2]);
+    let outside = f.dir.path().join("outside-object-store");
+    fs::rename(&fanout, &outside).unwrap();
+    symlink(&outside, &fanout).unwrap();
+    let object = outside.join(&commit[2..]);
+    let content = fs::read(&object).unwrap();
+
+    assert_eq!(reclaim(&f, session).await["reclaimed"], true);
+    assert_eq!(fs::read(&object).unwrap(), content);
+    assert!(!path.exists());
+    let (job, _) = f.wait(&f.start_prepare(strict(&f, session)).await).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(rev_parse(&path, "HEAD"), commit);
+}
+
 #[tokio::test]
 async fn reclaim_does_not_remove_dirty_unpublished_or_ignored_files() {
     let f = Fixture::new();

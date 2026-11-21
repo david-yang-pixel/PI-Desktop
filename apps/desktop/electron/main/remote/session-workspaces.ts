@@ -337,7 +337,7 @@ export function createSessionWorkspaces(deps: {
   }
 
   return {
-    git, binding, update, listBindings, announce, ensureSession, list, start, recoverMissingCheckout, touch, reclaim, wake,
+    git, binding, update, listBindings, announce, ensureSession, list, getEnvironment, start, recoverMissingCheckout, touch, reclaim, wake,
     async get(sessionId: string) {
       const current = await binding(sessionId);
       return current ? publicBinding(current) : null;

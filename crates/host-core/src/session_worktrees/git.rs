@@ -187,6 +187,21 @@ impl GitRunner {
             .await
     }
 
+    /// Run bounded local maintenance without allowing Git to fetch missing objects.
+    #[cfg(unix)]
+    pub async fn run_local_with_timeout(
+        &self,
+        dir: &Path,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<GitOutput, GitError> {
+        let mut command = self.command(Location::WorkTree(dir), args);
+        command
+            .env("GIT_ALLOW_PROTOCOL", "")
+            .env("GIT_NO_LAZY_FETCH", "1");
+        Self::run_with_progress(command, args, timeout, |_| {}).await
+    }
+
     /// Run a clone, fetch, or push in `dir` with a caller-chosen limit and
     /// per-command configuration, streaming each `\r`- or `\n`-delimited stderr
     /// segment to `on_stderr_line` while preserving the full raw stderr in
@@ -209,13 +224,25 @@ impl GitRunner {
         config: &[(&str, &str)],
         args: &[&str],
         timeout: Duration,
+        on_stderr_line: F,
+    ) -> Result<GitOutput, GitError>
+    where
+        F: FnMut(&str) + Send,
+    {
+        let command = self.network_command(dir, config, args);
+        Self::run_with_progress(command, args, timeout, on_stderr_line).await
+    }
+
+    async fn run_with_progress<F>(
+        mut command: Command,
+        args: &[&str],
+        timeout: Duration,
         mut on_stderr_line: F,
     ) -> Result<GitOutput, GitError>
     where
         F: FnMut(&str) + Send,
     {
         use tokio::io::AsyncReadExt;
-        let mut command = self.network_command(dir, config, args);
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn().map_err(|error| {
@@ -402,7 +429,7 @@ impl GitRunner {
     }
 }
 
-/// The process group of a running network git. Dropping it while armed sends
+/// The process group of a running Git command. Dropping it while armed sends
 /// `SIGKILL` to every process in the group.
 struct ProcessGroup {
     #[cfg(unix)]

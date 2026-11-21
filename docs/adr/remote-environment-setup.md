@@ -17,7 +17,16 @@ environment. A new worktree runs the script before the first prompt dispatches.
 The Host rejects reserved variable names, duplicate names, and oversized inputs.
 Tools inside the worktree receive the saved variables. The worktree becomes
 usable after a script failure, with the bounded log tail available in the
-composer. When the Host restarts, interrupted setup is recorded as failed.
+composer. When the Host restarts, interrupted repository setup is recorded
+as failed.
+
+Sessions without a repository also use the chosen environment. Setup runs
+before the first prompt in the selected remote folder or in the Host-owned
+session's scratch workspace. Desktop shows the bounded failure output if the
+script exits unsuccessfully. Bash receives the session's saved variables on
+subsequent turns. Desktop-owned folder sessions retain the variables locally
+and send them only on admitted Bash requests. Older Hosts remain compatible
+with sessions whose environments have no setup or variables.
 
 ## Consequences
 
