@@ -55,6 +55,8 @@ pub struct UserSubagentRecord {
     pub level: Option<String>,
     pub description: String,
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overrides_builtin: bool,
     #[serde(default)]
     pub scope: ActivationScope,
     #[serde(default)]
@@ -87,6 +89,7 @@ pub struct UserSubagentInput {
     pub thinking_level: Option<String>,
     pub max_tokens: Option<u32>,
     pub enabled: Option<bool>,
+    pub overrides_builtin: Option<bool>,
     /// Kept for protocol compatibility; subagents are global-only now.
     #[allow(dead_code)]
     pub scope: Option<ActivationScope>,
@@ -212,6 +215,9 @@ fn parse_record(path: &Path, state: &CapabilityState) -> Option<UserSubagentReco
         level: Some("global".into()),
         description,
         enabled,
+        overrides_builtin: front
+            .get("overridesbuiltin")
+            .is_some_and(|value| value == "true"),
         scope: ActivationScope::default(),
         tools,
         model: front
@@ -231,6 +237,9 @@ fn parse_record(path: &Path, state: &CapabilityState) -> Option<UserSubagentReco
 fn render_document(record: &UserSubagentRecord, body: &str) -> String {
     let mut output = String::from("---\n");
     output.push_str(&format!("name: {}\n", record.name));
+    if record.overrides_builtin {
+        output.push_str("overridesBuiltin: true\n");
+    }
     output.push_str(&format!(
         "description: {}\n",
         record.description.replace('\n', " ")
@@ -347,6 +356,7 @@ impl UserSubagentRegistry {
             level: Some("global".into()),
             description,
             enabled: input.enabled.unwrap_or(true),
+            overrides_builtin: input.overrides_builtin.unwrap_or(false),
             scope: ActivationScope::default(),
             tools,
             model: normalize_model(input.model.as_deref())?,
@@ -400,6 +410,10 @@ impl UserSubagentRegistry {
             .filter(|value| !value.trim().is_empty())
             .map(normalize_name)
             .unwrap_or_else(|| current.name.clone());
+        let overrides_builtin = current.overrides_builtin || input.overrides_builtin == Some(true);
+        if overrides_builtin && name != current.name {
+            bail!("SUBAGENT_INVALID: a built-in override must keep its handle");
+        }
         if name != current.name && self.scan()?.iter().any(|record| record.id == name) {
             bail!("SUBAGENT_INVALID: a subagent named \"{name}\" already exists");
         }
@@ -421,6 +435,7 @@ impl UserSubagentRegistry {
         let mut next = current.clone();
         next.id = name.clone();
         next.name = name.clone();
+        next.overrides_builtin = overrides_builtin;
         next.description = description;
         next.tools = tools;
         next.model = match input.model {
@@ -521,6 +536,21 @@ impl UserSubagentRegistry {
     pub fn disabled_builtins(&self) -> Vec<String> {
         self.builtins
             .disabled_ids(SUBAGENT_BUILTIN_KIND, CapabilityLevel::Global)
+    }
+
+    /// A disabled edited definition also masks the shipped version. Ordinary
+    /// same-name user documents retain their existing fallback behavior.
+    pub fn effective_disabled_builtins(&mut self) -> Result<Vec<String>> {
+        let mut disabled = self.disabled_builtins();
+        disabled.extend(
+            self.scan()?
+                .into_iter()
+                .filter(|record| record.overrides_builtin && !record.enabled)
+                .map(|record| record.id),
+        );
+        disabled.sort();
+        disabled.dedup();
+        Ok(disabled)
     }
 
     /// Turn one builtin handle on or off, returning the normalized handle.
@@ -645,6 +675,7 @@ mod tests {
             level: Some("global".into()),
             description: "Review code".into(),
             enabled: false,
+            overrides_builtin: false,
             scope: ActivationScope::default(),
             tools: vec!["Read".into()],
             model: None,
@@ -667,6 +698,7 @@ mod tests {
             level: Some("global".into()),
             description: "Review code".into(),
             enabled: true,
+            overrides_builtin: false,
             scope: ActivationScope::default(),
             tools: vec!["Read".into()],
             model: None,
@@ -808,5 +840,55 @@ mod tests {
             .path()
             .join("agent-capabilities/subagent-builtins.json")
             .exists());
+    }
+
+    #[test]
+    fn edited_builtin_preserves_handle_and_controls_the_effective_definition() {
+        use crate::agent_capabilities::test_support;
+
+        let data = tempdir().unwrap();
+        let agents = tempdir().unwrap();
+        test_support::with_global_agents(agents.path(), || {
+            let mut registry = UserSubagentRegistry::new(data.path());
+            registry
+                .create(UserSubagentInput {
+                    name: Some("fixer".into()),
+                    description: Some("Customized fixer".into()),
+                    body: Some("Run the regression check.".into()),
+                    enabled: Some(false),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(registry.effective_disabled_builtins().unwrap().is_empty());
+
+            registry
+                .update(
+                    "fixer",
+                    UserSubagentInput {
+                        overrides_builtin: Some(true),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let mut reopened = UserSubagentRegistry::new(data.path());
+            let (record, body) = reopened.read("fixer").unwrap().unwrap();
+            assert!(record.overrides_builtin);
+            assert_eq!(body, "Run the regression check.");
+            assert_eq!(reopened.effective_disabled_builtins().unwrap(), ["fixer"]);
+            assert!(reopened.active_for(None).unwrap().is_empty());
+
+            reopened.set_enabled("fixer", true).unwrap();
+            assert_eq!(reopened.active_for(None).unwrap()[0].id, "fixer");
+            assert!(reopened.effective_disabled_builtins().unwrap().is_empty());
+            assert!(reopened
+                .update(
+                    "fixer",
+                    UserSubagentInput {
+                        name: Some("renamed".into()),
+                        ..Default::default()
+                    }
+                )
+                .is_err());
+        });
     }
 }

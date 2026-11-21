@@ -1,4 +1,5 @@
 import { getBuiltinGitHubMcp } from "../github/builtin-mcp";
+import { githubSessionPullRequestTool, type createGitHubSessionPullRequestTool } from "../github/session-pr-tool";
 import { join } from "node:path";
 import {
   capabilitiesFromModelConfig,
@@ -58,6 +59,7 @@ export type SessionLaunchRuntimeDependencies = {
   runtimeState: RuntimeState;
   logger: Logger;
   userMcp: UserMcpRuntime;
+  githubSessionPullRequest?: ReturnType<typeof createGitHubSessionPullRequestTool>;
   plugins: PluginRuntime;
   sessionProjects: Map<string, string | null>;
   dataDir: string;
@@ -87,6 +89,7 @@ export function createSessionLaunchRuntime({
   runtimeState,
   logger,
   userMcp,
+  githubSessionPullRequest,
   plugins,
   sessionProjects,
   dataDir,
@@ -556,6 +559,8 @@ export function createSessionLaunchRuntime({
     const userSkills = await activeUserSkills(projectPath);
     await refreshUserMcp(projectPath);
     const userMcpTools = await userMcp.toolsForProject(projectPath ?? null);
+    const canOpenSessionPullRequest = remoteWorkspace && settings.githubAgentTools !== false
+      && await githubSessionPullRequest?.available(sessionId).catch(() => false);
     // Skill catalog (D174): only id/name/description cross to the sidecar; the
     // document body is fetched on demand through the local `Skill` tool. Host
     // skills come first so a plugin's entry reads as a refinement of them, and
@@ -809,6 +814,7 @@ export function createSessionLaunchRuntime({
           ...(modelConfig ? { modelConfig } : {}),
         },
         pluginTools: [
+          ...(canOpenSessionPullRequest ? [githubSessionPullRequestTool] : []),
           ...plugins
             .getTools()
             .filter((tool) => pluginActiveInProject(tool.pluginId, projectPath))

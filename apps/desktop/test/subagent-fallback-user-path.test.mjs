@@ -15,6 +15,8 @@ import { flushSync } from "react-dom";
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 import { catalogs, flattenCatalog } from "@pi-desktop/i18n";
+import { IPC } from "@pi-desktop/shared";
+import { AgentSubagentsPage } from "../../apps/desktop/src/components/settings/AgentSubagentsPage";
 import { SubagentEditorSheet } from "../../apps/desktop/src/components/settings/SubagentEditorSheet";
 import { useAppStore } from "../../apps/desktop/src/stores/app-store";
 import "../../apps/desktop/src/styles/model-config.css";
@@ -86,12 +88,62 @@ window.fallbackProbe = async () => {
   const save = [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === i18n.t("common.save"));
   flushSync(() => save.click());
   check(JSON.stringify(saved) === JSON.stringify(["account-a/model", "deleted/model", "Other Workspace/model"]), "save changed pin identity or order");
+
+  const definition = { name: "fixer", source: "builtin", description: "Fix issues",
+    prompt: "Default fixer prompt.", tools: ["Read"], enabled: true };
+  let record;
+  let writes = 0;
+  window.piDesktop.invoke = async (channel, input) => {
+    let data;
+    switch (channel) {
+      case IPC.invoke.subagentList: data = { subagents: record ? [record] : [] }; break;
+      case IPC.invoke.subagentCatalog: data = { builtins: record ? [] : [definition] }; break;
+      case IPC.invoke.subagentRead: data = { subagent: record, body: record.body }; break;
+      case IPC.invoke.subagentCreate:
+      case IPC.invoke.subagentUpdate:
+        check(input.id === "fixer" && input.name === "fixer" && input.overridesBuiltin, "built-in edit lost its handle");
+        check(channel === (writes === 0 ? IPC.invoke.subagentCreate : IPC.invoke.subagentUpdate), "built-in edit used the wrong save operation");
+        record = { ...input, path: "/fixture/fixer.md", level: "global" };
+        writes++;
+        data = { subagent: record };
+        break;
+      default: throw new Error("Unexpected subagent IPC: " + channel);
+    }
+    return { ok: true, data };
+  };
+  flushSync(() => rootNode.render(React.createElement(AgentSubagentsPage)));
+  async function until(find, message) {
+    const deadline = performance.now() + 5_000;
+    while (performance.now() < deadline) {
+      const result = find();
+      if (result) return result;
+      await settle();
+    }
+    throw new Error(message);
+  }
+  const editor = () => document.querySelector('[aria-labelledby="subagent-sheet-title"]');
+  const edit = () => action(i18n.t("extensions.subagents.edit"));
+  for (const [initial, next] of [
+    ["Default fixer prompt.", "Run the targeted tests."],
+    ["Run the targeted tests.", "Run the targeted tests and report the results."],
+  ]) {
+    (await until(edit, "built-in edit button was not rendered")).click();
+    const dialog = await until(editor, "built-in editor did not open");
+    const handle = dialog.querySelector('input[readonly]');
+    const prompt = [...dialog.querySelectorAll("textarea")].find((element) => element.value === initial);
+    check(handle?.value === "fixer" && prompt, "editor did not load the stable handle and current prompt");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(prompt, next);
+    flushSync(() => prompt.dispatchEvent(new Event("input", { bubbles: true })));
+    [...dialog.querySelectorAll("button")].find((button) => button.textContent.trim() === i18n.t("common.save")).click();
+    await until(() => !editor() && record?.body === next, "built-in prompt was not saved");
+  }
+  check(writes === 2 && document.querySelectorAll('[aria-label="Edit"]').length === 1, "edited built-in was duplicated");
   flushSync(() => rootNode.unmount());
   return { passed: true, saved };
 };
 `;
 
-test("saved fallback names survive provider disable, move, remove, keyboard add and save", {
+test("subagent settings preserve fallback pins and save built-in edits under the same handle", {
   skip: process.platform === "linux" && !process.env.DISPLAY ? "Electron requires a display" : false,
 }, async () => {
   const temp = await mkdtemp(join(root, "apps/desktop/.fallback-ui-"));

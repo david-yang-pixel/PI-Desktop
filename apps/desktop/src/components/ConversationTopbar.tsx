@@ -319,7 +319,7 @@ export function ConversationTopbar({
 
       <div className="ct-right">
         {activeSessionId && activeSession?.remoteRepository && <RemoteSessionActions key={activeSessionId}
-          sessionId={activeSessionId} sessionTitle={activeSession.title} workspace={activeSession.remoteRepository} />}
+          workspace={activeSession.remoteRepository} />}
         <div className="ct-actions">
           <TooltipButton
             type="button"

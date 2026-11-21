@@ -185,6 +185,7 @@ export type UserSubagentRecord = {
   level?: "global";
   description: string;
   enabled: boolean;
+  overridesBuiltin?: boolean;
   scope?: ActivationScope;
   /**
    * Resolved tool grant, never empty. May start with `inherit` when the
@@ -220,5 +221,6 @@ export type UserSubagentInput = {
   /** `0` clears the cap; absent leaves it unchanged. */
   maxTokens?: number;
   enabled?: boolean;
+  overridesBuiltin?: boolean;
   scope?: ActivationScope;
 };

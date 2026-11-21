@@ -30,11 +30,9 @@ globalThis.remotePullRequestProbe = async () => {
   const old = { number: 7, url: "https://github.com/octo/repo/pull/7" };
   const replacement = { number: 8, url: "https://github.com/octo/repo/pull/8" };
   const opened = [];
-  const created = [];
   const invoked = [];
   const savedEnvironments = [];
   let savedEnvironment;
-  let lookups = 0;
   let setPullRequest;
   let setWorkspaceState;
   window.piDesktop = {
@@ -44,17 +42,7 @@ globalThis.remotePullRequestProbe = async () => {
       let data;
       switch (channel) {
         case IPC.invoke.remoteHostList: data = { hosts: [] }; break;
-        case IPC.invoke.remoteSessionGitStatus: data = { status: { reachable: true } }; break;
-        case IPC.invoke.remoteSessionPullRequestFind:
-          lookups++;
-          data = { pullRequest: lookups === 1 ? old : null };
-          break;
         case IPC.invoke.browserOpenExternal: opened.push(input.url); break;
-        case IPC.invoke.remoteSessionPullRequestCreate:
-          created.push(input);
-          flushSync(() => setPullRequest(replacement));
-          data = { pullRequest: replacement };
-          break;
         case IPC.invoke.remoteSessionWorkspaceRetry: data = {}; break;
         case IPC.invoke.environmentsUpsert:
           savedEnvironments.push(input);
@@ -66,11 +54,11 @@ globalThis.remotePullRequestProbe = async () => {
     },
   };
   function Surface() {
-    const [pullRequest, update] = React.useState(old);
+    const [pullRequest, update] = React.useState(null);
     setPullRequest = update;
     const [state, updateState] = React.useState("ready");
     setWorkspaceState = updateState;
-    return <RemoteSessionActions sessionId="session" sessionTitle="Ship the fix" workspace={{
+    return <RemoteSessionActions workspace={{
       hostKey: "host", repository: { owner: "octo", name: "repo" },
       baseBranch: "main", workBranch: "pi-desktop/abc", state, pullRequest,
     }} />;
@@ -88,22 +76,24 @@ globalThis.remotePullRequestProbe = async () => {
     }
     throw new Error(description);
   }
+  function checkNoPublishControls() {
+    if (button("Push branch") || button("Create pull request") ||
+        document.querySelector('[role="dialog"]') || document.body.textContent.includes("Ahead")) {
+      throw new Error("workspace top bar exposed publish controls or commit counts");
+    }
+  }
+  checkNoPublishControls();
+  flushSync(() => setPullRequest(old));
   button("View PR #7").click();
-  await until(() => opened.length === 1 && !button("View PR #7").disabled, "could not open an existing PR");
-  button("View PR #7").click();
-  const dialog = await until(() => document.querySelector('[role="dialog"]'), "could not replace closed PR");
-  if (lookups !== 2 || opened.length !== 1) throw new Error("stale PR URL was opened");
-  if (dialog.querySelector("input").value !== "Ship the fix") throw new Error("missing replacement title");
-  button("Create pull request", dialog).click();
-  await until(() => button("View PR #8") && !button("View PR #8").disabled, "replacement PR was not ready");
-  if (created.length !== 1 || created[0].sessionId !== "session") throw new Error("wrong replacement request");
+  await until(() => opened[0] === old.url, "could not open the recorded PR");
 
   const beforeReclaim = invoked.length;
-  flushSync(() => setWorkspaceState("reclaimed"));
+  flushSync(() => {
+    setPullRequest(replacement);
+    setWorkspaceState("reclaimed");
+  });
   window.dispatchEvent(new Event("focus"));
-  if (button("Push branch") || button("Create pull request") || document.querySelector('[role="dialog"]')) {
-    throw new Error("reclaimed workspace exposed a publish action");
-  }
+  checkNoPublishControls();
   button("View PR #8").click();
   await until(() => opened[1] === replacement.url, "cached PR link did not open");
   if (JSON.stringify(invoked.slice(beforeReclaim)) !== JSON.stringify([IPC.invoke.browserOpenExternal])) {
@@ -166,7 +156,7 @@ globalThis.remotePullRequestProbe = async () => {
 };
 `;
 
-test("remote workspace controls handle ready and reclaimed pull requests, rebuild retry, and environment settings", {
+test("remote workspace shows Agent-created PR links, rebuild retry, and environment settings", {
   timeout: 75_000,
   skip: process.platform === "linux" && !process.env.DISPLAY && "Isolated Electron UI test requires a display",
 }, async () => {

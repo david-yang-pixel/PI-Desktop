@@ -836,14 +836,15 @@ system while preserving their different data ownership:
   user document of the same name shadows that builtin in the Task catalog, so
   the Built-in row is omitted while the user row remains. A disabled user
   document of the same name leaves the builtin in the catalog (and on the
-  Built-in list) because Task uses the shipped definition again. Built-in rows
-  carry a source badge, **Copy as mine** (opens the create sheet pre-filled from
+  Built-in list) because Task uses the shipped definition again. **Edit** on a
+  Built-in row saves a global override with the same Task handle. The row stays
+  in Built-in, and disabling the override also hides the shipped definition
+  from Task. Unedited built-in rows carry **Copy as mine** (opens the create sheet pre-filled from
   that definition, with the matching template chip selected), and the same
   enablement switch a user row has (D202 activation, ADR 0270): turning one off
   writes app-local state rather than a document, the row stays listed and dimmed
   so the switch is still the way back on, and the next catalog load stops
-  offering it to `Task`. Reveal and delete remain absent because a builtin is
-  not a file.
+  offering it to `Task`. The editor can reveal the document of a saved override.
 - The level filter narrows which groups the panel renders; it never hides the
   toolbar or moves the actions. New capabilities are created at the level the
   filter points at — Global under All or Global, Project under Project — and

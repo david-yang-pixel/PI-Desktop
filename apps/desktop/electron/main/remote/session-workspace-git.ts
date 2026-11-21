@@ -52,7 +52,7 @@ export function createSessionWorkspaceGit(deps: {
       return { reachable: false, workBranch, baseBranch };
     }
   }
-  async function push(sessionId: string) {
+  async function push(sessionId: string, assertCanPublish?: () => void) {
     const binding = await requireReady(sessionId);
     const before = await readStatus(binding);
     if (!before.reachable) throw remoteError(ErrorCodes.REMOTE_TARGET_HOST_OFFLINE, "The host is offline");
@@ -61,6 +61,7 @@ export function createSessionWorkspaceGit(deps: {
     }
     let jobId: string;
     try {
+      assertCanPublish?.();
       ({ jobId } = await workspaces.git().push(binding.hostKey, sessionId));
     } catch (error) {
       const active = busyJob(error);
@@ -99,12 +100,12 @@ export function createSessionWorkspaceGit(deps: {
     lookups.set(sessionId, task);
     return task;
   }
-  async function create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">) {
+  async function create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">, assertCanPublish?: () => void) {
     const binding = await requireReady(sessionId);
     const previous = await find(sessionId);
     if (previous) return previous;
     try {
-      await api.push(sessionId);
+      await api.push(sessionId, assertCanPublish);
     } catch (error) {
       if (remoteCode(error) !== ErrorCodes.REMOTE_SESSION_NOTHING_TO_PUSH) throw error;
     }
@@ -114,6 +115,7 @@ export function createSessionWorkspaceGit(deps: {
       throw remoteError(code, status.uncommittedFiles ? "Commit your changes before opening a pull request" : "There are no commits ahead of the base branch");
     }
     const request = { ...input, head: binding.workBranch, base: binding.baseBranch };
+    assertCanPublish?.();
     let created: Awaited<ReturnType<GitHubConnector["createPullRequest"]>>;
     try {
       created = await connector.createPullRequest(binding.repository, request);
@@ -157,10 +159,10 @@ export function createSessionWorkspaceGit(deps: {
   const api = {
     isOperating: (sessionId: string) => pushes.has(sessionId) || requests.has(sessionId),
     async status(sessionId: string) { return readStatus(await requireReady(sessionId)); },
-    push(sessionId: string) {
+    push(sessionId: string, assertCanPublish?: () => void) {
       const current = pushes.get(sessionId);
       if (current) return current;
-      const task = push(sessionId).finally(async () => {
+      const task = push(sessionId, assertCanPublish).finally(async () => {
         try { await touched(sessionId); }
         finally { pushes.delete(sessionId); }
       });
@@ -170,10 +172,10 @@ export function createSessionWorkspaceGit(deps: {
     find(sessionId: string) {
       return requests.get(sessionId) ?? find(sessionId);
     },
-    create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">) {
+    create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">, assertCanPublish?: () => void) {
       const current = requests.get(sessionId);
       if (current) return current;
-      const task = create(sessionId, input).finally(async () => {
+      const task = create(sessionId, input, assertCanPublish).finally(async () => {
         try { await touched(sessionId); }
         finally { requests.delete(sessionId); }
       });

@@ -563,6 +563,7 @@ export function SubagentEditorSheet({
   draft,
   setDraft,
   editing,
+  builtinHandle,
   saving,
   initialPresetId,
   onClose,
@@ -572,6 +573,7 @@ export function SubagentEditorSheet({
   draft: SubagentDraft;
   setDraft: (next: SubagentDraft) => void;
   editing: UserSubagentRecord | null;
+  builtinHandle?: string;
   saving: boolean;
   /** Template chip to select on create, e.g. after Copy as mine. */
   initialPresetId?: string;
@@ -584,13 +586,14 @@ export function SubagentEditorSheet({
   const settings = useAppStore((state) => state.settings);
   const providerModels = useAppStore((state) => state.providerModels);
   const copiedPreset = Boolean(initialPresetId && findSubagentPreset(initialPresetId));
-  const [nameTouched, setNameTouched] = useState(!!editing || copiedPreset);
+  const isEditing = Boolean(editing || builtinHandle);
+  const [nameTouched, setNameTouched] = useState(isEditing || copiedPreset);
   const [presetId, setPresetId] = useState<string | null>(
     copiedPreset && initialPresetId ? initialPresetId : BLANK_SUBAGENT_PRESET_ID,
   );
-  const [advancedOpen, setAdvancedOpen] = useState(!!editing);
+  const [advancedOpen, setAdvancedOpen] = useState(isEditing);
   const errorKey = subagentDraftError(draft);
-  const pristine = !editing && !draft.name.trim() && !draft.description.trim();
+  const pristine = !isEditing && !draft.name.trim() && !draft.description.trim();
   const bytes = new TextEncoder().encode(draft.body).length;
   const slug = draft.id || subagentSlug(draft.name);
   // Subscribe to the settings slices and the discovered catalog reactively:
@@ -629,7 +632,7 @@ export function SubagentEditorSheet({
   // page but never overwrites something the user has started writing either.
   const setName = (value: string) => {
     const next: SubagentDraft = { ...draft, name: value };
-    if (!nameTouched && !editing && !draft.body.trim()) {
+    if (!nameTouched && !isEditing && !draft.body.trim()) {
       next.body = subagentTemplate(value);
     }
     setDraft(next);
@@ -677,7 +680,7 @@ export function SubagentEditorSheet({
         <div className="ext-sheet-head">
           <div>
             <h3 id="subagent-sheet-title" className="ext-sheet-title">
-              {editing
+              {isEditing
                 ? t("extensions.subagents.editTitle")
                 : t("extensions.subagents.addTitle")}
             </h3>
@@ -694,7 +697,7 @@ export function SubagentEditorSheet({
         </div>
 
         <div className="ext-sheet-body">
-          {!editing ? (
+          {!isEditing ? (
             <PresetPicker selectedId={presetId} onSelect={applyPreset} />
           ) : null}
 
@@ -704,7 +707,8 @@ export function SubagentEditorSheet({
           >
             <Input
               value={draft.name}
-              autoFocus={!editing}
+              autoFocus={!isEditing}
+              readOnly={Boolean(builtinHandle)}
               placeholder={t("extensions.subagents.namePlaceholder")}
               onChange={(event) => {
                 setNameTouched(true);

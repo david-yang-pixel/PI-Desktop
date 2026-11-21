@@ -397,14 +397,14 @@ test("Settings lists shipped builtin subagents with a switch of their own", () =
   assert.match(subagents, /copyBuiltin/);
   assert.match(subagents, /presetId: definition\.name/);
   assert.match(subagents, /initialPresetId=\{editor\.presetId\}/);
-  // A builtin row keeps its badge and Copy as mine, gains the switch, and still
-  // has no Reveal or Delete: there is no file behind it.
+  // The builtin row keeps its badge and switch and opens the shared editor.
   const builtinRow = subagents.slice(
     subagents.indexOf("const renderBuiltin"),
     subagents.indexOf("const renderRow"),
   );
   assert.notEqual(builtinRow, "", "builtin row renderer should be present");
   assert.match(builtinRow, /IconCopy/);
+  assert.match(builtinRow, /editBuiltin\(definition\)/);
   assert.match(builtinRow, /<CapabilityToggle/);
   assert.match(builtinRow, /checked=\{definition\.enabled\}/);
   assert.doesNotMatch(
@@ -419,10 +419,13 @@ test("Settings lists shipped builtin subagents with a switch of their own", () =
   );
   assert.notEqual(toggle, "", "builtin toggle should be present");
   assert.match(toggle, /api\.setBuiltinSubagentEnabled\(handle, next\)/);
+  assert.match(toggle, /api\.setUserSubagentEnabled\(builtin\.override\.id, next\)/);
   assert.match(toggle, /enabled: next/);
   assert.doesNotMatch(toggle.slice(0, toggle.indexOf("catch")), /await load\(\)/);
   assert.match(toggle, /catch[\s\S]*?enabled: builtin\.enabled/);
   assert.match(api, /setBuiltinSubagentEnabled: \(id: string, enabled: boolean\) =>/);
+  assert.match(subagents, /id: builtinHandle, overridesBuiltin: true/);
+  assert.match(subagentSettings, /override: record/);
 });
 
 test("a capability can be moved between the global and a project level", () => {
