@@ -591,7 +591,10 @@ adds the base-branch picker. A projectless cloud prompt uses the selected
 Host's default model and a session scratch directory on that Host. Setup
 scripts and environment variables apply to repository workspaces. The row wraps
 when space is limited and sits outside the input card's background and shadow.
-The composer shows preparation and setup status. The session
-top bar shows the Host, repository, work branch, and push and pull request
-actions. Remote Hosts settings includes environment editing and leftover
+The composer shows preparation and setup status. The session top bar shows
+the Host, repository, work branch, and a link to a recorded pull request.
+Ask the agent to open a pull request from a repository session with GitHub
+Agent tools enabled. The built-in connector pushes the session's committed
+branch when needed and opens the PR against the workspace's base branch.
+Remote Hosts settings includes environment editing and leftover
 worktree management when a Host is paired.

@@ -68,7 +68,7 @@ test("the preset catalog has unit-test coverage", () => {
 
 test("the editor renders the preset grid for new subagents only", () => {
   assert.match(editorSource, /function PresetPicker/);
-  assert.match(editorSource, /\{!editing \? \(\s*<PresetPicker/);
+  assert.match(editorSource, /\{!isEditing \? \(\s*<PresetPicker/);
 });
 
 test("the editor applies a preset by overwriting the draft body and tools", () => {
@@ -180,7 +180,7 @@ test("the create sheet is a compact chip row with an Advanced disclosure", () =>
   // stays one line high.
   assert.match(editorSource, /\{descKey \? <HelpIcon label=\{t\(descKey\)\} \/> : null\}/);
   assert.match(editorSource, /function AdvancedFields/);
-  assert.match(editorSource, /useState\(!!editing\)/);
+  assert.match(editorSource, /useState\(isEditing\)/);
   assert.doesNotMatch(editorSource, /extensions\.subagents\.presetApply/);
   assert.doesNotMatch(editorSource, /extensions\.subagents\.sheetSubtitle/);
   assert.match(editorSource, /id="subagent-sheet-error" className="ext-sheet-error" role="alert"/);

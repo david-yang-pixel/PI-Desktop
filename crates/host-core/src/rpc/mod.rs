@@ -5845,8 +5845,10 @@ async fn handle_request(
             Ok(json!({ "subagent": subagent }))
         }
         "agents.disabledBuiltins" => {
-            let st = state.lock().await;
-            Ok(json!({ "disabled": st.user_subagents.disabled_builtins() }))
+            let mut st = state.lock().await;
+            Ok(
+                json!({ "disabled": st.user_subagents.effective_disabled_builtins().map_err(subagent_err)? }),
+            )
         }
         "agents.setBuiltinEnabled" => {
             let id = require_id(&params)?;

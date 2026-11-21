@@ -11,7 +11,7 @@ import { api } from "../../lib/api";
  * A switched-off builtin stays in the list on purpose: it has no document to
  * delete, so its row and its switch are the only way back on.
  */
-export type BuiltinSubagentRow = SubagentDefinition & { enabled: boolean };
+export type BuiltinSubagentRow = SubagentDefinition & { enabled: boolean; override?: UserSubagentRecord };
 
 /** User-owned documents plus the shipped defaults, switched off ones included. */
 export type SubagentPageData = {
@@ -23,6 +23,20 @@ export const EMPTY_SUBAGENT_PAGE: SubagentPageData = {
   owned: [],
   builtins: [],
 };
+
+function withBuiltinOverrides(owned: UserSubagentRecord[], defaults: BuiltinSubagentRow[]): SubagentPageData {
+  const builtins = new Map(defaults.map((item) => [item.name, item]));
+  const shipped = new Map(fallbackBuiltinDefinitions().map((item) => [item.name, item]));
+  const standalone = owned.filter((record) => {
+    const definition = record.overridesBuiltin ? builtins.get(record.id) ?? shipped.get(record.id) : undefined;
+    if (!definition) return true;
+    builtins.set(record.id, {
+      ...definition, description: record.description, tools: record.tools, enabled: record.enabled, override: record,
+    });
+    return false;
+  });
+  return { owned: standalone, builtins: [...builtins.values()] };
+}
 
 /**
  * Settings lists two sources: the writable global registry, and the shipped
@@ -44,18 +58,12 @@ export async function fetchSubagentPageData(): Promise<SubagentPageData> {
       (catalog.subagents ?? [])
         .filter((item) => item.source === "builtin")
         .map((item) => ({ ...item, enabled: true }));
-    return {
-      owned,
-      builtins: builtins.filter(
+    return withBuiltinOverrides(owned, builtins.filter(
         (item) => item.source === "builtin" && !enabledHandles.has(item.name),
-      ),
-    };
+    ));
   } catch {
-    return {
-      owned,
-      builtins: fallbackBuiltinDefinitions()
+    return withBuiltinOverrides(owned, fallbackBuiltinDefinitions()
         .map((item) => ({ ...item, enabled: true }))
-        .filter((item) => !enabledHandles.has(item.name)),
-    };
+        .filter((item) => !enabledHandles.has(item.name)));
   }
 }

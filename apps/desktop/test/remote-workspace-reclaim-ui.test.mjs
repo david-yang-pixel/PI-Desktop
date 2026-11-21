@@ -69,7 +69,7 @@ test("reclaimed and reclaiming workspaces show status and a rebuild failure expo
 
 test("reclaimed workspace actions show a recorded PR without publish controls", () => {
   const pullRequest = { number: 7, url: "https://github.com/octo/repo/pull/7" };
-  const actions = (props) => render(RemoteSessionActions, { sessionId: "session", sessionTitle: "Ship", workspace: { ...workspace, ...props } });
+  const actions = (props) => render(RemoteSessionActions, { workspace: { ...workspace, ...props } });
   const reclaimed = actions({ state: "reclaimed", pullRequest });
   assert.match(reclaimed, /<button[^>]*>View PR #7<\/button>/);
   assert.doesNotMatch(reclaimed, /Push branch|Create pull request/);

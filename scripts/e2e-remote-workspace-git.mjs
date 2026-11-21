@@ -30,6 +30,8 @@ const { createRemoteHostsBoot } = await import("../apps/desktop/electron/main/bo
 const { createBackendRouter } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
 const { createSessionWorkspaces } = await import("../apps/desktop/electron/main/remote/session-workspaces.ts");
 const { createSessionWorkspaceGit } = await import("../apps/desktop/electron/main/remote/session-workspace-git.ts");
+const { createGitHubSessionPullRequestTool, githubSessionPullRequestTool } = await import("../apps/desktop/electron/main/github/session-pr-tool.ts");
+const { createHostRuntime } = await import("../apps/desktop/electron/main/runtime/host.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
 const { saveComposerPasteFiles } = await import("../apps/desktop/electron/main/composer-paste.ts");
 const { formatFileInsert } = await import("../packages/shared/dist/index.js");
@@ -340,14 +342,19 @@ try {
     const requests = new Map();
     let lastPullRequestNumber = 0;
     let lookupError = null;
+    let cancelOnLookup = false;
+    let isPullRequestTurnActive = true;
     const connector = {
       status: async () => ({ connected: true }),
       findPullRequest: async (_repository, head, state) => {
         assert.equal(state, "open");
+        if (cancelOnLookup) isPullRequestTurnActive = false;
         if (lookupError) throw lookupError;
         return requests.get(head) ?? null;
       },
       createPullRequest: async (_repository, input) => {
+        assert.deepEqual(_repository, repository);
+        assert.equal(input.base, "main");
         assert.ok(remoteHasBranch(input.head), "the branch is on the remote before opening its PR");
         const number = ++lastPullRequestNumber;
         const result = { number, url: `https://github.com/octo/repo/pull/${number}`, state: "open", ...input };
@@ -400,6 +407,21 @@ try {
     const workspaces = createSessionWorkspaces({ call, hosts: hostPort, connector, emit, log: (message, error) => hostLogs.push(`${message}: ${error}`) });
     repositorySessions = workspaces;
     const repositoryGit = createSessionWorkspaceGit({ call, workspaces, connector, emit });
+    const githubSessionPullRequest = createGitHubSessionPullRequestTool(() => ({ workspaces, connector, git: repositoryGit }));
+    const pluginHost = {
+      call,
+      onNotification(handler) {
+        localHost.onNotification((method, params) => {
+          if (method === "plugins.execute") handler(method, params);
+        });
+      },
+      onExit() {},
+    };
+    createHostRuntime({
+      runtimeState: { host: pluginHost }, logger: { app() {} }, sessionProjects: new Map(),
+      plugins: { getTools: () => [], drainToasts: () => [] }, githubSessionPullRequest,
+      isTurnDispatchable: (_sessionId, turnId) => isPullRequestTurnActive && turnId === "agent-pr-turn",
+    }).wireHost(pluginHost);
     const environment = await workspaces.upsert({
       hostKey: HOST, name: "Fixture setup", variables: [{ name: "E2E_SETUP_VALUE", value: "setup-value" }],
       setupScript: 'printf "%s" "$E2E_SETUP_VALUE" > setup.txt',
@@ -469,8 +491,23 @@ try {
       await workspaces.waitUntilReady(session.id);
       assert.equal(git(ready.remoteWorkspace.path, "rev-parse", "HEAD"), head);
 
-      const pr = await repositoryGit.create(session.id, { title: "Fixture PR", body: "", draft: true });
+      assert.equal(await githubSessionPullRequest.available(unbound.id), false);
+      assert.equal(await githubSessionPullRequest.available(session.id), true);
+      const publishByAgent = (args) => call("tools.execute", {
+        sessionId: session.id, turnId: "agent-pr-turn", toolCallId: "publish-pr",
+        toolName: githubSessionPullRequestTool.name, mode: "agent", declaredRisk: "high", args,
+      });
+      cancelOnLookup = true;
+      const cancelled = await publishByAgent({ title: "Cancelled" });
+      assert.equal(cancelled.errorCode, "TOOL_TURN_CANCELLED", JSON.stringify(cancelled));
+      assert.equal(remoteHasBranch((await workspaces.binding(session.id)).workBranch), false);
+      cancelOnLookup = false;
+      isPullRequestTurnActive = true;
+      const published = await publishByAgent({ title: "Fixture PR", draft: true });
+      assert.equal(published.ok, true, JSON.stringify(published));
+      const pr = published.content;
       assert.equal(pr.number, 1);
+      assert.equal(pr.draft, true);
       assert.equal((await repositoryGit.create(session.id, { title: "Ignored duplicate", body: "", draft: false })).title, "Fixture PR");
       lookupError = new Error("fixture GitHub lookup unavailable");
       await assert.rejects(repositoryGit.find(session.id), /lookup unavailable/);

@@ -1,4 +1,5 @@
-import { ErrorCodes, IPC, type AgentEventEnvelope, type PlanExecutionFinishStatus, type Risk } from "@pi-desktop/shared";
+import { ErrorCodes, IPC, type AgentEventEnvelope, type AppSettings, type PlanExecutionFinishStatus, type Risk } from "@pi-desktop/shared";
+import { githubSessionPullRequestTool, type createGitHubSessionPullRequestTool } from "../github/session-pr-tool";
 import { assertLinuxGlibcSupported } from "../linux-glibc";
 import { HostProcess } from "../host-process";
 import type { Logger } from "../logger";
@@ -20,6 +21,7 @@ export type HostRuntimeDependencies = {
   sessionProjects: Map<string, string | null>;
   plugins: PluginRuntime;
   userMcp: UserMcpRuntime;
+  githubSessionPullRequest?: ReturnType<typeof createGitHubSessionPullRequestTool>;
   pluginActiveInProject: (pluginId: string, projectPath: string | null | undefined) => boolean;
   sendToRenderer: (channel: string, payload: unknown) => void;
   /** Settles the session mode of a run that closed; true when it changed. */
@@ -59,6 +61,7 @@ export function createHostRuntime({
   sessionProjects,
   plugins,
   userMcp,
+  githubSessionPullRequest,
   pluginActiveInProject,
   sendToRenderer,
   settleModeReturn,
@@ -189,7 +192,23 @@ export function createHostRuntime({
           : null;
         const tool = plugins.getTools().find((t) => t.fullName === q.toolName);
         let payload: Record<string, unknown>;
-        if (q.toolName.startsWith("mcp_")) {
+        if (githubSessionPullRequest && q.toolName === githubSessionPullRequestTool.name) {
+          try {
+            const settings = await h.call<AppSettings>("settings.get");
+            const result = await githubSessionPullRequest.execute({
+              ...q, settings,
+              isCurrent: () => runtimeState.host === h && isTurnDispatchable(q.sessionId ?? "", q.turnId),
+            });
+            payload = { executionId: q.executionId, ok: true, content: result };
+          } catch (error) {
+            payload = {
+              executionId: q.executionId,
+              ok: false,
+              errorCode: (error as { errorCode?: string })?.errorCode ?? "TOOL_FAILED",
+              content: { error: error instanceof Error ? error.message : String(error) },
+            };
+          }
+        } else if (q.toolName.startsWith("mcp_")) {
           try {
             const result = await userMcp.callTool(q.toolName, q.args, projectPath, q.sessionId);
             payload = { executionId: q.executionId, ok: true, content: result ?? null };

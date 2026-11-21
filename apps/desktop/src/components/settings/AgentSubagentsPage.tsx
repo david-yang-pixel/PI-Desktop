@@ -47,6 +47,7 @@ const GLOBAL_SUBAGENTS_PATH = "~/.agents/subagents";
 type SubagentEditorState = {
   draft: SubagentDraft;
   editing: UserSubagentRecord | null;
+  builtinHandle?: string;
   /** Selected template chip; set when Copy as mine pre-fills a builtin. */
   presetId?: string;
 };
@@ -114,9 +115,8 @@ export function AgentSubagentsPage() {
   };
 
   /**
-   * A builtin has no document to switch, so its handle is stored in app-local
-   * state instead — but it is the same switch: flip locally first, call the
-   * host, and revert the row only if the host refuses.
+   * Shipped defaults store their switch separately; an edited version uses
+   * the existing document switch.
    */
   const toggleBuiltin = async (builtin: BuiltinSubagentRow) => {
     const handle = builtin.name;
@@ -129,7 +129,8 @@ export function AgentSubagentsPage() {
       ),
     }));
     try {
-      await api.setBuiltinSubagentEnabled(handle, next);
+      if (builtin.override) await api.setUserSubagentEnabled(builtin.override.id, next);
+      else await api.setBuiltinSubagentEnabled(handle, next);
       showToast(
         t(next ? "settings.capabilityEnabled" : "settings.capabilityDisabled", {
           name: builtinDisplayName(handle, t),
@@ -149,19 +150,33 @@ export function AgentSubagentsPage() {
     }
   };
 
-  const openEdit = async (subagent: UserSubagentRecord) => {
+  const openEdit = async (subagent: UserSubagentRecord, builtinHandle?: string) => {
     if (!rowBusy.begin(subagent.id)) return;
     try {
       const result = await api.readUserSubagent(subagent.id);
       setEditor({
         draft: draftFromRecord(result.subagent ?? subagent, result.body ?? ""),
         editing: result.subagent ?? subagent,
+        builtinHandle,
       });
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), { variant: "error" });
     } finally {
       rowBusy.end(subagent.id);
     }
+  };
+
+  const editBuiltin = (definition: BuiltinSubagentRow) => {
+    const existing = definition.override ?? owned.find((row) => row.id === definition.name);
+    if (existing) {
+      void openEdit(existing, definition.name);
+      return;
+    }
+    setEditor({
+      draft: { ...draftFromDefinition(definition), name: definition.name, enabled: definition.enabled },
+      editing: null,
+      builtinHandle: definition.name,
+    });
   };
 
   const copyBuiltin = (definition: SubagentDefinition) => {
@@ -174,9 +189,10 @@ export function AgentSubagentsPage() {
 
   const save = async () => {
     if (!editor) return;
-    const { draft, editing } = editor;
+    const { draft, editing, builtinHandle } = editor;
     const payload = {
-      name: draft.name.trim(),
+      name: builtinHandle ?? draft.name.trim(),
+      ...(builtinHandle ? { id: builtinHandle, overridesBuiltin: true } : {}),
       description: draft.description.trim(),
       body: draft.body,
       tools: mergeSubagentToolGrant(draft.inheritTools, draft.tools),
@@ -195,7 +211,7 @@ export function AgentSubagentsPage() {
       else await api.createUserSubagent(payload);
       await load();
       showToast(
-        t(editing ? "settings.subagentSaved" : "settings.subagentCreated", {
+        t(editing || builtinHandle ? "settings.subagentSaved" : "settings.subagentCreated", {
           name: payload.name,
         }),
         { variant: "success" },
@@ -261,8 +277,8 @@ export function AgentSubagentsPage() {
   const renderBuiltin = (definition: BuiltinSubagentRow) => {
     const handle = definition.name;
     const name = builtinDisplayName(handle, t);
-    const canCopy = !ownedHandles.has(handle);
-    const busy = rowBusy.isBusy(`builtin:${handle}`);
+    const canCopy = !definition.override && !ownedHandles.has(handle);
+    const busy = rowBusy.isBusy(`builtin:${handle}`) || rowBusy.isBusy(handle);
     return (
       <CapabilityRow
         key={`builtin:${handle}`}
@@ -285,6 +301,15 @@ export function AgentSubagentsPage() {
         }
         actions={
           <>
+            <TooltipButton
+              type="button"
+              className="settings-icon-button"
+              tooltip={t("extensions.subagents.edit")}
+              disabled={busy}
+              onClick={() => editBuiltin(definition)}
+            >
+              <IconPencil size={15} />
+            </TooltipButton>
             {canCopy ? (
               <TooltipButton
                 type="button"
@@ -457,6 +482,7 @@ export function AgentSubagentsPage() {
           draft={editor.draft}
           setDraft={(draft) => setEditor((current) => (current ? { ...current, draft } : current))}
           editing={editor.editing}
+          builtinHandle={editor.builtinHandle}
           initialPresetId={editor.presetId}
           saving={saving}
           onClose={() => {
