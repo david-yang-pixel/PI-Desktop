@@ -1,47 +1,99 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { LeftoverWorktree, RemoteEnvironment, RemoteHostSummary } from "@pi-desktop/shared";
 import { Button } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { useAppStore } from "../../../stores/app-store";
 import { SettingsCard, SettingsRow } from "../../settings/primitives";
+import { WorktreeDialogFrame } from "../../worktree/WorktreeDialogFrame";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { useEnvironments } from "./use-environments";
 
-function LeftoverWorktrees({ host }: { host: RemoteHostSummary }) {
+function LeftoverWorktrees({ host, hostRevision }: { host: RemoteHostSummary; hostRevision: number }) {
   const { t } = useTranslation();
+  const { connected, hostKey } = host;
   const [worktrees, setWorktrees] = useState<LeftoverWorktree[]>();
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [selectedSession, setSelectedSession] = useState<string>();
+  const removalInFlight = useRef(false);
+  const close = useCallback(() => setSelectedSession(undefined), []);
   const toast = useAppStore((state) => state.showToast);
-  async function run(task: () => Promise<void>) {
-    setBusy(true);
-    try { await task(); }
-    catch (error) { toast(error instanceof Error ? error.message : String(error), { variant: "error" }); }
-    finally { setBusy(false); }
+
+  useEffect(() => {
+    if (!connected) {
+      setWorktrees(undefined);
+      setLoading(false);
+      close();
+      return;
+    }
+    if (removing) return;
+
+    let current = true;
+    close();
+    setLoading(true);
+    void api.listRemoteLeftoverWorktrees(hostKey).then(({ worktrees }) => {
+      if (current) setWorktrees(worktrees);
+    }).catch((error: unknown) => {
+      if (current) {
+        setWorktrees(undefined);
+        toast(error instanceof Error ? error.message : String(error), { variant: "error" });
+      }
+    }).finally(() => {
+      if (current) setLoading(false);
+    });
+    return () => { current = false; };
+  }, [close, connected, hostKey, hostRevision, refreshCount, removing, toast]);
+
+  const busy = loading || removing;
+  const selected = worktrees?.find((tree) => tree.sessionId === selectedSession);
+  const title = (tree: LeftoverWorktree) => `${tree.repository.owner}/${tree.repository.name} · ${tree.workBranch}`;
+  const risk = (tree: LeftoverWorktree) => t("sessionTarget.deleteAtRisk", {
+    files: tree.uncommittedFiles, commits: tree.unpushedCommits,
+  });
+
+  async function remove(sessionId: string) {
+    if (!connected || busy || removalInFlight.current) return;
+    removalInFlight.current = true;
+    setRemoving(true);
+    try {
+      const { ok } = await api.removeRemoteLeftoverWorktree(hostKey, sessionId);
+      if (ok) setWorktrees((current) => current?.filter((tree) => tree.sessionId !== sessionId));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : String(error), { variant: "error" });
+    } finally {
+      close();
+      removalInFlight.current = false;
+      setRemoving(false);
+    }
   }
-  return <div className="session-target-fields">
-    <SettingsRow title={host.label}>
-      <Button variant="secondary" disabled={busy || !host.connected} onClick={() => void run(async () => {
-        setWorktrees((await api.listRemoteLeftoverWorktrees(host.hostKey)).worktrees);
-      })}>{t("sessionTarget.refresh")}</Button>
+
+  return <div className="session-target-fields" aria-busy={busy}>
+    <SettingsRow title={host.label} detail={connected ? undefined : t("sessionTarget.offline")}>
+      <Button variant="secondary" disabled={busy || !connected} onClick={() => setRefreshCount((count) => count + 1)}>
+        {t("sessionTarget.refresh")}
+      </Button>
     </SettingsRow>
-    {worktrees?.length === 0 && <p>{t("sessionTarget.noLeftovers")}</p>}
-    {worktrees?.map((tree) => <SettingsRow key={tree.sessionId} title={`${tree.repository.owner}/${tree.repository.name} · ${tree.workBranch}`}
-      detail={t("sessionTarget.deleteAtRisk", { files: tree.uncommittedFiles, commits: tree.unpushedCommits })}>
-      <Button variant="secondary" disabled={busy || !host.connected} onClick={() => {
-        if (!window.confirm(t("sessionTarget.deleteAtRisk", { files: tree.uncommittedFiles, commits: tree.unpushedCommits }))) return;
-        void run(async () => {
-          const { ok } = await api.removeRemoteLeftoverWorktree(host.hostKey, tree.sessionId);
-          if (ok) setWorktrees((current) => current?.filter((item) => item.sessionId !== tree.sessionId));
-        });
-      }}>{t("sessionTarget.remove")}</Button>
+    {connected && worktrees?.length === 0 && <p>{t("sessionTarget.noLeftovers")}</p>}
+    {connected && worktrees?.map((tree) => <SettingsRow key={tree.sessionId} title={title(tree)} detail={risk(tree)}>
+      <Button variant="secondary" aria-haspopup="dialog" disabled={busy} onClick={() => setSelectedSession(tree.sessionId)}>
+        {t("sessionTarget.remove")}
+      </Button>
     </SettingsRow>)}
+    {connected && selected && <WorktreeDialogFrame id="remote-leftover-worktree" title={t("sessionTarget.remove")}
+      subtitle={title(selected)} busy={removing} onClose={close} actions={<>
+        <Button variant="secondary" disabled={removing} onClick={close}>{t("common.cancel")}</Button>
+        <Button variant="primary" disabled={busy} onClick={() => void remove(selected.sessionId)}>{t("sessionTarget.remove")}</Button>
+      </>}>
+      <p>{risk(selected)}</p>
+    </WorktreeDialogFrame>}
   </div>;
 }
 
 export function RemoteEnvironmentSettings() {
   const { t } = useTranslation();
-  const { hosts, environments, error } = useEnvironments();
+  const { hosts, hostRevision, environments, error } = useEnvironments();
   const [editor, setEditor] = useState<RemoteEnvironment | "new" | null>(null);
   const close = useCallback(() => setEditor(null), []);
   const toast = useAppStore((state) => state.showToast);
@@ -61,7 +113,7 @@ export function RemoteEnvironmentSettings() {
       <Button variant="secondary" disabled={!hosts.length} onClick={() => setEditor("new")}>{t("sessionTarget.newEnvironment")}</Button>
     </SettingsCard>
     {hosts.length > 0 && <SettingsCard title={t("sessionTarget.leftoverWorktrees")}>
-      {hosts.map((host) => <LeftoverWorktrees key={host.hostKey} host={host} />)}
+      {hosts.map((host) => <LeftoverWorktrees key={host.hostKey} host={host} hostRevision={hostRevision} />)}
     </SettingsCard>}
     {editor && <EnvironmentEditor hosts={hosts} environment={editor === "new" ? undefined : editor} onSaved={close} onClose={close} />}
   </>;

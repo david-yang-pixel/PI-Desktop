@@ -126,7 +126,6 @@ export function createSessionWorkspaceGit(deps: {
     return created;
   }
   async function reconcile(hostKey: string) {
-    if (!workspaces.git().supportsSafeRemoval(hostKey)) return;
     const { removals } = await pending(hostKey);
     const worktrees = await workspaces.git().list(hostKey);
     for (const removal of removals) {
@@ -216,7 +215,11 @@ export function createSessionWorkspaceGit(deps: {
     reconcile(hostKey: string) {
       const current = reconciling.get(hostKey);
       if (current) return current;
-      const task = reconcile(hostKey).finally(() => reconciling.delete(hostKey));
+      if (!workspaces.git().supportsSafeRemoval(hostKey)) return Promise.resolve();
+      const task = reconcile(hostKey).finally(() => {
+        reconciling.delete(hostKey);
+        emit(IPC.event.sessionsChanged, { reason: "remote.leftovers.changed" });
+      });
       reconciling.set(hostKey, task);
       return task;
     },

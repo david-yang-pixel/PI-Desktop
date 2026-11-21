@@ -858,3 +858,12 @@ the environment setup and reports its failure. Retrying runs the updated setup
 in place, preserves the saved commit, and retains the existing PR association.
 Desktop tests cover the idle threshold, disabling reclamation, overlapping
 scans, a lost response, and the pending-message gate during failed setup.
+The Host also compacts redundant loose Git objects in the shared clone after a
+successful reclaim. The fixture checks the object remains readable and the
+original worktree commit can be restored.
+
+In the isolated remote renderer suite, open Remote Hosts settings and verify
+the leftover list loads for connected Hosts. Simulate a reconnect and verify
+the list refreshes. Open the removal confirmation, verify it shows the branch
+and risk counts, and cancel. Confirm on the next attempt and verify the list
+refreshes with the removed checkout absent.

@@ -497,8 +497,15 @@ try {
       assert.equal(protectedResult.reason, "protectedIgnoredFiles");
       assert.equal(await readFile(join(checkout, ".env.local"), "utf8"), "LOCAL_VALUE=fixture");
       await rm(join(checkout, ".env.local"));
+      const looseCommit = join(sharedCheckout, ".git/objects", head.slice(0, 2), head.slice(2));
+      const refs = git(sharedCheckout, "show-ref", "--head");
+      const childHead = git(childBinding.path, "rev-parse", "HEAD");
+      assert.ok(existsSync(looseCommit));
       assert.equal((await workspaces.reclaim(await workspaces.binding(session.id), [])).reclaimed, true);
       assert.equal(existsSync(checkout), false);
+      assert.equal(existsSync(looseCommit), false);
+      assert.equal(git(sharedCheckout, "show-ref", "--head"), refs);
+      assert.equal(git(childBinding.path, "rev-parse", "HEAD"), childHead);
       assert.equal(git(sharedCheckout, "rev-parse", `refs/heads/${pr.head}`), head);
       await workspaces.resume(HOST);
       const { session: history } = await call("session.get", { id: session.id, messageLimit: 1 });
@@ -565,8 +572,12 @@ try {
       assert.equal(removalCalls.length, beforeLegacyReconcile, "legacy hosts never receive automatic removal requests");
       assert.ok(existsSync(childBinding.path));
       safeRemoval = true;
+      assert.ok((await recovered.leftovers(HOST)).some((tree) => tree.sessionId === child.id));
+      const beforeReconcile = events.length;
       await recovered.reconcile(HOST);
       assert.ok(!existsSync(childBinding.path));
+      assert.ok(events.slice(beforeReconcile).some(({ payload }) => payload.reason === "remote.leftovers.changed"));
+      assert.ok(!(await recovered.leftovers(HOST)).some((tree) => tree.sessionId === child.id));
       await recovered.reconcile(HOST);
       assert.deepEqual((await call("sessionWorkspace.pendingRemoval.list", { hostKey: HOST })).removals, []);
     } finally {

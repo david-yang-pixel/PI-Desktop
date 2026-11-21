@@ -41,6 +41,14 @@ let folderPickResult = { folders: [], canceled: true };
 let createdLocalSessions = 0;
 const calls = [];
 const listeners = new Map();
+const leftover = {
+  hostKey: host.hostKey, sessionId: "orphan", repository, workBranch: "pi-desktop/orphan",
+  path: "/srv/checkout", createdAt: session.createdAt, uncommittedFiles: 2, unpushedCommits: 1,
+};
+let fixtureHostConnected = true;
+let leftoverWorktrees = [leftover];
+let nextLeftoverList;
+let nextLeftoverRemoval;
 let reconnects = 0;
 window.piDesktop = {
   platform: "linux",
@@ -49,10 +57,22 @@ window.piDesktop = {
     group.add(listener); listeners.set(channel, group);
     return () => { group.delete(listener); if (!group.size) listeners.delete(channel); };
   },
-  async invoke(channel, input) {
-    calls.push({ channel, input });
+  async invoke(channel, input, sessionId) {
+    calls.push({ channel, input, sessionId });
     let data = {};
-    if (channel === IPC.invoke.remoteHostList) data = { hosts: projectFlow ? [host, secondHost] : [host] };
+    if (channel === IPC.invoke.remoteHostList) {
+      data = { hosts: projectFlow ? [host, secondHost] : [{ ...host, connected: fixtureHostConnected }] };
+    }
+    else if (channel === IPC.invoke.remoteLeftoverWorktreesList) {
+      const delayed = nextLeftoverList;
+      nextLeftoverList = undefined;
+      data = { worktrees: delayed ? await delayed : leftoverWorktrees };
+    }
+    else if (channel === IPC.invoke.remoteLeftoverWorktreesRemove) {
+      await nextLeftoverRemoval;
+      leftoverWorktrees = leftoverWorktrees.filter((tree) => tree.sessionId !== sessionId);
+      data = { ok: true };
+    }
     else if (channel === IPC.invoke.environmentsList) data = { environments: projectFlow ? [environment, secondEnvironment] : [environment] };
     else if (channel === IPC.invoke.githubConnectorStatus) data = { connected: !projectFlow, deviceLoginAvailable: true };
     else if (channel === IPC.invoke.githubRepositories) data = { repositories: [repository] };
@@ -118,6 +138,10 @@ function type(node, value) {
   node.dispatchEvent(new Event("input", { bubbles: true }));
 }
 function emit(payload) { for (const listener of listeners.get(IPC.event.remoteInteractions) ?? []) listener(payload); }
+function emitHostChanged(connected) {
+  fixtureHostConnected = connected;
+  for (const listener of listeners.get(IPC.event.sessionsChanged) ?? []) listener({ reason: "remote.host.changed" });
+}
 function waitForFocus(target, message) {
   if (document.activeElement === target) return Promise.resolve();
   return new Promise((resolve, reject) => {
@@ -291,6 +315,73 @@ globalThis.remoteMvpProbe = async () => {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
   await until(() => !dialog(), "Escape did not close the SSH dialog");
   await waitForFocus(sshAction, "Final Escape did not restore SSH trigger focus");
+  await i18n.changeLanguage("en");
+  const leftoverLabels = catalogs.en.sessionTarget;
+  const leftoverRow = (tree) => [...document.querySelectorAll(".settings-row")]
+    .find((row) => row.querySelector(".settings-row-title")?.textContent.includes(tree.workBranch));
+  const leftoverPanel = () => leftoverRow(leftover)?.closest(".session-target-fields");
+  const removalDialog = () => document.querySelector('[data-worktree-dialog="remote-leftover-worktree"]');
+  const removalCalls = () => calls.filter(({ channel }) => channel === IPC.invoke.remoteLeftoverWorktreesRemove);
+  const listCalls = () => calls.filter(({ channel }) => channel === IPC.invoke.remoteLeftoverWorktreesList);
+  await until(() => leftoverRow(leftover)?.querySelector("button")?.disabled === false,
+    "leftover inventory did not load without manual refresh");
+  const removalTrigger = leftoverRow(leftover).querySelector("button");
+  removalTrigger.focus();
+  removalTrigger.click();
+  await until(removalDialog, "Remove did not open an in-app confirmation dialog");
+  const warning = i18n.t("sessionTarget.deleteAtRisk", { files: 2, commits: 1 });
+  assert(removalDialog().textContent.includes(warning), "confirmation did not disclose uncommitted files and unpushed commits");
+  assert(removalDialog().getAttribute("aria-modal") === "true", "worktree confirmation is not modal");
+  assert(removalCalls().length === 0, "opening worktree confirmation removed a checkout");
+  [...removalDialog().querySelectorAll("button")].find((node) => node.textContent === catalogs.en.common.cancel).click();
+  await until(() => !removalDialog(), "Cancel did not dismiss the worktree dialog");
+  await waitForFocus(removalTrigger, "worktree confirmation did not return focus to Remove");
+  assert(removalCalls().length === 0, "canceling worktree confirmation removed a checkout");
+
+  const panel = leftoverPanel();
+  const refreshLeftovers = () => [...panel.querySelectorAll("button")].find((node) => node.textContent === leftoverLabels.refresh);
+  const stale = Promise.withResolvers();
+  nextLeftoverList = stale.promise;
+  const previousLists = listCalls().length;
+  refreshLeftovers().click();
+  await until(() => listCalls().length > previousLists && panel.getAttribute("aria-busy") === "true", "manual refresh did not request fresh leftovers");
+  emitHostChanged(false);
+  await until(() => !leftoverRow(leftover) && refreshLeftovers()?.disabled && panel.textContent.includes(leftoverLabels.offline),
+    "disconnect did not clear and disable the leftover inventory");
+  const reconnectedLeftover = { ...leftover, sessionId: "new-orphan", workBranch: "pi-desktop/new-orphan" };
+  leftoverWorktrees = [reconnectedLeftover];
+  emitHostChanged(true);
+  await until(() => leftoverRow(reconnectedLeftover)?.querySelector("button")?.disabled === false,
+    "reconnect did not load fresh leftovers");
+  stale.resolve([leftover]);
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  assert(!leftoverRow(leftover) && leftoverRow(reconnectedLeftover), "a response from before disconnect overwrote current leftovers");
+
+  const reconciledLeftover = { ...reconnectedLeftover, sessionId: "kept-orphan", workBranch: "pi-desktop/kept-orphan" };
+  leftoverWorktrees = [reconciledLeftover];
+  for (const listener of listeners.get(IPC.event.sessionsChanged) ?? []) listener({ reason: "remote.leftovers.changed" });
+  await until(() => !leftoverRow(reconnectedLeftover) && leftoverRow(reconciledLeftover)?.querySelector("button")?.disabled === false,
+    "the leftovers list did not refresh when host reconciliation completed");
+
+  const removal = Promise.withResolvers();
+  nextLeftoverRemoval = removal.promise;
+  leftoverRow(reconciledLeftover).querySelector("button").click();
+  await until(removalDialog, "the reconnected worktree could not be selected for removal");
+  const confirm = [...removalDialog().querySelectorAll("button")].find((node) => node.textContent === leftoverLabels.remove);
+  const listsBeforeRemoval = listCalls().length;
+  const refreshed = Promise.withResolvers();
+  nextLeftoverList = refreshed.promise;
+  confirm.click();
+  confirm.click();
+  await until(() => confirm.disabled, "the in-flight removal did not disable confirmation");
+  assert(removalCalls().length === 1 && removalCalls()[0].input === host.hostKey && removalCalls()[0].sessionId === reconciledLeftover.sessionId,
+    "confirmation did not remove exactly the selected worktree from its host");
+  removal.resolve();
+  await until(() => !removalDialog() && panel.getAttribute("aria-busy") === "true", "removal did not refresh the inventory");
+  assert(listCalls().length > listsBeforeRemoval, "removal did not request the authoritative inventory");
+  refreshed.resolve(leftoverWorktrees);
+  await until(() => !leftoverRow(reconciledLeftover) && panel.textContent.includes(leftoverLabels.noLeftovers)
+    && panel.getAttribute("aria-busy") === "false", "the refreshed inventory did not show the removed worktree as gone");
   settingsRoot.unmount();
   assert(listeners.size === 0, "remote hosts page listeners leaked");
 
@@ -457,5 +548,5 @@ globalThis.remoteMvpProbe = async () => {
   assert(localStarts()[1].input.projectPath === undefined, "the temporary chat inherited the selected folder");
   projectRoot.unmount();
 
-  return { ok: true, scenarios: ["history without model transfer", "open", "send", "approve", "peer resolution", "reconnect without replay", "local isolation", "Add actions precede inventory", "SSH and Pair dialog flows", "success and cancel clear drafts", "Escape and backdrop dismissal", "focus restoration", "home location row and narrow layout", "environment, repository, and branch selection", "project-first sidebar and editable task drafts", "first prompt starts a cloud session without a repository on the selected host", "local folder selection, cancellation, and temporary drafts", "cleanup"] };
+  return { ok: true, scenarios: ["history without model transfer", "open", "send", "approve", "peer resolution", "reconnect without replay", "local isolation", "Add actions precede inventory", "SSH and Pair dialog flows", "success and cancel clear drafts", "Escape and backdrop dismissal", "focus restoration", "leftover refresh on mount, reconnect, reconciliation, and removal", "leftover removal confirmation", "home location row and narrow layout", "environment, repository, and branch selection", "project-first sidebar and editable task drafts", "first prompt starts a cloud session without a repository on the selected host", "local folder selection, cancellation, and temporary drafts", "cleanup"] };
 };

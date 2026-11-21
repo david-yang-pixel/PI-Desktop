@@ -4,7 +4,7 @@ import { api } from "../../../lib/api";
 
 export function useEnvironments() {
   const [environments, setEnvironments] = useState<RemoteEnvironment[]>([]);
-  const [hosts, setHosts] = useState<RemoteHostSummary[]>([]);
+  const [inventory, setInventory] = useState<{ hosts: RemoteHostSummary[]; hostRevision: number }>({ hosts: [], hostRevision: 0 });
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -14,7 +14,7 @@ export function useEnvironments() {
       void Promise.all([api.listEnvironments(), api.listRemoteHosts()]).then(([env, paired]) => {
         if (current !== generation) return;
         setEnvironments(env.environments);
-        setHosts(paired.hosts);
+        setInventory({ hosts: paired.hosts, hostRevision: current });
         setError(undefined);
         setLoaded(true);
       }, (cause) => {
@@ -23,10 +23,10 @@ export function useEnvironments() {
     };
     const offEnv = api.onEnvironmentsChanged(refresh);
     const offHost = api.onSessionsChanged((event) => {
-      if (event.reason === "remote.host.changed") refresh();
+      if (event.reason === "remote.host.changed" || event.reason === "remote.leftovers.changed") refresh();
     });
     refresh();
     return () => { ++generation; offEnv(); offHost(); };
   }, []);
-  return { environments, hosts, loaded, error };
+  return { environments, ...inventory, loaded, error };
 }
