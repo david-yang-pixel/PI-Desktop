@@ -22,6 +22,20 @@ workspaces' tool lists. Calls use the existing MCP tool permission rules.
 
 The same credential can serve the desktop's GitHub REST operations and the
 built-in MCP server. Existing user records keep their own credentials and
-tools. The compatibility of third-party GitHub OAuth device-flow tokens
-remains an acceptance item after an OAuth App is registered. The manual probe
-reports whether the hosted server can initialize and list its tools.
+tools.
+
+## Device Flow acceptance
+
+On 2026-11-21, the built-in connector obtained a token through GitHub Device
+Flow using the OAuth App client ID from the
+[`v0.23.1-pr.9` macOS package](https://github.com/david-yang-pixel/PI-Desktop/releases/tag/v0.23.1-pr.9).
+GitHub REST accepted the same token for the connector's `/user` request.
+
+The [manual probe](../../scripts/probe-github-mcp.mjs) used the
+`issues,pull_requests` toolsets. Hosted MCP returned HTTP 200 for `initialize`,
+HTTP 202 for `notifications/initialized`, and HTTP 200 for `tools/list`. The
+list contained 20 tools, including `create_pull_request`, `pull_request_read`,
+and `issue_read`.
+
+This run verified token acceptance and tool discovery for the fork's OAuth
+App. It ended at tool discovery, before invoking any tools.
