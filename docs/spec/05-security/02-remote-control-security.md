@@ -237,6 +237,14 @@ endpoint. Local host-core first applies its existing permissions and admission;
 Main then sends the admitted tool request to the selected paired Host. The Host
 canonicalizes the root and reuses its pure tool runner with external paths denied.
 A disconnected or unsupported Host cannot redirect execution onto Desktop.
+Before dispatch, host-core routes `Read` of a submitted attachment in the
+owning session's desktop scratch directory to its existing local Read runner.
+A sent user message must carry its attachment record, matching content-addressed
+attachment, or the exact composer file reference for a pasted file.
+Directory traversal, symlink redirection, other sessions' files,
+and files that have only been added to an unsent draft cannot use this route.
+The normal permission gate and Read limits still apply. Attachment bytes do
+not go to the paired Host.
 
 Device/session namespace isolation prevents cross-device cancellation and tool
 identity collisions. Connection disposal aborts active calls; invalid or late

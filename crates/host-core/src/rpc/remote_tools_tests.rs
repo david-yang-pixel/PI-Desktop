@@ -153,6 +153,112 @@ async fn remote_read_dispatch_is_local_approval_then_relay_never_local_runner() 
     assert!(state.lock().await.remote_execs.is_empty());
 }
 #[tokio::test]
+async fn remote_session_reads_its_sent_desktop_attachments() {
+    let (dir, state, tx, mut rx) = fixture();
+    let (_, id) = create(&state, &tx).await;
+    let root = scratch::session_dir(dir.path(), &id)
+        .unwrap()
+        .join("pasted");
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("pasted list.txt");
+    std::fs::write(&path, "first line\nattached checklist\nlast line").unwrap();
+    handle_request(
+        state.clone(),
+        "session.appendMessage",
+        json!({
+            "sessionId": id,
+            "message": {
+                "id": "sent-file",
+                "role": "user",
+                "content": format!("Read my checklist @\"{}\"", path.display()),
+                "createdAt": "2026-01-01T00:00:00Z",
+            }
+        }),
+        tx.clone(),
+    )
+    .await
+    .unwrap();
+
+    let read = handle_request(
+        state,
+        "tools.execute",
+        json!({
+            "sessionId": id, "toolCallId": "read-attachment", "toolName": "Read", "mode": "agent",
+            "args": {"path":path,"offset":1,"limit":1}
+        }),
+        tx,
+    );
+    let result = tokio::select! {
+        pending = rx.recv() => panic!("attachment read left the local execution path: {pending:?}"),
+        result = tokio::time::timeout(Duration::from_secs(5), read) => result.unwrap().unwrap(),
+    };
+    assert_eq!(result["ok"], true);
+    let text = result["content"]["content"].as_str().unwrap();
+    assert!(text.contains("attached checklist"));
+    assert!(!text.contains("first line"));
+}
+
+#[tokio::test]
+async fn desktop_attachment_route_rejects_unsubmitted_and_foreign_files() {
+    let (dir, state, tx, _rx) = fixture();
+    let (_, id) = create(&state, &tx).await;
+    let root = scratch::session_dir(dir.path(), &id)
+        .unwrap()
+        .join("pasted");
+    std::fs::create_dir_all(&root).unwrap();
+    let unsent = root.join("draft.txt");
+    std::fs::write(&unsent, "unsent").unwrap();
+    let args = json!({"path":unsent});
+    assert!(
+        remote_tools::desktop_attachment_root(dir.path(), &id, "Read", &args)
+            .unwrap()
+            .is_none()
+    );
+
+    handle_request(
+        state,
+        "session.appendMessage",
+        json!({
+            "sessionId": id,
+            "message": {
+                "id": "sent-file",
+                "role": "user",
+                "content": "Read this file",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "attachments": [{"kind":"file","name":"draft.txt","ref":unsent}]
+            }
+        }),
+        tx,
+    )
+    .await
+    .unwrap();
+    assert!(
+        remote_tools::desktop_attachment_root(dir.path(), "other-session", "Read", &args)
+            .unwrap()
+            .is_none()
+    );
+    for tool in ["Write", "Edit", "Bash", "Grep"] {
+        assert!(
+            remote_tools::desktop_attachment_root(dir.path(), &id, tool, &args)
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[cfg(unix)]
+    {
+        let outside = dir.path().join("outside.txt");
+        std::fs::write(&outside, "outside").unwrap();
+        std::fs::remove_file(&unsent).unwrap();
+        std::os::unix::fs::symlink(&outside, &unsent).unwrap();
+        assert!(
+            remote_tools::desktop_attachment_root(dir.path(), &id, "Read", &args)
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
 async fn denied_remote_write_and_cancelled_read_never_run_locally() {
     let (_dir, state, tx, mut rx) = fixture();
     let (_path, id) = create(&state, &tx).await;

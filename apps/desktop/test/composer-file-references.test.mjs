@@ -4,12 +4,13 @@ import vm from "node:vm";
 import ts from "typescript";
 import { mkdir, mkdtemp, open, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { referenceComposerFiles, resolveComposerFileReference } from "../electron/main/composer-file-references.ts";
 import { preparePromptAttachments, appendPromptFallbackPaths } from "../electron/main/prompt-attachments.ts";
 import { appendLocalFileReferenceContext } from "@pi-desktop/shared";
 import { consumeComposerPickerSelection, rememberComposerPickerSelection } from "../electron/main/composer-picker.ts";
+import { importComposerFiles } from "../electron/main/composer-paste.ts";
 
 async function fixture(t) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "pi-file-reference-")));
@@ -68,8 +69,7 @@ test("a reference to an image remains metadata and never hydrates outside-projec
   await assert.rejects(preparePromptAttachments(data, "source", project, [{ ...reference, localReference: undefined }], true, "Inspect"), /outside the session roots/);
 });
 
-test("native selection IPC binds sender and session before registering and dispatching a large reference", async t => {
-  const { data, project, path } = await fixture(t);
+function nativeImportHandler(data, host, importer = importComposerFiles) {
   const source = readFileSync(new URL("../electron/main/ipc/workspace-ipc.ts", import.meta.url), "utf8");
   const tree = ts.createSourceFile("workspace.ts", source, ts.ScriptTarget.Latest, true);
   let callback;
@@ -80,14 +80,19 @@ test("native selection IPC binds sender and session before registering and dispa
   visit(tree);
   assert.ok(callback);
   const code = ts.transpileModule(`(${callback.getText(tree)})`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const host = { call: async (_method, input) => ({ session: input.id === "source" ? { projectPath: project } : null }) };
-  const handler = vm.runInNewContext(code, {
+  return vm.runInNewContext(code, {
     host, getHost: () => host, dataDir: data,
     assertMainWindowSender: event => assert.equal(event.sender.id, 1, "main sender required"),
     consumeComposerPickerSelection, referenceComposerFiles,
-    importComposerFiles: () => assert.fail("reference must not invoke the byte importer"),
+    importComposerFiles: importer,
     ErrorCodes: { NOT_FOUND: "NOT_FOUND", INVALID_ARGUMENT: "INVALID_ARGUMENT" },
   });
+}
+
+test("native selection IPC binds sender and session before registering and dispatching a large reference", async t => {
+  const { data, project, path } = await fixture(t);
+  const host = { call: async (_method, input) => ({ session: input.id === "source" ? { projectPath: project } : null }) };
+  const handler = nativeImportHandler(data, host, () => assert.fail("reference must not invoke the byte importer"));
   const input = { sessionId: "source", token: rememberComposerPickerSelection([path], 1), reference: true };
   await assert.rejects(handler({ sender: { id: 2 } }, input), /main sender/);
   await assert.rejects(handler({ sender: { id: 1 } }, { ...input, sessionId: "deleted" }), /session not found/);
@@ -99,4 +104,24 @@ test("native selection IPC binds sender and session before registering and dispa
   assert.equal(prepared.message.size, 67108865);
   assert.ok(appendPromptFallbackPaths("Inspect", [prepared]).includes("67108865 bytes"));
   assert.deepEqual(await readdir(data), ["composer-file-references"]);
+});
+
+test("a native clipboard file is copied as an attachment for a remote repository session", async t => {
+  const { data, path } = await fixture(t);
+  await writeFile(path, "remote session attachment");
+  // The repository may still be preparing when the desktop imports the file.
+  const host = { call: async () => ({ session: { projectPath: "remote-project:group" } }) };
+  const handler = nativeImportHandler(data, host);
+  const { files: [file] } = await handler({ sender: { id: 1 } }, {
+    sessionId: "remote-session",
+    token: rememberComposerPickerSelection([path], 1),
+    reference: true,
+  });
+  assert.notEqual(file.path, path);
+  assert.equal(file.localReference, undefined);
+  assert.equal(dirname(file.path), join(data, "scratch", "remote-session", "pasted"));
+  assert.equal(readFileSync(file.path, "utf8"), "remote session attachment");
+  const [prepared] = await preparePromptAttachments(data, "remote-session", undefined, [file], false, "Review");
+  assert.equal(prepared.message.ref, file.path);
+  assert.equal(prepared.fallbackPath, file.path);
 });

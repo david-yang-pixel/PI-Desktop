@@ -617,9 +617,11 @@ export function registerWorkspaceIpc({
         });
       }
       const paths = consumeComposerPickerSelection(input.token, event.sender.id);
-      if (input.reference === true) {
-        if (!session.session.projectPath || session.session.remoteWorkspace) throw new Error("local file references require a local project");
-        return { files: await referenceComposerFiles(dataDir, sessionId, session.session.projectPath, paths) };
+      const projectPath = session.session.projectPath;
+      const isRemote = session.session.remoteWorkspace || projectPath?.startsWith("remote-project:");
+      if (input.reference === true && !isRemote) {
+        if (!projectPath) throw new Error("local file references require a local project");
+        return { files: await referenceComposerFiles(dataDir, sessionId, projectPath, paths) };
       }
       return {
         files: await importComposerFiles(

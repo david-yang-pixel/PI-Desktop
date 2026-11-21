@@ -31,6 +31,8 @@ const { createBackendRouter } = await import("../apps/desktop/electron/main/remo
 const { createSessionWorkspaces } = await import("../apps/desktop/electron/main/remote/session-workspaces.ts");
 const { createSessionWorkspaceGit } = await import("../apps/desktop/electron/main/remote/session-workspace-git.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
+const { saveComposerPasteFiles } = await import("../apps/desktop/electron/main/composer-paste.ts");
+const { formatFileInsert } = await import("../packages/shared/dist/index.js");
 const { startGitHttpFixture } = await import("./e2e/git-http-fixture.mjs");
 
 assert.ok(process.env.PI_HOST_CORE_BINARY, "PI_HOST_CORE_BINARY must name the current candidate Rust binary");
@@ -429,6 +431,23 @@ try {
       assert.ok(result.ok, JSON.stringify(result));
       assert.match(JSON.stringify(result), /setup-value/);
       assert.equal(relayCalls, 1);
+      const localData = join(root, "local-host");
+      const text = "Desktop attachment marker. " + "A checklist entry.\n".repeat(40);
+      const [pasted] = await saveComposerPasteFiles(localData, session.id, [
+        { name: "pasted-text-list.txt", mimeType: "text/plain", data: new TextEncoder().encode(text).buffer },
+      ]);
+      await call("session.appendMessage", { sessionId: session.id, message: {
+        id: "desktop-attachment-message", role: "user",
+        content: `Review the checklist ${formatFileInsert(pasted.path, "file").trim()}`,
+        createdAt: new Date().toISOString(),
+      } });
+      const localRead = await call("tools.execute", {
+        sessionId: session.id, toolCallId: "read-desktop-attachment", toolName: "Read",
+        mode: "agent", args: { path: pasted.path },
+      });
+      assert.ok(localRead.ok, JSON.stringify(localRead));
+      assert.match(localRead.content.content, /Desktop attachment marker/);
+      assert.equal(relayCalls, 1, "attachment path and bytes never went to the remote Host");
       assert.ok(!existsSync(join(workspacesRoot, "repos/github.com/octo/repo/setup.txt")));
       const committedInSession = await bash(session.id, ready.remoteWorkspace.path, "git add setup.txt && git -c user.name='PI E2E' -c user.email=pi-e2e@example.invalid commit -qm setup");
       assert.equal(committedInSession.exitCode, 0, committedInSession.output);

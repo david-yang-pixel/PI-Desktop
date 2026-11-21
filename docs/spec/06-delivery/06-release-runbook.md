@@ -28,6 +28,8 @@ section describes what the fork's workflow does.
   original signature over a rewritten bundle and makes macOS report the app
   as damaged. Ad-hoc signing reseals the bundle; it is not a Developer ID
   signature and does not notarize.
+  The merged-PR job enables `CSC_FOR_PULL_REQUEST` in the unsigned packaging
+  step so electron-builder applies this seal to the checked-out merge commit.
 - **Artifact check**: the "Verify the unsigned distribution marker" step runs
   `scripts/check-packaged-distribution.mjs` against the packaged `app.asar`
   and `codesign --verify --deep --strict` against the bundle. electron-builder

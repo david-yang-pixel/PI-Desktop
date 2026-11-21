@@ -247,6 +247,9 @@ jobs:
         env:
           # The fork's release lane: no Developer ID certificate exists.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Checkout already selected the merged commit. electron-builder
+          # otherwise skips even ad-hoc signing when GITHUB_BASE_REF is set.
+          CSC_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merged == true }}
         run: |
           set -euo pipefail
           # Artifact names are defined in apps/desktop/package.json: the mac
