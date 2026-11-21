@@ -52,15 +52,18 @@ export function registerRemoteSessionIpc(registrar: IpcRegistrar, getBoot: () =>
     const input = object(request);
     const key = hostKey(input);
     const projectId = input.projectId === undefined ? undefined : text(input.projectId, "projectId", 256);
+    const environmentId = input.environmentId === undefined ? undefined : text(input.environmentId, "environmentId", 512);
     const title = input.title === undefined ? undefined : text(input.title, "title", 200);
     if (input.mode !== undefined && !(RACP_SESSION_MODES as readonly unknown[]).includes(input.mode)) invalid("mode");
     if (input.permissionMode !== undefined && !(RACP_PERMISSION_MODES as readonly unknown[]).includes(input.permissionMode)) invalid("permissionMode");
     const parsed: RemoteHostCreateSessionRequest = {
       hostKey: key, ...(projectId ? { projectId } : {}), ...(title ? { title } : {}),
+      ...(environmentId ? { environmentId } : {}),
       ...(input.mode ? { mode: input.mode as RemoteHostCreateSessionRequest["mode"] } : {}),
       ...(input.permissionMode ? { permissionMode: input.permissionMode as RemoteHostCreateSessionRequest["permissionMode"] } : {}),
     };
-    return { session: await getBoot().createSession(parsed) };
+    const { setup, ...session } = await getBoot().createSession(parsed);
+    return { session, ...(setup ? { setup } : {}) };
   });
   registrar.handle(IPC.invoke.remoteHostSyncProviders, async (request: unknown) => {
     const input = object(request);

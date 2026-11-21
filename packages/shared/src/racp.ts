@@ -12,6 +12,7 @@
  * unscheduled; `RACP-GRPC` is reserved.
  */
 import Type from "typebox";
+import { WorkspaceEnvironmentVariablesSchema, WorkspaceGitEnvironmentSchema } from "./racp-workspace-git.js";
 
 import { ErrorCodes } from "./errors.js";
 import {
@@ -146,6 +147,14 @@ export const WorkspacePluginFilesResultSchema = Type.Union([
 ]);
 export type WorkspacePluginFilesResult = Static<typeof WorkspacePluginFilesResultSchema>;
 
+export const WorkspaceEnvironmentSetupSchema = Type.Object({
+  path: Type.String({ minLength: 1, maxLength: 4096 }),
+  environment: WorkspaceGitEnvironmentSchema,
+}, { additionalProperties: false });
+export type WorkspaceEnvironmentSetup = Static<typeof WorkspaceEnvironmentSetupSchema>;
+export const WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS = 31 * 60_000;
+export type WorkspaceEnvironmentSetupResult = { status: "ok" | "failed"; logTail: string };
+
 /** Narrow owner-only tool service; model configuration and credentials never cross it. */
 export const WorkspaceToolExecuteSchema = Type.Object({
   path: Type.String({ minLength: 1, maxLength: 4096 }),
@@ -157,6 +166,7 @@ export const WorkspaceToolExecuteSchema = Type.Object({
   timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 21_600_000 })),
   expectedCommandShellId: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
   expectedCommandShellDialect: Type.Optional(Type.Union([Type.Literal("posix"), Type.Literal("powershell"), Type.Literal("cmd")])),
+  variables: Type.Optional(WorkspaceEnvironmentVariablesSchema),
 }, { additionalProperties: false });
 export type WorkspaceToolExecute = Static<typeof WorkspaceToolExecuteSchema>;
 export const WorkspaceToolAbortSchema = Type.Object({
@@ -491,6 +501,7 @@ export const RacpServerCapabilitiesSchema = Type.Object({
   workspaceGit: Type.Optional(Type.Boolean()),
   workspaceGitSafeRemoval: Type.Optional(Type.Boolean()),
   workspaceGitReclaim: Type.Optional(Type.Boolean()),
+  workspaceEnvironment: Type.Optional(Type.Boolean()),
   notifications: Type.Boolean(),
   bindings: Type.Array(Type.Union([Type.Literal("RACP-WS"), Type.Literal("RACP-HTTP"), Type.Literal("RACP-GRPC")])),
 });
@@ -628,6 +639,7 @@ export const RACP_OPERATIONS = {
   "workspace/list": { role: "viewer", profile: "remote-host", mutation: false },
   "workspace/read": { role: "viewer", profile: "remote-host", mutation: false },
   "workspace/diff": { role: "viewer", profile: "remote-host", mutation: false },
+  "workspace/setupEnvironment": { role: "owner", profile: "remote-host", mutation: true },
   "workspace/toolExecute": { role: "owner", profile: "remote-host", mutation: true },
   "workspace/toolAbort": { role: "owner", profile: "remote-host", mutation: true },
   "workspace/toolShell": { role: "owner", profile: "remote-host", mutation: false },
@@ -955,6 +967,7 @@ export const RACP_SCHEMAS = {
   RemoteError: RacpRemoteErrorSchema,
   Limits: RacpLimitsSchema,
   Policy: RacpPolicySchema,
+  WorkspaceEnvironmentSetup: WorkspaceEnvironmentSetupSchema,
   WorkspaceGitCredentialSet: WorkspaceGitCredentialSetSchema,
   WorkspaceGitRepositoryRequest: WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitPrepare: WorkspaceGitPrepareSchema,

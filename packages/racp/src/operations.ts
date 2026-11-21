@@ -3,7 +3,7 @@ import { RacpError } from "@pi-desktop/agent-host";
 import {
   RacpApprovalResponseSchema,
   WorkspaceToolExecuteSchema, WorkspaceToolAbortSchema, WorkspaceFilesRequestSchema,
-  WorkspacePluginFilesRequestSchema,
+  WorkspacePluginFilesRequestSchema, WorkspaceEnvironmentSetupSchema, WorkspaceGitEnvironmentSchema,
   WorkspaceGitCredentialClearSchema, WorkspaceGitCredentialSetSchema, WorkspaceGitJobRefSchema, WorkspaceGitListSchema,
   WorkspaceGitPrepareSchema, WorkspaceGitReclaimSchema, WorkspaceGitRemoveSchema, WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitSessionRefSchema,
@@ -80,6 +80,7 @@ const SessionCreateParams = Type.Object({
   modelId: Type.Optional(Type.String()),
   thinkingLevel: Type.Optional(Type.String()),
   permissionMode: Type.Optional(Type.Union([Type.Literal("ask"), Type.Literal("accept-edits"), Type.Literal("auto")])),
+  environment: Type.Optional(WorkspaceGitEnvironmentSchema),
 });
 const SessionConfigureParams = Type.Object({
   sessionId: Type.String({ minLength: 1 }),
@@ -181,8 +182,20 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     }
     return context.operations.workspacePluginFiles.read(check(WorkspacePluginFilesRequestSchema, params));
   });
-  handlers.set("workspace/toolExecute", async (context, params) =>
-    requireWorkspaceTools(context).execute(check(WorkspaceToolExecuteSchema, params), toolOwner(context)));
+  handlers.set("workspace/setupEnvironment", async (context, params) => {
+    const operations = requireWorkspaceTools(context);
+    if (!operations.setupEnvironment || !context.capabilities.workspaceEnvironment) {
+      throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer workspace environments");
+    }
+    return operations.setupEnvironment(check(WorkspaceEnvironmentSetupSchema, params));
+  });
+  handlers.set("workspace/toolExecute", async (context, params) => {
+    const input = check(WorkspaceToolExecuteSchema, params);
+    if (input.variables && (!context.capabilities.workspaceEnvironment || input.toolName !== "Bash")) {
+      throw new RacpError("INVALID_ARGUMENT", "workspace variables require a Bash environment");
+    }
+    return requireWorkspaceTools(context).execute(input, toolOwner(context));
+  });
   handlers.set("workspace/toolAbort", async (context, params) => {
     await requireWorkspaceTools(context).abort(check(WorkspaceToolAbortSchema, params), toolOwner(context));
     return { ok: true };
@@ -276,9 +289,13 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
   });
   handlers.set("session/create", async (context, params) => {
     const input = check(SessionCreateParams, params);
-    const summary = await context.operations.sessions.create(input, context.principal);
+    if (input.environment) {
+      if (!context.principal.roles.includes("owner")) throw new RacpError("FORBIDDEN", "workspace environments require an owner");
+      if (!context.capabilities.workspaceEnvironment) throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer workspace environments");
+    }
+    const { setup, ...summary } = await context.operations.sessions.create(input, context.principal);
     context.agentHost.publishSessionChange("session.created", summary);
-    return { session: context.agentHost.describeSession(summary) };
+    return { session: context.agentHost.describeSession(summary), ...(setup ? { setup } : {}) };
   });
   handlers.set("session/attach", async (context, params) => {
     const input = check(AttachParams, params);

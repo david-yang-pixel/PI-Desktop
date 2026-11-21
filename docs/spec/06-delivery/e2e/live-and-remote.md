@@ -826,6 +826,21 @@ its output through real tool relay. A second session without a binding
 receives `REMOTE_WORKSPACE_NOT_READY` before any tool is forwarded. A fork
 starts at the parent's unpushed commit.
 
+## E2E-REMOTE-no-repository-environment
+
+Choose a paired environment containing a setup script and a variable. Leave
+No repository selected and send the first prompt. For a temporary Host-owned
+session, verify setup writes its marker in that session's scratch workspace
+and Bash reads both the marker and the saved variable. Repeat with an existing
+remote folder project and verify that setup writes to the selected folder and
+subsequent Bash runs there using the Desktop-owned session. Setup failures show
+the bounded log output. Another session without the environment cannot see the
+saved variable. An older Host continues to support empty environments.
+
+`PI_HOST_CORE_BINARY="$PWD/target/debug/pi-desktop-host-core" node scripts/e2e-local-agent-remote-tools.mjs`
+uses isolated loopback Hosts, real Setup and Bash, and a fixture model. Rust
+and RACP tests cover the failure log, reserved variables and capability checks.
+
 ## E2E-REMOTE-repo-session-pushes-and-opens-pull-request
 
 The same fixture pushes the prepared work branch into a real Git server

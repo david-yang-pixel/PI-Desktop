@@ -16,11 +16,13 @@ const { bindRacpWebSocket, RacpServer, MemoryCredentialStore, DeviceTokenAuthent
 const { createWorkspaceTools } = await import("../apps/pi-host/dist/workspace-tools.js");
 const { createWorkspaceFiles } = await import("../apps/pi-host/dist/workspace-files.js");
 const { createHostOperations } = await import("../apps/pi-host/dist/host-operations.js");
+const { registerRemoteRepositorySessions, getRemoteRepositorySessions } = await import("../apps/desktop/electron/main/ipc/repository-session-ipc.ts");
+const { runConfirmedQuitTeardown } = await import("../apps/desktop/electron/main/bootstrap/confirmed-quit.ts");
 const OWNER_TOKEN = newDeviceToken();
-const { createRemoteHostsBoot } = await import("../apps/desktop/electron/main/bootstrap/remote-hosts.ts");
+const { createRemoteHostsBoot, setActiveRemoteHostsBoot } = await import("../apps/desktop/electron/main/bootstrap/remote-hosts.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
 const { loadRemoteWorkspaceInstructions } = await import("../apps/desktop/electron/main/remote/remote-workspace-instructions.ts");
-const { createBackendRouter } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
+const { createBackendRouter, parseRemoteSessionId } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
 
 assert.ok(process.env.PI_HOST_CORE_BINARY, "PI_HOST_CORE_BINARY must name the current candidate Rust binary");
 const root = await mkdtemp(join(process.env.PI_SCRATCH_DIR ?? tmpdir(), "local-agent-remote-tools-"));
@@ -57,7 +59,7 @@ const model = createServer(async (req, res) => {
     if (modelCalls <= 2) {
       if (modelCalls === 2) assert.ok(JSON.stringify(input.messages).includes("REMOTE_READ_FIXTURE"), "actual remote Read enters local model context");
       const name = modelCalls === 1 ? "Read" : "Bash";
-      const args = name === "Read" ? { path: "README.md" } : { command: "printf 'REMOTE_BASH_FIXTURE\\n' > marker.txt" };
+      const args = name === "Read" ? { path: "README.md" } : { command: "printf '%s\\n' \"$FIXTURE_ENV\" > marker.txt" };
       frame({ role: "assistant", tool_calls: [{ index: 0, id: `local-tool-${modelCalls}`, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
       frame({}, "tool_calls");
     } else {
@@ -95,7 +97,16 @@ try {
   localHost = new HostProcess({ binaryPath: resolve(process.env.PI_HOST_CORE_BINARY), dataDir: join(root, "local-host"), onStderr: () => {} });
   await localHost.handshake();
   const created = await localHost.call("project.group.createRemote", { name: "Locally named remote project", remote: { hostKey: "fixture", path: remoteRoot } });
-  const localSession = await localHost.call("session.create", { projectPath: created.group.primaryPath, mode: "agent" });
+  const variables = [{ name: "FIXTURE_ENV", value: "REMOTE_BASH_FIXTURE" }];
+  const setup = await boot.prepareWorkspaceEnvironment("fixture", {
+    path: remoteRoot,
+    environment: { variables, setupScript: "printf '%s' \"$FIXTURE_ENV\" > setup.txt" },
+  });
+  assert.equal(setup.status, "ok");
+  assert.equal(await readFile(join(remoteRoot, "setup.txt"), "utf8"), "REMOTE_BASH_FIXTURE");
+  const localSession = await localHost.call("session.create", {
+    projectPath: created.group.primaryPath, mode: "agent", environment: { variables },
+  });
   relay = createRemoteWorkspaceToolRelay(localHost, { getBoot: () => boot, isCurrent: () => true, isTurnDispatchable: (sessionId, turnId) => sessionId === localSession.session.id && turnId === "local-turn", log: () => {} });
   localHost.onNotification((method, params) => {
     if (method === "tools.remoteExecute") void relay.execute(params);
@@ -121,6 +132,8 @@ try {
   assert.equal(localPermissions, 1, "Bash is approved by local permissions before remote dispatch");
   assert.equal(await readFile(join(remoteRoot, "marker.txt"), "utf8"), "REMOTE_BASH_FIXTURE\n");
   assert.deepEqual(wireCalls.map(call => call.toolName), ["Read", "Bash"]);
+  assert.equal(wireCalls[0].variables, undefined);
+  assert.deepEqual(wireCalls[1].variables, variables);
   assert.ok(!JSON.stringify(wireCalls).includes(KEY), "local provider key never crosses the workspace boundary");
   assert.ok(wireCalls.every(call => !Object.keys(call).some(key => /provider|model|secret|auth/i.test(key))));
   const providers = await host.call("providers.list", {});
@@ -131,11 +144,36 @@ try {
   assert.equal(projects.projects.length, 0, "tool service creates no persistent remote project");
   assert.equal(h.remotePrompts(), 0, "no remote Agent/model invocation");
   await assert.rejects(boot.executeWorkspaceTool({ ...wireCalls[0], hostKey: "fixture" }), "duplicate tool id cannot replay");
+  setActiveRemoteHostsBoot(boot);
+  registerRemoteRepositorySessions({
+    registrar: { handleWithEvent() {} },
+    call: (method, params) => localHost.call(method, params),
+    connector: { async token() { return null; }, onChange() { return () => {}; } },
+    emit() {}, log() {}, hasQueuedPrompt: () => false, isBusy: () => false,
+  });
+  const environment = await getRemoteRepositorySessions().workspaces.upsert({
+    name: "Temporary tool fixture", hostKey: "fixture", variables,
+    setupScript: "printf '%s' \"$FIXTURE_ENV\" > setup.txt",
+  });
+  const remoteSession = await boot.createSession({
+    hostKey: "fixture", environmentId: environment.id, mode: "agent", permissionMode: "auto",
+  });
+  assert.equal(remoteSession.setup.status, "ok");
+  const { hostSessionId } = parseRemoteSessionId(remoteSession.id);
+  const temporaryProbe = await host.call("tools.execute", {
+    sessionId: hostSessionId, toolName: "Bash", toolCallId: "temporary-environment",
+    mode: "agent", expectedCommandShellId: shell.id, expectedCommandShellDialect: shell.dialect,
+    args: { command: "cat setup.txt && printf ':%s' \"$FIXTURE_ENV\"" },
+  });
+  assert.equal(temporaryProbe.ok, true, JSON.stringify(temporaryProbe));
+  assert.equal(temporaryProbe.content.stdout, "REMOTE_BASH_FIXTURE:REMOTE_BASH_FIXTURE");
   await boot.removeHost("fixture");
   await assert.rejects(boot.executeWorkspaceTool({ ...wireCalls[0], toolCallId: "after-disconnect", hostKey: "fixture" }), { errorCode: "AGENT_UNAVAILABLE" });
-  console.log("PASS local model/key/instructions + local Rust project/permission relay + real RACP/Rust Read/Bash, no remote providers/projects/sessions, no replay/fallback");
+  console.log("PASS local model/key/instructions + local Rust project/permission relay + real RACP/Rust Read/Bash, no remote providers/projects for tool relay, no replay/fallback, folder and temporary Environment setup/variables");
 } finally {
   clearTimeout(deadline);
+  runConfirmedQuitTeardown({ app() {} });
+  setActiveRemoteHostsBoot(null);
   await runtime?.dispose(); relay?.dispose(); await localHost?.dispose(); await boot?.closeAll(); h?.server.close(); await binding?.close(); await host?.dispose();
   model.closeAllConnections(); await new Promise(resolveClose => model.close(resolveClose)); await rm(root, { recursive: true, force: true });
 }

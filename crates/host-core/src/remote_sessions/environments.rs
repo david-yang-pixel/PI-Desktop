@@ -55,6 +55,23 @@ pub fn list(db: &Database) -> Result<Vec<Environment>> {
         .collect()
 }
 
+pub(crate) fn validate_variables(variables: &[Variable]) -> Result<()> {
+    ensure!(variables.len() <= 64, "too many environment variables");
+    let mut names = HashSet::new();
+    for variable in variables {
+        validate_variable_name(&variable.name)?;
+        ensure!(
+            names.insert(&variable.name),
+            "duplicate environment variable"
+        );
+        ensure!(
+            variable.value.chars().count() <= 8192 && !variable.value.contains('\0'),
+            "invalid environment variable value"
+        );
+    }
+    Ok(())
+}
+
 pub fn upsert(db: &Database, input: Input) -> Result<Environment> {
     RemoteWorkspace {
         host_key: input.host_key.clone(),
@@ -70,22 +87,7 @@ pub fn upsert(db: &Database, input: Input) -> Result<Environment> {
         input.setup_script.chars().count() <= 65_536 && !input.setup_script.contains('\0'),
         "invalid setup script"
     );
-    ensure!(
-        input.variables.len() <= 64,
-        "too many environment variables"
-    );
-    let mut names = HashSet::new();
-    for variable in &input.variables {
-        validate_variable_name(&variable.name)?;
-        ensure!(
-            names.insert(&variable.name),
-            "duplicate environment variable"
-        );
-        ensure!(
-            variable.value.chars().count() <= 8192 && !variable.value.contains('\0'),
-            "invalid environment variable value"
-        );
-    }
+    validate_variables(&input.variables)?;
     let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     if let Some(host) = id.strip_prefix("default:") {
         ensure!(host == input.host_key, "invalid default environment id");

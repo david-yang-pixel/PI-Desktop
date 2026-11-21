@@ -1,3 +1,4 @@
+import type { WorkspaceGitEnvironment } from "@pi-desktop/shared";
 import type { RemoteHostsBoot } from "../bootstrap/remote-hosts";
 
 export type RemoteWorkspaceToolRequest = {
@@ -11,6 +12,7 @@ export type RemoteWorkspaceToolRequest = {
   timeoutMs?: number;
   expectedCommandShellId?: string;
   expectedCommandShellDialect?: string;
+  variables?: WorkspaceGitEnvironment["variables"];
 };
 
 type HostReply = { call(method: string, params: Record<string, unknown>): Promise<unknown> };
@@ -53,6 +55,7 @@ export function createRemoteWorkspaceToolRelay(host: HostReply, deps: Dependenci
         result = await boot.executeWorkspaceTool({ ...request.remoteWorkspace,
           sessionId: request.sessionId, turnId: request.turnId, toolCallId: request.toolCallId,
           toolName: request.toolName, args: request.args,
+          ...(request.variables?.length ? { variables: request.variables } : {}),
           ...(typeof request.timeoutMs === "number" ? { timeoutMs: request.timeoutMs } : {}),
           ...(request.expectedCommandShellId ? { expectedCommandShellId: request.expectedCommandShellId } : {}),
           ...(request.expectedCommandShellDialect ? { expectedCommandShellDialect: request.expectedCommandShellDialect } : {}),

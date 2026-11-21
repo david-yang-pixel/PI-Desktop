@@ -61,6 +61,7 @@ function createFixture({ draftConfiguration = null, settings = undefined } = {})
     activeSessionId: undefined,
     draftConfiguration,
     settings,
+    activateProject: async (path) => ({ path }),
     selectSession: async (id, options) => {
       selections.push({ id, options });
       state = { ...state, activeSessionId: id };
@@ -98,9 +99,9 @@ test("forwards explicit draft permissionMode values to api.createRemoteSession",
     assert.equal(f.selections.at(-1)?.id, sessionId);
   }
   assert.deepEqual(createCalls, [
-    { hostKey: "ssh-one", projectId: "proj-1", mode: "agent", permissionMode: "accept-edits" },
-    { hostKey: "ssh-one", projectId: "proj-1", mode: "agent", permissionMode: "auto" },
-    { hostKey: "ssh-one", projectId: "proj-1", mode: "agent", permissionMode: "ask" },
+    { hostKey: "ssh-one", environmentId: ENVIRONMENT.id, projectId: "proj-1", mode: "agent", permissionMode: "accept-edits" },
+    { hostKey: "ssh-one", environmentId: ENVIRONMENT.id, projectId: "proj-1", mode: "agent", permissionMode: "auto" },
+    { hostKey: "ssh-one", environmentId: ENVIRONMENT.id, projectId: "proj-1", mode: "agent", permissionMode: "ask" },
   ]);
 });
 
@@ -166,6 +167,24 @@ test("falls back to ask when neither draft nor settings has a valid global permi
     createCalls.map((call) => call.permissionMode),
     ["ask", "ask"],
   );
+});
+
+test("creates a remote folder session with the selected Environment", async () => {
+  const f = createFixture();
+  const projectPath = "remote-project:folder";
+  useSessionTargetStore.getState().beginDraft({
+    environmentId: ENVIRONMENT.id,
+    folderProject: { path: projectPath, hostKey: ENVIRONMENT.hostKey },
+  });
+  let creation;
+  const id = await materializeRemoteTargetSession(f.access, f.runtime, async (options) => {
+    creation = options;
+    return "folder-session";
+  });
+  assert.equal(id, "folder-session");
+  assert.equal(creation.projectPath, projectPath);
+  assert.equal(creation.remoteEnvironmentId, ENVIRONMENT.id);
+  assert.equal(createCalls.length, 0);
 });
 
 test("resolves draft mode and falls back to settings.defaultMode or agent", async () => {

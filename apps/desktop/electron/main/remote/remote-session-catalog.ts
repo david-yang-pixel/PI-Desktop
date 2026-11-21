@@ -1,5 +1,6 @@
+import { WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS } from "@pi-desktop/shared";
 import type {
-  RacpProjectSummary, RacpSession, RemoteHostCreateSessionRequest, SessionSummary, RemoteHostBrowseProjectsResult,
+  WorkspaceGitEnvironment, WorkspaceEnvironmentSetupResult, RacpProjectSummary, RacpSession, RemoteHostCreateSessionRequest, SessionSummary, RemoteHostBrowseProjectsResult,
 } from "@pi-desktop/shared";
 import { makeRemoteSessionId } from "./backend-router.js";
 import type { RemoteHostConnection } from "./remote-host-connection.js";
@@ -81,20 +82,21 @@ export function createRemoteSessionCatalog(options: {
       stillCurrent(host);
       return result.project;
     },
-    async createSession(input: RemoteHostCreateSessionRequest): Promise<SessionSummary> {
+    async createSession(input: RemoteHostCreateSessionRequest, environment?: WorkspaceGitEnvironment): Promise<SessionSummary & { setup?: WorkspaceEnvironmentSetupResult }> {
       const host = requireHost(input.hostKey);
-      const result = await host.client.request<{ session: RacpSession }>("session/create", {
+      const result = await host.client.request<{ session: RacpSession; setup?: WorkspaceEnvironmentSetupResult }>("session/create", {
+        ...(environment ? { environment } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
         ...(input.title ? { title: input.title } : {}),
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
-      });
+      }, environment?.setupScript?.trim() ? WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS : undefined);
       stillCurrent(host);
       await host.connection.ensureSession(result.session.id);
       stillCurrent(host);
       const row = summary(host, result.session);
       cache.set(host.hostKey, [row, ...(cache.get(host.hostKey) ?? []).filter((entry) => entry.id !== row.id)]);
-      return row;
+      return result.setup ? { ...row, setup: result.setup } : row;
     },
   };
 }

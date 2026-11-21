@@ -25,7 +25,7 @@ export async function materializeRemoteTargetSession(
       const workspace = await get().activateProject(folderProject.path, { navigationIntent: intent });
       if (!runtime.navigationIntentIsCurrent(intent)) return null;
       if (!workspace) throw new Error(i18n.t("errors.workspaceActivationFailed"));
-      return persist({ intent, projectPath: folderProject.path });
+      return persist({ intent, projectPath: folderProject.path, remoteEnvironmentId: environment.id });
     }
     const projectId = remoteProject?.hostKey === environment.hostKey
       ? remoteProject.projectId
@@ -36,12 +36,16 @@ export async function materializeRemoteTargetSession(
     const permissionMode = isGlobalPermissionMode(draftPermissionMode)
       ? draftPermissionMode
       : normalizeGlobalPermissionMode(initial.settings?.defaultPermissionMode, "ask");
-    const { session: created } = await api.createRemoteSession({
+    const { session: created, setup } = await api.createRemoteSession({
       hostKey: environment.hostKey,
+      environmentId: environment.id,
       projectId,
       mode,
       permissionMode,
     });
+    if (setup?.status === "failed") {
+      get().showToast([i18n.t("sessionTarget.preparation.setupFailed"), setup.logTail].filter(Boolean).join("\n"), { variant: "error" });
+    }
     const session = safeSessionSummary(created);
     set((state) => ({
       sessions: [session, ...state.sessions.filter((item) => item.id !== session.id)],

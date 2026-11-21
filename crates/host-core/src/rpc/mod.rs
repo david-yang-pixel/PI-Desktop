@@ -14,6 +14,7 @@ mod scheduled_rpc;
 mod scheduled_settings;
 mod scheduled_tools;
 mod session_display;
+mod session_environment;
 mod todos;
 mod window_corner_rpc;
 mod window_owner;
@@ -852,6 +853,7 @@ fn drop_session_side_data(st: &AppState, id: &str) {
     visualizations::remove_session_dir(&st.data_dir, id);
     review::remove_session(&st.data_dir, id);
     st.hashline.drop_session(id);
+    session_environment::clear(&st.db, id);
 }
 
 const DEFAULT_LARGE_PASTE_THRESHOLD: i64 = 600;
@@ -2008,6 +2010,7 @@ async fn handle_request(
 
     match method {
         "visualizations.readFragment" => gen_ui::read_fragment(state, params).await,
+        "tools.workspaceSetupEnvironment" => session_environment::setup_folder(state, params).await,
         "tools.remoteComplete" | "tools.workspaceExecute" | "tools.workspaceAbort" => {
             remote_tools::handle(state, method, params, tx).await
         }
@@ -2760,6 +2763,11 @@ async fn handle_request(
             Ok(json!({ "sessions": sessions }))
         }
         "session.create" => {
+            let environment = params
+                .get("environment")
+                .cloned()
+                .map(session_environment::parse)
+                .transpose()?;
             let thinking_level = thinking_level_param(&params)?;
             let fast_mode = fast_mode_param(&params)?.unwrap_or(false);
             let permission_parent = permission_parent_param(&params)?;
@@ -2828,6 +2836,46 @@ async fn handle_request(
                 params.get("modeSnapshot"),
             )
             .map_err(modes_rpc::error)?;
+            if let Some(environment) = environment {
+                let registered = (|| {
+                    session_environment::save(&st.db, &session.id, &environment.variables)?;
+                    if environment.setup_script.trim().is_empty() {
+                        return Ok(None);
+                    }
+                    if isolated || remote_tools::remote_workspace_of(&st, &session)?.is_some() {
+                        return Err(rpc_err(
+                            1002,
+                            "setup requires a local session root",
+                            "INVALID_PARAMS",
+                        ));
+                    }
+                    let root = resolve_tool_workspace(&st, &session.id)?.ok_or_else(|| {
+                        rpc_err(1002, "session root is missing", "INVALID_PARAMS")
+                    })?;
+                    Ok(Some((root, session_environment::shell(&st)?)))
+                })();
+                let setup = match registered {
+                    Ok(setup) => setup,
+                    Err(error) => {
+                        match sessions::delete_session(&st.db, &session.id) {
+                            Ok(true) => drop_session_side_data(&st, &session.id),
+                            Ok(false) => {}
+                            Err(cause) => {
+                                tracing::warn!(%cause, "could not roll back session environment creation")
+                            }
+                        }
+                        return Err(error);
+                    }
+                };
+                if let Some((root, shell)) = setup {
+                    let value = remote_tools::session_value(&st.db, session.clone())?;
+                    drop(st);
+                    let setup =
+                        session_environment::run(Path::new(&root), &session.id, shell, environment)
+                            .await;
+                    return Ok(json!({ "session": value, "setup": setup }));
+                }
+            }
             let Some(project) = isolated_project else {
                 let session = remote_tools::decorate_session(
                     &st.db,
@@ -4813,16 +4861,25 @@ async fn handle_request(
                         )
                         .map_err(|e| rpc_err(1000, e, "TOOL_FAILED"))?;
                 }
-                let (data_dir, hashline_store, worktree_env) = {
+                let (data_dir, hashline_store, bash_env) = {
                     let st = state.lock().await;
                     (
                         st.data_dir.clone(),
                         st.hashline.clone(),
-                        crate::session_worktrees::delegate::tool_env(
-                            &st.db,
-                            &p.session_id,
-                            p.delegation_id.as_deref(),
-                        ),
+                        if p.tool_name == "Bash" && remote_workspace.is_none() {
+                            session_environment::pairs(session_environment::load(
+                                &st.db,
+                                &p.session_id,
+                            )?)
+                            .chain(crate::session_worktrees::delegate::tool_env(
+                                &st.db,
+                                &p.session_id,
+                                p.delegation_id.as_deref(),
+                            ))
+                            .collect()
+                        } else {
+                            Vec::new()
+                        },
                     )
                 };
                 let hashline_ctx = tools::HashlineContext {
@@ -4916,7 +4973,7 @@ async fn handle_request(
                         timeout_ms: execution_timeout_ms,
                         cancellation,
                         output_tx: Some(tx.clone()),
-                        extra_env: worktree_env.clone(),
+                        extra_env: bash_env,
                         run_in_background: p.run_in_background,
                         continuation_turn_id: if notify_on_exit {
                             p.turn_id.clone()

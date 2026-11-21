@@ -7,7 +7,7 @@
  * Companion of `RemoteHostRecord` inside main (which additionally carries
  * `deviceToken`). See ADR 0286 §Registry and R2b pairing UX.
  */
-import type { RacpProjectSummary, RacpSessionMode, RacpPermissionMode } from "../racp.js";
+import type { RacpProjectSummary, RacpSessionMode, RacpPermissionMode, WorkspaceEnvironmentSetupResult } from "../racp.js";
 import type { SessionSummary } from "./sessions.js";
 import type { ProviderImportSummary } from "../provider-sync.js";
 import type { AskToolRequest, ToolPermissionRequest } from "./agent.js";
@@ -164,11 +164,12 @@ export type RemoteHostSessionsResult = { sessions: SessionSummary[] };
 export type RemoteHostCreateSessionRequest = {
   hostKey: string;
   projectId?: string;
+  environmentId?: string;
   title?: string;
   mode?: RacpSessionMode;
   permissionMode?: RacpPermissionMode;
 };
-export type RemoteHostCreateSessionResult = { session: SessionSummary };
+export type RemoteHostCreateSessionResult = { session: SessionSummary; setup?: WorkspaceEnvironmentSetupResult };
 export type RemoteHostReconnectRequest = { hostKey: string };
 export type RemoteHostSyncProvidersRequest = {
   hostKey: string;

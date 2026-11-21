@@ -123,15 +123,17 @@ export const WorkspaceGitRepositorySchema = Type.Object({
 }, { additionalProperties: false });
 export type WorkspaceGitRepository = Static<typeof WorkspaceGitRepositorySchema>;
 
-/** Plain configuration for a worktree's tools and setup script; not for secrets. */
+export const WorkspaceEnvironmentVariablesSchema = Type.Array(
+  Type.Object({
+    name: Type.String({ pattern: ENVIRONMENT_VARIABLE_NAME_PATTERN }),
+    value: Type.String({ maxLength: WORKSPACE_GIT_MAX_VARIABLE_VALUE_LENGTH }),
+  }, { additionalProperties: false }),
+  { maxItems: WORKSPACE_GIT_MAX_VARIABLES },
+);
+
+/** Plain configuration for remote tools and setup scripts. */
 export const WorkspaceGitEnvironmentSchema = Type.Object({
-  variables: Type.Array(
-    Type.Object({
-      name: Type.String({ pattern: ENVIRONMENT_VARIABLE_NAME_PATTERN }),
-      value: Type.String({ maxLength: WORKSPACE_GIT_MAX_VARIABLE_VALUE_LENGTH }),
-    }, { additionalProperties: false }),
-    { maxItems: WORKSPACE_GIT_MAX_VARIABLES },
-  ),
+  variables: WorkspaceEnvironmentVariablesSchema,
   setupScript: Type.Optional(Type.String({ maxLength: WORKSPACE_GIT_MAX_SETUP_SCRIPT_LENGTH })),
 }, { additionalProperties: false });
 export type WorkspaceGitEnvironment = Static<typeof WorkspaceGitEnvironmentSchema>;

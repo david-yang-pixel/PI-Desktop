@@ -1,3 +1,4 @@
+import i18n from "i18next";
 import type {
   ContextCompactionRecord,
   SessionDetail,
@@ -40,6 +41,7 @@ export type PersistSessionOptions = {
   /** Run the new session in its own git worktree (ADR 0329). */
   isolated?: boolean;
   deferRemoteWorkspace?: boolean;
+  remoteEnvironmentId?: string;
 };
 
 export type SessionCoordination = {
@@ -328,6 +330,7 @@ export function createSessionCoordination({
         projectPath: projectPath ?? undefined,
         ...(options.isolated ? { isolated: true } : {}),
         ...(options.deferRemoteWorkspace ? { deferRemoteWorkspace: true } : {}),
+        ...(options.remoteEnvironmentId ? { remoteEnvironmentId: options.remoteEnvironmentId } : {}),
       });
     } catch (error) {
       if (previousSessionId && runtime.navigationIntentIsCurrent(active)) {
@@ -338,6 +341,9 @@ export function createSessionCoordination({
       throw error;
     }
     const sessionId = created.session.id;
+    if (created.setup?.status === "failed") {
+      get().showToast([i18n.t("sessionTarget.preparation.setupFailed"), created.setup.logTail].filter(Boolean).join("\n"), { variant: "error" });
+    }
     if (!runtime.navigationIntentIsCurrent(active)) {
       commitCreatedEmptySession(created.session, { activate: false });
       return null;

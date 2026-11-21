@@ -6,6 +6,7 @@ import type {
   WorkspaceDiff,
   WorkspaceToolExecute, WorkspaceToolAbort, WorkspaceToolResult, CommandShellOption, WorkspaceFilesRequest,
   WorkspacePluginFilesRequest, WorkspacePluginFilesResult,
+  WorkspaceEnvironmentSetup, WorkspaceEnvironmentSetupResult, WorkspaceGitEnvironment,
   WorkspaceGitJob, WorkspaceGitPrepare, WorkspaceGitReclaim, WorkspaceGitReclaimResult, WorkspaceGitRemoveResult,
   WorkspaceGitRepository, WorkspaceGitStatus, WorkspaceGitWorktree,
 } from "@pi-desktop/shared";
@@ -25,6 +26,7 @@ export type SessionCreateInput = {
   modelId?: string;
   thinkingLevel?: string;
   permissionMode?: "ask" | "accept-edits" | "auto";
+  environment?: WorkspaceGitEnvironment;
 };
 
 export type SessionConfigureInput = {
@@ -37,7 +39,7 @@ export type SessionConfigureInput = {
 
 export interface RacpSessionCatalog {
   list(): Promise<SessionSummary[]>;
-  create(input: SessionCreateInput, principal: Principal): Promise<SessionSummary>;
+  create(input: SessionCreateInput, principal: Principal): Promise<SessionSummary & { setup?: WorkspaceEnvironmentSetupResult }>;
   configure(sessionId: string, input: SessionConfigureInput): Promise<SessionSummary>;
   fork(sessionId: string, input: { title?: string; throughMessageId?: string }): Promise<SessionSummary>;
   rename(sessionId: string, title: string): Promise<void>;
@@ -93,6 +95,7 @@ export type RacpHostOperations = {
   workspaceFiles?: { read(input: WorkspaceFilesRequest): Promise<unknown> };
   workspacePluginFiles?: { read(input: WorkspacePluginFilesRequest): Promise<WorkspacePluginFilesResult> };
   workspaceTools?: {
+    setupEnvironment?(input: WorkspaceEnvironmentSetup): Promise<WorkspaceEnvironmentSetupResult>;
     execute(input: WorkspaceToolExecute, owner: { deviceId: string; connectionId: string }): Promise<WorkspaceToolResult>;
     abort(input: WorkspaceToolAbort, owner: { deviceId: string; connectionId: string }): Promise<void>;
     shell(): Promise<CommandShellOption>;

@@ -419,6 +419,38 @@ describe("RACP-WS remote-host profile", () => {
 export type _Envelope = RacpEventEnvelope;
 
 describe("owner-only workspace tool boundary", () => {
+  it("negotiates Environment setup and accepts variables only on Bash", async () => {
+    const calls: unknown[] = [];
+    const setup = { status: "ok" as const, logTail: "completed" };
+    const h = await harness({ operations: { workspaceTools: {
+      async setupEnvironment(input) { calls.push(input); return setup; },
+      async execute(input) { calls.push(input); return { ok: true, content: "result" }; },
+      async abort() {},
+      async shell() { return { id: "bash", label: "Bash", dialect: "posix", available: true, isDefault: true }; },
+      async disconnect() {},
+    } } });
+    const { client } = await h.connect(OWNER_TOKEN);
+    const viewer = await h.connect(VIEWER_TOKEN);
+    const variables = [{ name: "CONFIG_SETTING", value: "fixture" }];
+    const input = { path: "/workspace", environment: { variables, setupScript: "echo ready" } };
+    const bash = { path: input.path, sessionId: "session", turnId: "turn", toolCallId: "call", toolName: "Bash", args: {}, variables };
+    try {
+      expect(client.initialized?.capabilities.workspaceEnvironment).toBe(true);
+      expect(await client.request("workspace/setupEnvironment", input)).toEqual(setup);
+      await expect(viewer.client.request("workspace/setupEnvironment", input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+      await expect(client.request("workspace/toolExecute", { ...bash, toolName: "Read" })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      await expect(client.request("workspace/toolExecute", { ...bash, variables: [{ name: "BASH_ENV", value: "fixture" }] })).rejects.toMatchObject({ code: "INVALID_ARGUMENT" });
+      expect(await client.request("workspace/toolExecute", bash)).toMatchObject({ ok: true });
+      expect(calls).toEqual([input, bash]);
+    } finally {
+      await client.close();
+      await viewer.client.close();
+    }
+    const old = await (await harness()).connect(OWNER_TOKEN);
+    try {
+      await expect(old.client.request("session/create", { environment: input.environment })).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    } finally { await old.client.close(); }
+  });
   it("routes execute/shell/abort without model or session operations, and rejects viewer/extra fields", async () => {
     const calls: unknown[] = [];
     const shell = { id: "bash" as const, label: "Bash", dialect: "posix" as const, available: true, isDefault: true };
