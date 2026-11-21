@@ -17,6 +17,7 @@ export function createSessionWorkspaceGit(deps: {
   workspaces: SessionWorkspaces;
   connector: Pick<GitHubConnector, "findPullRequest" | "createPullRequest">;
   emit(channel: string, payload: unknown): void;
+  log?(message: string, error: unknown): void;
 }) {
   const { call, workspaces, connector, emit } = deps;
   const pushJobs = new Map<string, { hostKey: string; jobId: string }>();
@@ -40,7 +41,7 @@ export function createSessionWorkspaceGit(deps: {
     const { sessionId, hostKey, workBranch, baseBranch } = binding;
     try {
       const result = await workspaces.git().status(hostKey, sessionId);
-      if (result.worktree.checkoutPresent === false) {
+      if (result.worktree.reclaimedAt || result.worktree.checkoutPresent === false) {
         await workspaces.recoverMissingCheckout(binding, result.worktree);
         throw remoteError(ErrorCodes.REMOTE_WORKSPACE_NOT_READY, "The repository checkout is being restored");
       }
@@ -153,12 +154,17 @@ export function createSessionWorkspaceGit(deps: {
       });
     }
   }
+  const touched = (sessionId: string) => workspaces.touch?.(sessionId).catch((error) => deps.log?.("Could not record repository workspace activity", error));
   const api = {
+    isOperating: (sessionId: string) => pushes.has(sessionId) || requests.has(sessionId),
     async status(sessionId: string) { return readStatus(await requireReady(sessionId)); },
     push(sessionId: string) {
       const current = pushes.get(sessionId);
       if (current) return current;
-      const task = push(sessionId).finally(() => pushes.delete(sessionId));
+      const task = push(sessionId).finally(async () => {
+        try { await touched(sessionId); }
+        finally { pushes.delete(sessionId); }
+      });
       pushes.set(sessionId, task);
       return task;
     },
@@ -168,7 +174,10 @@ export function createSessionWorkspaceGit(deps: {
     create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">) {
       const current = requests.get(sessionId);
       if (current) return current;
-      const task = create(sessionId, input).finally(() => requests.delete(sessionId));
+      const task = create(sessionId, input).finally(async () => {
+        try { await touched(sessionId); }
+        finally { requests.delete(sessionId); }
+      });
       requests.set(sessionId, task);
       return task;
     },

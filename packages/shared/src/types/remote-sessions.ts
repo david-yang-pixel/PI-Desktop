@@ -6,6 +6,8 @@ export type RemoteEnvironmentInput = {
   hostKey: string;
   setupScript?: string;
   variables?: WorkspaceGitEnvironment["variables"];
+  idleReclaimHours?: number;
+  regenerableDirs?: string[];
 };
 
 export type RemoteEnvironment = {
@@ -14,6 +16,8 @@ export type RemoteEnvironment = {
   hostKey: string;
   setupScript: string;
   variables: WorkspaceGitEnvironment["variables"];
+  idleReclaimHours: number;
+  regenerableDirs: string[];
   isDefault: boolean;
 };
 
@@ -26,12 +30,15 @@ export type SessionRemoteRepository = {
   repository: WorkspaceGitRepository;
   baseBranch: string;
   workBranch?: string;
-  state: "preparing" | "ready" | "failed" | "removing";
+  state: "preparing" | "ready" | "reclaiming" | "reclaimed" | "failed" | "removing";
   phase?: WorkspaceGitJob["phase"];
   progress?: WorkspaceGitJob["progress"];
   error?: NonNullable<WorkspaceGitJob["error"]>;
   setup?: WorkspaceGitWorktree["setup"];
   pullRequest?: { number: number; url: string };
+  lastActivityAt?: string;
+  reclaimedAt?: string;
+  reclaimedCommit?: string;
 };
 
 export type RemoteSessionTarget = {

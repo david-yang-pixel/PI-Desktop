@@ -217,6 +217,12 @@ impl Layout {
         })
     }
 
+    pub fn canonical(&self) -> Result<Self, WorkspaceGitError> {
+        Ok(Self {
+            root: crate::workspace::simple_canonicalize(&self.root)?,
+        })
+    }
+
     pub fn ensure_private_directories(&self) -> Result<(), WorkspaceGitError> {
         for path in [
             self.root.clone(),

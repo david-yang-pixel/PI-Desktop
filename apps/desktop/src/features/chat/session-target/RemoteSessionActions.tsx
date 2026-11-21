@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { RemoteSessionGitStatus, SessionRemoteRepository } from "@pi-desktop/shared";
 import { Button, Checkbox, Field, Input, Textarea } from "../../../components/ui";
@@ -22,6 +22,8 @@ export function RemoteSessionActions({ sessionId, sessionTitle, workspace }: { s
   const toast = useAppStore((state) => state.showToast);
   const close = useCallback(() => setShowDialog(false), []);
   const ready = workspace.state === "ready";
+  const reclaimed = workspace.state === "reclaimed";
+  const readyScope = useRef<AbortSignal | null>(null);
   const canPush = status?.reachable === true
     && (Boolean(status.unpushedCommits) || Boolean(status.ahead) || !status.pushedOnce && Boolean(status.aheadOfBase));
   useEffect(() => {
@@ -32,11 +34,16 @@ export function RemoteSessionActions({ sessionId, sessionTitle, workspace }: { s
     return () => { current = false; };
   }, [workspace.hostKey]);
   useEffect(() => {
-    if (!ready) return;
-    let current = true;
+    if (!ready) {
+      setStatus(undefined);
+      setShowDialog(false);
+      return;
+    }
+    const scope = new AbortController();
+    readyScope.current = scope.signal;
     const refresh = () => void api.remoteSessionGitStatus(sessionId).then(
-      (next) => { if (current) setStatus(next.status); },
-      () => { if (current) setStatus(undefined); },
+      (next) => { if (!scope.signal.aborted) setStatus(next.status); },
+      () => { if (!scope.signal.aborted) setStatus(undefined); },
     );
     refresh();
     window.addEventListener("focus", refresh);
@@ -45,7 +52,7 @@ export function RemoteSessionActions({ sessionId, sessionTitle, workspace }: { s
     const offProgress = api.onRemoteSessionPushProgress((event) => {
       if (event.sessionId === sessionId) setProgress(event.progress?.percent);
     });
-    return () => { current = false; window.removeEventListener("focus", refresh); offHosts(); offTurns(); offProgress(); };
+    return () => { scope.abort(); window.removeEventListener("focus", refresh); offHosts(); offTurns(); offProgress(); };
   }, [ready, sessionId]);
 
   async function run(kind: NonNullable<typeof pendingAction>, action: () => Promise<void>) {
@@ -62,7 +69,14 @@ export function RemoteSessionActions({ sessionId, sessionTitle, workspace }: { s
     }
   }
   async function startRequest() {
+    if (reclaimed && pullRequest) {
+      await api.browserOpenExternal(pullRequest.url);
+      return;
+    }
+    const scope = readyScope.current;
+    if (!ready || !scope || scope.aborted) return;
     const existing = await api.findRemoteSessionPullRequest(sessionId);
+    if (scope.aborted) return;
     if (existing.pullRequest) {
       await api.browserOpenExternal(existing.pullRequest.url);
       return;
@@ -79,13 +93,16 @@ export function RemoteSessionActions({ sessionId, sessionTitle, workspace }: { s
       {status?.reachable && (Boolean(status.ahead) || Boolean(status.behind) || Boolean(status.uncommittedFiles)) &&
         <span>{t("sessionTarget.gitCounts", { ahead: status.ahead ?? 0, behind: status.behind ?? 0, files: status.uncommittedFiles ?? 0 })}</span>}
       <Button variant="secondary" disabled={busy || !canPush} onClick={() => void run("push", async () => {
-        setStatus((await api.pushRemoteSession(sessionId)).status);
+        const scope = readyScope.current;
+        const next = await api.pushRemoteSession(sessionId);
+        if (scope && !scope.aborted) setStatus(next.status);
       })}>{progress !== undefined ? t("sessionTarget.pushPercent", { percent: progress }) : pendingAction === "push" ? t("sessionTarget.pushing") : t("sessionTarget.push")}</Button>
-      <Button variant="secondary" disabled={busy || (!pullRequest && status?.reachable === false)} onClick={() => void run("find", startRequest)}>
-        {pullRequest ? t("sessionTarget.openPullRequest", { number: pullRequest.number }) : t("sessionTarget.createPullRequest")}
-      </Button>
     </>}
-    {showDialog && <WorktreeDialogFrame id="remote-pull-request" title={t("sessionTarget.createPullRequest")}
+    {(ready || (reclaimed && pullRequest)) && <Button variant="secondary"
+      disabled={busy || (!pullRequest && status?.reachable === false)} onClick={() => void run("find", startRequest)}>
+      {pullRequest ? t("sessionTarget.openPullRequest", { number: pullRequest.number }) : t("sessionTarget.createPullRequest")}
+    </Button>}
+    {ready && showDialog && <WorktreeDialogFrame id="remote-pull-request" title={t("sessionTarget.createPullRequest")}
       subtitle={`${workspace.workBranch} → ${workspace.baseBranch}`} onClose={close} busy={busy}
       actions={<Button disabled={busy || !title.trim()} onClick={() => void run("create", async () => {
         await api.createRemoteSessionPullRequest({ sessionId, title: title.trim(), body, draft });

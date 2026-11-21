@@ -59,6 +59,9 @@ pub struct AppState {
     /// Clone, prepare, and push jobs for remote git workspaces. Process-local;
     /// it has its own lock so a job never needs this state's lock to report.
     pub workspace_git_jobs: crate::workspace_git::jobs::SharedJobs,
+    /// Per-worktree read/write access locks shared between remote tool
+    /// executions and idle workspace reclamation.
+    pub workspace_git_locks: crate::workspace_git::locks::WorktreeAccessLocks,
     pub plugin_execs: HashMap<String, tokio::sync::oneshot::Sender<serde_json::Value>>,
     /// Rolling plugin session API brakes. These are intentionally process-local;
     /// a restart is already a natural rate-window boundary.
@@ -186,6 +189,7 @@ impl AppState {
             plugin_execs: HashMap::new(),
             remote_execs: HashMap::new(),
             workspace_git_jobs: Default::default(),
+            workspace_git_locks: Default::default(),
             plugin_import_rates: HashMap::new(),
             plugin_batch_import_rates: HashMap::new(),
             plugin_delete_rates: HashMap::new(),

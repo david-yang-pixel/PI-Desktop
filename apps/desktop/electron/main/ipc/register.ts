@@ -370,6 +370,11 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     return builtin.state(servers ?? []);
   } });
   registerRemoteRepositorySessions({
+    acquireSessionOperation,
+    runWhileIdle: async (sessionId, operation) => { await getAgentHostBridge()?.agentHost.runWhileIdle(sessionId, operation); },
+    hasQueuedPrompt: (sessionId) => Boolean(getAgentHostBridge()?.queue.list(sessionId).length),
+    isBusy: (sessionId) => activeTurns.has(sessionId) || scheduledRunsBySession.has(sessionId)
+      || approvedExecutionIdsBySession.has(sessionId) || claimedExecutionSessions.has(sessionId),
     registrar, connector: githubConnector, emit: (channel, payload) => {
       sendToRenderer(channel, payload);
       if (channel !== IPC.event.remoteSessionWorkspaceChanged) return;

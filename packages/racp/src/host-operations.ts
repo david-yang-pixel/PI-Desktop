@@ -6,7 +6,8 @@ import type {
   WorkspaceDiff,
   WorkspaceToolExecute, WorkspaceToolAbort, WorkspaceToolResult, CommandShellOption, WorkspaceFilesRequest,
   WorkspacePluginFilesRequest, WorkspacePluginFilesResult,
-  WorkspaceGitJob, WorkspaceGitPrepare, WorkspaceGitRemoveResult, WorkspaceGitRepository, WorkspaceGitStatus, WorkspaceGitWorktree,
+  WorkspaceGitJob, WorkspaceGitPrepare, WorkspaceGitReclaim, WorkspaceGitReclaimResult, WorkspaceGitRemoveResult,
+  WorkspaceGitRepository, WorkspaceGitStatus, WorkspaceGitWorktree,
 } from "@pi-desktop/shared";
 
 /**
@@ -112,6 +113,8 @@ export type RacpHostOperations = {
     job(input: { jobId: string }): Promise<WorkspaceGitJob>;
     cancelJob(input: { jobId: string }): Promise<void>;
     status(input: { installationId: string; sessionId: string }): Promise<WorkspaceGitStatus>;
+    /** The backend supports reclaim and strict setup on wake. */
+    reclaim?(input: WorkspaceGitReclaim): Promise<WorkspaceGitReclaimResult>;
     remove(input: { installationId: string; sessionId: string; force: boolean }): Promise<WorkspaceGitRemoveResult>;
     list(input: { installationId: string }): Promise<WorkspaceGitWorktree[]>;
     disconnect(connectionId: string): Promise<void>;

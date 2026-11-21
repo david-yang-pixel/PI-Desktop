@@ -36,6 +36,34 @@ pub enum SetupStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReclaimIntent {
+    pub quarantine_id: String,
+    pub admin_name: String,
+    pub quarantined: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Recovery {
+    pub reclaimed_at: Option<String>,
+    pub reclaimed_commit: Option<String>,
+    pub reclaim_intent: Option<ReclaimIntent>,
+    pub strict_setup_pending: bool,
+    pub checkout_creation_pending: bool,
+}
+
+impl Recovery {
+    pub fn blocks_access(&self) -> bool {
+        self.reclaimed_at.is_some()
+            || self.reclaimed_commit.is_some()
+            || self.reclaim_intent.is_some()
+            || self.strict_setup_pending
+            || self.checkout_creation_pending
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorktreeRecord {
     pub installation_id: String,
     pub session_id: String,
@@ -56,6 +84,8 @@ pub struct WorktreeRecord {
     pub setup_status: SetupStatus,
     #[serde(default)]
     pub setup_log_tail: Option<String>,
+    #[serde(default, flatten)]
+    pub recovery: Recovery,
 }
 
 impl WorktreeRecord {
@@ -67,18 +97,27 @@ impl WorktreeRecord {
         if let Some(tail) = &self.setup_log_tail {
             setup["logTail"] = json!(tail);
         }
-        json!({
+        let mut value = json!({
             "sessionId": self.session_id,
             "repository": self.repository,
             "baseBranch": self.base_branch,
             "workBranch": self.work_branch,
             "path": self.path,
-            "checkoutPresent": crate::session_worktrees::remove::is_real_dir(Path::new(&self.path)),
+            "checkoutPresent": self.recovery.reclaim_intent.is_none()
+                && !self.recovery.checkout_creation_pending
+                && crate::session_worktrees::remove::is_real_dir(Path::new(&self.path)),
             "mainPath": self.main_path,
             "baseCommit": self.base_commit,
             "createdAt": self.created_at,
             "setup": setup,
-        })
+        });
+        if let Some(reclaimed_at) = &self.recovery.reclaimed_at {
+            value["reclaimedAt"] = json!(reclaimed_at);
+        }
+        if let Some(reclaimed_commit) = &self.recovery.reclaimed_commit {
+            value["reclaimedCommit"] = json!(reclaimed_commit);
+        }
+        value
     }
 }
 
@@ -93,6 +132,19 @@ pub fn insert(db: &Database, record: &WorktreeRecord) -> Result<()> {
         &key(&record.installation_id, &record.session_id),
         &serde_json::to_value(record)?,
     )
+}
+
+/// Recovery state must be on disk before the checkout can be changed. This
+/// runs synchronously under AppState with no other users of the connection.
+pub fn persist_recovery(db: &Database, record: &WorktreeRecord) -> Result<()> {
+    let conn = db.conn();
+    let previous: i64 = conn.pragma_query_value(None, "synchronous", |row| row.get(0))?;
+    conn.pragma_update(None, "synchronous", "FULL")?;
+    let stored = insert(db, record);
+    let restored = conn.pragma_update(None, "synchronous", previous);
+    stored?;
+    restored?;
+    Ok(())
 }
 
 pub fn get(
@@ -149,6 +201,7 @@ pub fn find_by_path(db: &Database, root: &Path) -> Result<Option<WorktreeRecord>
 }
 
 /// Record the setup script outcome. A record removed meanwhile stays removed.
+#[cfg(test)]
 pub fn set_setup(
     db: &Database,
     installation_id: &str,
@@ -208,6 +261,7 @@ mod tests {
             setup_script: Some("true".into()),
             setup_status: SetupStatus::None,
             setup_log_tail: None,
+            recovery: Recovery::default(),
         }
     }
 

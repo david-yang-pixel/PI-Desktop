@@ -430,3 +430,4 @@ git history.
 | remote-environment-setup | [Remote environment setup](remote-environment-setup.md) | Accepted (D692) |
 | github-connector | [Built-in GitHub connector](github-connector.md) | Accepted |
 | remote-git-workspaces | [Remote git workspaces and the credential proxy](remote-git-workspaces.md) | Accepted (D687; extends ADR 0329 to paired Hosts) |
+| idle-repository-workspace-reclamation | [Idle repository workspace reclamation](idle-repository-workspace-reclamation.md) | Accepted |

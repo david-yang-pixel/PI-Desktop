@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HostRpc } from "@pi-desktop/host-runtime";
 
 import type { GitCredentialProxy, GitProxyScope } from "./git-credential-proxy.js";
-import { createWorkspaceGit, workspaceGitShortId, workspaceGitWorkBranch } from "./workspace-git.js";
+import { createWorkspaceGit, detectWorkspaceGitReclaim, workspaceGitShortId, workspaceGitWorkBranch } from "./workspace-git.js";
 
 const INSTALLATION = "00000000-0000-4000-8000-000000000000";
 const OTHER_INSTALLATION = "11111111-1111-4111-8111-111111111111";
@@ -23,7 +23,7 @@ function worktree(sessionId: string, installationId = INSTALLATION) {
   };
 }
 
-function fixture(respond: (method: string, params: Record<string, unknown>) => unknown = () => ({})) {
+function fixture(respond: (method: string, params: Record<string, unknown>) => unknown = () => ({}), reclaimSupported = true) {
   const events: Event[] = [];
   const calls: Call[] = [];
   const host: HostRpc = {
@@ -41,7 +41,10 @@ function fixture(respond: (method: string, params: Record<string, unknown>) => u
     unregister(installationId, sessionId) { events.push({ type: "unregister", installationId, sessionId }); },
   };
   const state: { host: HostRpc | null } = { host };
-  const git = createWorkspaceGit({ getHost: () => state.host, workspacesRoot: ROOT, proxy });
+  const git = createWorkspaceGit({
+    getHost: () => state.host, workspacesRoot: ROOT, proxy,
+    reclaimSupported: (candidate) => reclaimSupported && candidate === host,
+  });
   const urlFor = (sessionId: string, installationId = INSTALLATION) => `http://127.0.0.1:4321/${workspaceGitShortId(installationId, sessionId).padEnd(64, "0")}/`;
   return { git, events, calls, state, host, urlFor };
 }
@@ -205,6 +208,62 @@ describe("pi-host workspace git", () => {
       { type: "setToken", installationId: INSTALLATION, token: null },
       { type: "setToken", installationId: OTHER_INSTALLATION, token: "other-fixture" },
     ]);
+  });
+
+  it("recognizes reclaim only when host-core validates the method's required inputs", async () => {
+    for (const [code, supported] of [["INVALID_ARGUMENT", true], ["METHOD_NOT_FOUND", false]] as const) {
+      const f = fixture(() => { throw Object.assign(new Error(code), { data: { errorCode: code } }); });
+      expect(await detectWorkspaceGitReclaim(f.host)).toBe(supported);
+      expect(f.calls).toEqual([{ method: "workspaceGit.reclaim", params: {} }]);
+      expect(f.events).toEqual([{ type: "host", method: "workspaceGit.reclaim" }]);
+    }
+  });
+
+  it("forwards reclaim without credentials and keeps a concurrent strict wake's proxy scope", async () => {
+    const response = { reclaimed: true, commit: "a".repeat(40), reclaimedAt: "2026-11-20T00:00:00.000Z" };
+    const reclaimReply = Promise.withResolvers<typeof response>();
+    const f = fixture((method) => (method === "workspaceGit.reclaim" ? reclaimReply.promise : { jobId: "wake-1" }));
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    const reclaim = f.git.reclaim!({ ...session, regenerableDirs: ["apps/desktop/out"] });
+    expect(f.events).toEqual([{ type: "host", method: "workspaceGit.reclaim" }]);
+    expect(f.calls[0]?.params).toEqual({ ...session, workspacesRoot: ROOT, regenerableDirs: ["apps/desktop/out"] });
+
+    const wake = { ...session, repository, baseBranch: "main", restoreOnly: true, rerunSetup: true, requireSetupSuccess: true };
+    expect(await f.git.prepare(wake, owner)).toEqual({ jobId: "wake-1" });
+    expect(f.calls[1]).toEqual({ method: "workspaceGit.prepare", params: { ...wake, workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") } } });
+    reclaimReply.resolve(response);
+    expect(await reclaim).toEqual(response);
+    expect(f.git.proxyUrlFor(owner.connectionId, "session-1")).toBe(f.urlFor("session-1"));
+    expect(f.events.map((event) => event.type)).toEqual(["host", "register", "host"]);
+  });
+
+  it("preserves a reclaim refusal and never falls back to another git RPC", async () => {
+    const response = { reclaimed: false, reason: "protectedIgnoredFiles", protectedIgnoredFiles: 3, uncommittedFiles: 0, unpushedCommits: 0 };
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    const f = fixture(() => response);
+    expect(await f.git.reclaim!(session)).toEqual(response);
+    expect(f.calls).toEqual([{ method: "workspaceGit.reclaim", params: { ...session, workspacesRoot: ROOT } }]);
+    expect(f.events).toEqual([{ type: "host", method: "workspaceGit.reclaim" }]);
+
+    const missing = fixture(() => { throw Object.assign(new Error("method not found"), { data: { errorCode: "METHOD_NOT_FOUND" } }); });
+    await expect(missing.git.reclaim!(session)).rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
+    expect(missing.calls.map(({ method }) => method)).toEqual(["workspaceGit.reclaim"]);
+  });
+
+  it("keeps strict wake flags off a legacy or unverified host-core", async () => {
+    const legacy = fixture(() => ({ jobId: "job-1" }), false);
+    const restore = { installationId: INSTALLATION, sessionId: "session-1", repository, baseBranch: "main", restoreOnly: true };
+    const wake = { ...restore, rerunSetup: true, requireSetupSuccess: true };
+    expect(legacy.git.reclaim).toBeUndefined();
+    await expect(legacy.git.prepare(wake, owner)).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    expect(legacy.events).toEqual([]);
+    expect(await legacy.git.prepare(restore, owner)).toEqual({ jobId: "job-1" });
+
+    const f = fixture();
+    expect(f.git.reclaim).toBeDefined();
+    f.state.host = legacy.host;
+    expect(f.git.reclaim).toBeUndefined();
+    await expect(f.git.prepare(wake, owner)).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
   });
 
   it("does not fall back to legacy removal when host-core lacks guarded removal", async () => {

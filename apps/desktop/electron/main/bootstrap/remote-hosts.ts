@@ -415,6 +415,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
         await sessions.workspaces.announceEnvironments();
         await sessions.workspaces.resume(live.hostKey);
         await sessions.git.reconcile(live.hostKey);
+        await sessions.reclaimer.check(live.hostKey);
       }).catch((error) => log("warn", "could not recover repository sessions", { hostKey: live.hostKey, error: String(error) }));
     };
     onConnect();

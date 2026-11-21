@@ -462,6 +462,7 @@ describe("owner-only workspace git boundary", () => {
     baseCommit: "a".repeat(40), createdAt: "2026-11-20T00:00:00.000Z", setup: { status: "none" as const },
   };
   const job = { jobId: "job-1", kind: "prepare" as const, state: "running" as const, phase: "queued" as const };
+  const reclaimed = { reclaimed: true as const, commit: "a".repeat(40), reclaimedAt: "2026-11-21T00:00:00.000Z" };
 
   function fakeWorkspaceGit(calls: Array<Record<string, unknown>>): NonNullable<RacpHostOperations["workspaceGit"]> {
     return {
@@ -473,6 +474,7 @@ describe("owner-only workspace git boundary", () => {
       async job(input) { calls.push({ op: "job", input }); return job; },
       async cancelJob(input) { calls.push({ op: "cancelJob", input }); },
       async status(input) { calls.push({ op: "status", input }); return { worktree, ahead: 1, behind: 0, uncommittedFiles: 2, unpushedCommits: 1, pushedOnce: false }; },
+      async reclaim(input) { calls.push({ op: "reclaim", input }); return reclaimed; },
       async remove(input) { calls.push({ op: "remove", input }); return { removed: true, uncommittedFiles: 0, unpushedCommits: 0 }; },
       async list(input) { calls.push({ op: "list", input }); return [worktree]; },
       async disconnect(connectionId) { calls.push({ op: "disconnect", connectionId }); },
@@ -484,11 +486,16 @@ describe("owner-only workspace git boundary", () => {
     const h = await harness({ operations: { workspaceGit: fakeWorkspaceGit(calls) } });
     const { client } = await h.connect(OWNER_TOKEN);
     expect(client.initialized?.capabilities.workspaceGit).toBe(true);
+    expect(client.initialized?.capabilities.workspaceGitReclaim).toBe(true);
     const connectionId = client.initialized!.connectionId;
     const owner = { deviceId: client.initialized!.principal.subject, connectionId };
     const session = { installationId, sessionId: "s-1" };
     const prepare = { ...session, repository: { owner: "mona_acme", name: "repo" }, baseBranch: "fix/#123", fromSessionId: "parent", environment: { variables: [{ name: "MY_VAR", value: "1" }], setupScript: "true" } };
+    const reclaim = { ...session, regenerableDirs: ["apps/desktop/out"] };
+    const wake = { ...session, repository, baseBranch: "main", restoreOnly: true, rerunSetup: true, requireSetupSuccess: true };
 
+    expect(await client.request("workspace/gitReclaim", reclaim)).toEqual(reclaimed);
+    expect(await client.request("workspace/gitPrepare", wake)).toEqual({ jobId: "job-1" });
     expect(await client.request("workspace/gitCredentialSet", { installationId, token: "fixture-token" })).toEqual({ ok: true });
     expect(await client.request("workspace/gitCredentialClear", {})).toEqual({ ok: true });
     expect(await client.request("workspace/gitRepository", { repository })).toEqual({ path: worktree.mainPath, cloned: false });
@@ -501,6 +508,8 @@ describe("owner-only workspace git boundary", () => {
     expect(await client.request("workspace/gitList", { installationId })).toEqual({ worktrees: [worktree] });
 
     expect(calls).toEqual([
+      { op: "reclaim", input: reclaim },
+      { op: "prepare", input: wake, owner },
       { op: "setCredential", input: { installationId, token: "fixture-token" }, owner },
       { op: "clearCredential", owner },
       { op: "repository", input: { repository } },
@@ -532,6 +541,7 @@ describe("owner-only workspace git boundary", () => {
       ["workspace/gitJob", { jobId: "job-1" }],
       ["workspace/gitJobCancel", { jobId: "job-1" }],
       ["workspace/gitStatus", session],
+      ["workspace/gitReclaim", session],
       ["workspace/gitRemove", { ...session, force: false }],
       ["workspace/gitList", { installationId }],
     ];
@@ -562,6 +572,7 @@ describe("owner-only workspace git boundary", () => {
       ["workspace/gitPrepare", { ...good, environment: { variables: [{ name: "GIT_DIR", value: "/" }] } }],
       ["workspace/gitPrepare", { ...good, environment: { variables: [{ name: "PATH", value: "/" }] } }],
       ["workspace/gitPrepare", { ...good, path: "/tmp/elsewhere" }],
+      ["workspace/gitPrepare", { ...good, rerunSetup: "true" }],
       ["workspace/gitRepository", { repository: { owner: "octo", name: "a/b" } }],
       ["workspace/gitRepository", { repository, path: "/tmp" }],
       ["workspace/gitCredentialSet", { installationId, token: "a\r\nb" }],
@@ -570,6 +581,10 @@ describe("owner-only workspace git boundary", () => {
       ["workspace/gitPush", { ...good }],
       ["workspace/gitStatus", { installationId, sessionId: "s-1", path: "/tmp" }],
       ["workspace/gitRemove", { installationId, sessionId: "s-1" }],
+      ["workspace/gitReclaim", { ...good }],
+      ["workspace/gitReclaim", { installationId, sessionId: "s-1", token: "fixture-token" }],
+      ["workspace/gitReclaim", { installationId, sessionId: "s-1", force: true }],
+      ["workspace/gitReclaim", { installationId, sessionId: "s-1", regenerableDirs: ["../escape"] }],
       ["workspace/gitJob", { jobId: "" }],
       ["workspace/gitJobCancel", { jobId: "job-1", force: true }],
       ["workspace/gitList", {}],
@@ -585,8 +600,31 @@ describe("owner-only workspace git boundary", () => {
     const h = await harness();
     const { client } = await h.connect(OWNER_TOKEN);
     expect(client.initialized?.capabilities.workspaceGit).toBe(false);
+    expect(client.initialized?.capabilities.workspaceGitReclaim).toBeUndefined();
+    await expect(client.request("workspace/gitReclaim", { installationId, sessionId: "s-1" })).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
     await expect(client.request("workspace/gitPrepare", { installationId, sessionId: "s-1", repository, baseBranch: "main" })).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
     await expect(client.request("workspace/gitList", { installationId })).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    await client.close();
+  });
+
+  it("denies reclaim and strict setup on a legacy git service while allowing ordinary setup retries", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const workspaceGit = fakeWorkspaceGit(calls);
+    delete workspaceGit.reclaim;
+    const h = await harness({ operations: { workspaceGit } });
+    const { client } = await h.connect(OWNER_TOKEN);
+    const session = { installationId, sessionId: "s-1" };
+    const restore = { ...session, repository, baseBranch: "main", restoreOnly: true };
+    expect(client.initialized?.capabilities.workspaceGit).toBe(true);
+    expect(client.initialized?.capabilities.workspaceGitReclaim).toBeUndefined();
+    await expect(client.request("workspace/gitReclaim", session)).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    for (const flags of [{ requireSetupSuccess: true }, { rerunSetup: true, requireSetupSuccess: true }]) {
+      await expect(client.request("workspace/gitPrepare", { ...restore, ...flags })).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    }
+    expect(calls).toEqual([]);
+    expect(await client.request("workspace/gitPrepare", restore)).toEqual({ jobId: "job-1" });
+    expect(await client.request("workspace/gitPrepare", { ...restore, rerunSetup: true })).toEqual({ jobId: "job-1" });
+    expect(calls).toMatchObject([{ op: "prepare", input: restore }, { op: "prepare", input: { ...restore, rerunSetup: true } }]);
     await client.close();
   });
 

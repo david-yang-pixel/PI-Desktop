@@ -13,10 +13,11 @@ const PENDING: &str = "pendingWorkspaceRemovals";
 pub enum State {
     Preparing,
     Ready,
+    Reclaiming,
+    Reclaimed,
     Failed,
     Removing,
 }
-
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
@@ -40,6 +41,14 @@ pub struct Binding {
     pub error: Option<Value>,
     pub setup: Option<Value>,
     pub pull_request: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reclaimed_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reclaimed_commit: Option<String>,
+    #[serde(default)]
+    pub require_setup_on_retry: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -69,6 +78,18 @@ impl Binding {
             ("error", self.error.clone()),
             ("setup", self.setup.clone()),
             ("pullRequest", self.pull_request.clone()),
+            (
+                "lastActivityAt",
+                self.last_activity_at.as_ref().map(|ts| json!(ts)),
+            ),
+            (
+                "reclaimedAt",
+                self.reclaimed_at.as_ref().map(|ts| json!(ts)),
+            ),
+            (
+                "reclaimedCommit",
+                self.reclaimed_commit.as_ref().map(|commit| json!(commit)),
+            ),
         ] {
             if let Some(optional) = optional {
                 value[key] = optional;
@@ -125,6 +146,10 @@ pub fn bind(db: &Database, mut target: Target) -> Result<Binding> {
         error: None,
         setup: None,
         pull_request: None,
+        last_activity_at: Some(now.clone()),
+        reclaimed_at: None,
+        reclaimed_commit: None,
+        require_setup_on_retry: false,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -132,14 +157,37 @@ pub fn bind(db: &Database, mut target: Target) -> Result<Binding> {
     Ok(binding)
 }
 
-pub fn update(db: &Database, id: &str, patch: &serde_json::Map<String, Value>) -> Result<Binding> {
-    let existing = get(db, id)?.context("session has no workspace")?;
+/// The RPC caller serializes this compare-and-update with all other binding
+/// changes under AppState, including explicit activity touches.
+pub fn update(
+    db: &Database,
+    id: &str,
+    patch: &serde_json::Map<String, Value>,
+    expected: Option<State>,
+) -> Result<Option<Binding>> {
+    let existing = get(db, id)?;
+    if expected
+        .is_some_and(|expected| existing.as_ref().map(|binding| binding.state) != Some(expected))
+    {
+        return Ok(None);
+    }
+    let existing = existing.context("session has no workspace")?;
     let mut updated = json!(existing);
     for (key, value) in patch {
         ensure!(
             matches!(
                 key.as_str(),
-                "state" | "workBranch" | "path" | "jobId" | "error" | "setup" | "pullRequest"
+                "state"
+                    | "workBranch"
+                    | "path"
+                    | "jobId"
+                    | "error"
+                    | "setup"
+                    | "pullRequest"
+                    | "lastActivityAt"
+                    | "reclaimedAt"
+                    | "reclaimedCommit"
+                    | "requireSetupOnRetry"
             ),
             "invalid workspace patch field"
         );
@@ -159,9 +207,31 @@ pub fn update(db: &Database, id: &str, patch: &serde_json::Map<String, Value>) -
         }
         .validate()?;
     }
-    binding.updated_at = ms_to_ts(now_ms());
+    let now = ms_to_ts(now_ms());
+    if !patch.contains_key("lastActivityAt") {
+        if binding.state == State::Ready && existing.state != State::Ready {
+            binding.last_activity_at = Some(now.clone());
+        } else if binding.last_activity_at.is_none() {
+            binding.last_activity_at = Some(existing.updated_at);
+        }
+    }
+    binding.updated_at = now;
     db.kv_set(BINDINGS, id, &json!(binding))?;
-    Ok(binding)
+    Ok(Some(binding))
+}
+
+pub fn touch_activity(db: &Database, id: &str) -> Result<bool> {
+    let Some(mut binding) = get(db, id)? else {
+        return Ok(false);
+    };
+    if binding.state != State::Ready {
+        return Ok(false);
+    }
+    let now = ms_to_ts(now_ms());
+    binding.last_activity_at = Some(now.clone());
+    binding.updated_at = now;
+    db.kv_set(BINDINGS, id, &json!(binding))?;
+    Ok(true)
 }
 
 pub fn remove(db: &Database, id: &str) -> Result<()> {

@@ -2231,6 +2231,9 @@
           "workspaceGitSafeRemoval": {
             "type": "boolean"
           },
+          "workspaceGitReclaim": {
+            "type": "boolean"
+          },
           "notifications": {
             "type": "boolean"
           },
@@ -2560,6 +2563,9 @@
       "rerunSetup": {
         "type": "boolean"
       },
+      "requireSetupSuccess": {
+        "type": "boolean"
+      },
       "environment": {
         "type": "object",
         "required": [
@@ -2636,6 +2642,35 @@
       },
       "force": {
         "type": "boolean"
+      }
+    },
+    "additionalProperties": false
+  },
+  "WorkspaceGitReclaim": {
+    "type": "object",
+    "required": [
+      "installationId",
+      "sessionId"
+    ],
+    "properties": {
+      "installationId": {
+        "type": "string",
+        "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+      },
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "regenerableDirs": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!/)(?!.*(?:/|^)(?:\\.|\\.\\.|\\.git)(?:/|$))(?!.*//)(?!.*/$)[^\\u0000-\\u001f\\u007f\\\\*?\\[\\]:]{1,256}$"
+        },
+        "maxItems": 64
       }
     },
     "additionalProperties": false

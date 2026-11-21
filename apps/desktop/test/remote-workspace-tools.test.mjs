@@ -22,7 +22,10 @@ test("an admitted local turn sends only a workspace tool and completes locally",
   await f.relay.execute(request);
   assert.deepEqual(f.sent, [{ hostKey: "ssh", path: "/work/app", sessionId: "session", turnId: "turn",
     toolCallId: "tool", toolName: "Read", args: { path: "README.md" } }]);
-  assert.deepEqual(f.replies, [{ method: "tools.remoteComplete", params: { requestId: "request", result: { ok: true, content: "remote README" } } }]);
+  assert.deepEqual(f.replies, [
+    { method: "sessionWorkspace.touchActivity", params: { sessionId: "session" } },
+    { method: "tools.remoteComplete", params: { requestId: "request", result: { ok: true, content: "remote README" } } },
+  ]);
 });
 test("cancelled turns cannot dispatch a remote side effect", async () => {
   const f = fixture(() => assert.fail("not admitted"));
@@ -39,7 +42,7 @@ test("abort is routed to the active remote call and never accepts its late succe
   resolve({ ok: true, content: "late result" });
   await pending;
   assert.deepEqual(f.aborted, [{ hostKey: "ssh", sessionId: "session", toolCallId: "tool" }]);
-  assert.equal(f.replies[0].params.result.errorCode, "TOOL_ABORTED");
+  assert.equal(f.replies.find((reply) => reply.method === "tools.remoteComplete").params.result.errorCode, "TOOL_ABORTED");
 });
 test("a replaced local Host does not receive a previous generation result", async () => {
   let resolve;

@@ -84,6 +84,7 @@ export type HostOperationsDeps = {
    */
   workspacesRoot?: string;
   gitProxy?: GitCredentialProxy;
+  workspaceGitReclaimSupported?: (host: HostRpc) => boolean;
 };
 
 function requireHost(getHost: () => HostRpc | null): HostRpc {
@@ -371,7 +372,12 @@ export function createHostOperations(
   deps: HostOperationsDeps,
 ): Omit<RacpHostOperations, "terminal"> {
   const workspaceGit = deps.workspacesRoot && deps.gitProxy
-    ? createWorkspaceGit({ getHost: deps.getHost, workspacesRoot: deps.workspacesRoot, proxy: deps.gitProxy })
+    ? createWorkspaceGit({
+        getHost: deps.getHost,
+        workspacesRoot: deps.workspacesRoot,
+        proxy: deps.gitProxy,
+        reclaimSupported: deps.workspaceGitReclaimSupported,
+      })
     : undefined;
   return {
     sessions: createSessionCatalog(deps),

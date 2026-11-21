@@ -939,6 +939,13 @@ export class AgentHost {
     void this.drain(sessionId);
   }
 
+  /** Serialize idle maintenance admission with queued and direct turn admission. */
+  async runWhileIdle(sessionId: string, operation: () => Promise<void>): Promise<void> {
+    await this.withAdmission(sessionId, async () => {
+      if (!this.isBusy(this.state(sessionId))) await operation();
+    });
+  }
+
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
