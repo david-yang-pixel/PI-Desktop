@@ -82,6 +82,7 @@ function buildHarness({ hostCall, sidecarCall, resolveSessionMessageInput }) {
     },
     "../session-references": { resolveSessionReferences: async () => [] },
     "../agent-mentions": { resolvePromptAgentMentions: async () => [] },
+    "./repository-session-ipc": { getRemoteRepositorySessions: () => null },
     "@pi-desktop/host-runtime": {
       executionFromResponse: () => null,
       resolveSessionMessageInput: admissionTail,

@@ -4274,11 +4274,25 @@ async fn handle_request(
             }
             let execution_timeout_ms = tools::effective_timeout_ms(&p.tool_name, p.timeout_ms);
 
-            let remote_workspace = {
+            let (remote_workspace, desktop_attachment_root) = {
                 let st = state.lock().await;
                 // A session the store does not have keeps the local tool path
                 // and its tool-level failure instead of becoming an RPC error.
-                remote_tools::session_remote_workspace_optional(&st, &p.session_id)?
+                let remote = remote_tools::session_remote_workspace_optional(&st, &p.session_id)?;
+                let data_dir = st.data_dir.clone();
+                drop(st);
+                let attachment = if remote.is_some() {
+                    remote_tools::desktop_attachment_root(
+                        &data_dir,
+                        &p.session_id,
+                        &p.tool_name,
+                        &p.args,
+                    )
+                    .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?
+                } else {
+                    None
+                };
+                (remote, attachment)
             };
             let command_shell_id = if p.tool_name == "Bash" && remote_workspace.is_none() {
                 let catalog = {
@@ -4451,7 +4465,9 @@ async fn handle_request(
                         &p.session_id,
                         remote_workspace.is_some(),
                     );
-                    let external_path_permission = if remote_workspace.is_some() {
+                    let external_path_permission = if desktop_attachment_root.is_some() {
+                        false
+                    } else if remote_workspace.is_some() {
                         remote_tools::requires_external_permission(
                             ws.as_deref(),
                             &p.tool_name,
@@ -4930,7 +4946,10 @@ async fn handle_request(
                 } else if scheduled_tools::recognizes(&p.tool_name) {
                     let st = state.lock().await;
                     scheduled_tools::execute(&st, &p)
-                } else if let Some(remote) = remote_workspace.clone() {
+                } else if let Some(remote) = remote_workspace
+                    .clone()
+                    .filter(|_| desktop_attachment_root.is_none())
+                {
                     remote_tools::execute_remote_tool(
                         &state,
                         &tx,
@@ -4941,7 +4960,7 @@ async fn handle_request(
                     .await
                 } else {
                     let execute = tools::execute_tool_with_file_lease(
-                        ws_path.as_deref(),
+                        desktop_attachment_root.as_deref().or(ws_path.as_deref()),
                         scratch_path.as_deref(),
                         &p.tool_name,
                         &p.args,
@@ -5172,11 +5191,19 @@ async fn handle_request(
             let workspace_path = resolve_tool_workspace_for_call(&st, session_id, &args)?;
             let external_path_permission =
                 if remote_tools::session_remote_workspace(&st, session_id)?.is_some() {
-                    remote_tools::requires_external_permission(
-                        workspace_path.as_deref(),
+                    remote_tools::desktop_attachment_root(
+                        &st.data_dir,
+                        session_id,
                         tool_name,
                         &args,
                     )
+                    .map_err(|error| rpc_err(1000, error.to_string(), "INTERNAL"))?
+                    .is_none()
+                        && remote_tools::requires_external_permission(
+                            workspace_path.as_deref(),
+                            tool_name,
+                            &args,
+                        )
                 } else {
                     requires_external_path_permission(
                         workspace_path.as_deref(),

@@ -100,7 +100,7 @@ test("failed setup renders Retry and Dismiss controls with log disclosure", () =
     setup: { status: "failed", logTail: "exit code 1" },
   });
   assert.match(html, /The setup script failed\. The workspace is ready\./);
-  assert.match(html, /<pre>exit code 1<\/pre>/);
+  assert.match(html, /<pre class="worktree-setup-log">exit code 1<\/pre>/);
   assert.match(html, />Retry<\/button>/);
   assert.match(html, />Dismiss<\/button>/);
 });
@@ -166,7 +166,7 @@ globalThis.workspacePrepProbe = async () => {
   while (calls.length === 0 && performance.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  if (calls.length !== 1 || calls[0].channel !== IPC.invoke.remoteSessionWorkspaceRetry || calls[0].input?.sessionId !== "session-1") {
+  if (calls.length !== 1 || calls[0].channel !== IPC.invoke.remoteSessionWorkspaceRetry || calls[0].input !== "session-1") {
     throw new Error("expected Retry button to invoke remoteSessionWorkspaceRetry: " + JSON.stringify(calls));
   }
   return true;

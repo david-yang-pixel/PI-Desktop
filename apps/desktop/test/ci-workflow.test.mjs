@@ -329,6 +329,9 @@ test("macOS signing runs only when the repository opts in", () => {
   assert.ok(unsignedBlock, "unsigned macOS debug package step is missing");
   assert.match(unsignedBlock, /env\.MACOS_SIGN_RELEASE != 'true'/);
   assert.match(unsignedBlock, /CSC_IDENTITY_AUTO_DISCOVERY:\s*'false'/);
+  assert.ok(unsignedBlock.includes(
+    "CSC_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.merged == true }}",
+  ));
   assert.doesNotMatch(unsignedBlock, /CSC_LINK:|CSC_KEY_PASSWORD:|APPLE_/);
   assert.doesNotMatch(unsignedBlock, /forceCodeSigning|notarize/);
   assert.match(

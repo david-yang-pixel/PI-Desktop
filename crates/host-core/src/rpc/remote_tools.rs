@@ -3,6 +3,9 @@
 use super::*;
 use crate::db::{Database, RemoteWorkspace};
 
+mod desktop_attachments;
+pub(super) use desktop_attachments::desktop_attachment_root;
+
 pub(super) fn remote_workspace_of(
     state: &AppState,
     summary: &sessions::SessionSummary,

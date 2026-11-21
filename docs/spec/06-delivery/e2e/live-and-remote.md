@@ -492,6 +492,9 @@ browser milestones are scheduled.
   local and stable after reload, including name/memory/instructions and ordinary
   sidebar/archive operations. Model requests and provider secrets never appear
   in remote transport. Only locally admitted workspace tools execute on Host.
+  Send a file or paste text above the attachment threshold in a remote workspace
+  session. The agent can Read the submitted desktop attachment while a Read of
+  a repository path still executes on the paired Host.
   Equal paths on two hosts or on Desktop never collide. Failed calls never
   execute locally or replay automatically. Existing remote histories remain readable.
 - **Specs**: `02-architecture/05-remote-agent-control.md`, `04-ux/01-ui-ia.md`,
