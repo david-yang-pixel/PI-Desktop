@@ -98,8 +98,10 @@ jobs:
           NODE
 
   verify:
-    # Run the release gate alongside packaging. Publish waits for both.
+    # The main branch requires CI before merging. Tags and manual runs still
+    # validate here because they may point to a commit outside that PR path.
     name: Verify (build / typecheck / lint / test)
+    if: github.event_name != 'pull_request_target'
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -567,7 +569,16 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    if: needs.prepare.outputs.tag != ''
+    if: >-
+      ${{ !cancelled()
+      && needs.prepare.outputs.tag != ''
+      && needs.prepare.result == 'success'
+      && needs.build.result == 'success'
+      && needs.pi-host-bundle.result == 'success'
+      && (needs.verify.result == 'success'
+        || (github.event_name == 'pull_request_target'
+          && github.event.pull_request.merged == true
+          && needs.verify.result == 'skipped')) }}
     needs: [prepare, verify, build, pi-host-bundle]
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -1,24 +1,12 @@
 name: Docs check
 
-# ci.yml ignores docs/** and **/*.md, so documentation drift was never caught.
-# This workflow runs the documentation checks: the English/Chinese pair check,
+# This workflow runs the documentation checks for relevant PRs: the English/Chinese pair check,
 # the whole-tree page/ADR check, the AGENTS.md/CLAUDE.md policy-sync gate, and
 # a VitePress build, which fails on a dead link anywhere in the tree.
 # `check:release-docs` stays out of CI on purpose because prerelease branches
 # must supply the stable documentation version explicitly.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - 'README*.md'
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'packages/shared/src/changelog*.ts'
-      - 'scripts/check-*.mjs'
-      - 'docs/scripts/**'
-      - '.github/workflows/docs-check.yml'
   pull_request:
     paths:
       - 'docs/**'

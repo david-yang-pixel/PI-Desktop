@@ -9,6 +9,7 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 const [
   ciWorkflowSource,
+  docsWorkflowSource,
   releaseWorkflowSource,
   desktopPackageSource,
   linuxPackageWorkflowSource,
@@ -23,6 +24,7 @@ const [
   piTriageWorkflowSource,
 ] = await Promise.all([
   read("../../../.github/workflows/ci.yml"),
+  read("../../../.github/workflows/docs-check.yml"),
   read("../../../.github/workflows/release.yml"),
   read("../package.json"),
   read("../../../.github/workflows/linux-package.yml"),
@@ -37,18 +39,10 @@ const [
   read("../../../.github/workflows/pi-triage.yml"),
 ]);
 
-test("CI skips documentation-only pushes and pull requests", () => {
-  assert.equal(
-    (ciWorkflowSource.match(/- 'docs\/\*\*'/g) ?? []).length,
-    2,
-    "docs path is ignored by push and pull_request triggers",
-  );
-  assert.equal(
-    (ciWorkflowSource.match(/- '\*\*\/\*\.md'/g) ?? []).length,
-    2,
-    "Markdown files are ignored by push and pull_request triggers",
-  );
-  assert.match(ciWorkflowSource, /^  workflow_dispatch:/m);
+test("required CI runs for every pull request and does not rerun on merge", () => {
+  assert.match(ciWorkflowSource, /^on:\n  pull_request:\n  workflow_dispatch:$/m);
+  assert.match(docsWorkflowSource, /^on:\n  pull_request:\n    paths:/m);
+  assert.doesNotMatch(docsWorkflowSource, /^  push:/m);
 });
 
 test("CI does not typecheck workspace dependencies twice", () => {
@@ -144,7 +138,7 @@ test("release preparation overlaps independent work and avoids duplicate builds"
   assert.doesNotMatch(buildJob, /run: pnpm build:js/);
 });
 
-test("release verification and packaging run in parallel before the write-enabled publish job", () => {
+test("merged PRs reach publish through verified packages without repeating full CI", () => {
   assert.match(releaseWorkflowSource, /^permissions:\n  contents: read$/m);
   for (const name of ["verify", "build", "pi-host-bundle"]) {
     const job = releaseWorkflowSource.match(new RegExp(`^  ${name}:\\n[^]*?(?=^  [\\w-]+:)`, "m"))?.[0];
@@ -157,6 +151,7 @@ test("release verification and packaging run in parallel before the write-enable
   }
   const verifyJob = releaseWorkflowSource.match(/^  verify:\n[\s\S]*?(?=^  build:)/m)?.[0];
   assert.ok(verifyJob, "release verify job is missing");
+  assert.match(verifyJob, /^    if: github\.event_name != 'pull_request_target'$/m);
   for (const step of [
     /run: pnpm build:js/,
     /run: pnpm --filter @pi-desktop\/desktop typecheck/,
@@ -169,7 +164,11 @@ test("release verification and packaging run in parallel before the write-enable
   const publishJob = releaseWorkflowSource.match(/^  publish:\n[\s\S]*$/m)?.[0];
   assert.ok(publishJob, "release publish job is missing");
   assert.match(publishJob, /^    needs: \[prepare, verify, build, pi-host-bundle\]$/m);
-  assert.match(publishJob, /if: needs\.prepare\.outputs\.tag != ''/);
+  assert.match(publishJob, /!cancelled\(\)[\s\S]*?needs\.prepare\.outputs\.tag != ''/);
+  for (const dependency of ["prepare", "build", "pi-host-bundle"]) {
+    assert.ok(publishJob.includes(`&& needs.${dependency}.result == 'success'`));
+  }
+  assert.match(publishJob, /needs\.verify\.result == 'success'\s*\|\| \(github\.event_name == 'pull_request_target'\s*&& github\.event\.pull_request\.merged == true\s*&& needs\.verify\.result == 'skipped'\)/);
   assert.match(publishJob, /tag_name: \$\{\{ needs\.prepare\.outputs\.tag \}\}/);
   assert.match(publishJob, /target_commitish: \$\{\{ needs\.prepare\.outputs\.sha \}\}/);
   assert.match(publishJob, /prerelease: \$\{\{ contains\(needs\.prepare\.outputs\.tag, '-'\) \}\}/);

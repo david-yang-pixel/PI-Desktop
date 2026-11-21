@@ -51,13 +51,16 @@ section describes what the fork's workflow does.
   commit. Its GitHub prerelease tag uses the next patch number and the PR
   number, such as `v0.23.1-pr.42` when the source version is `0.23.0`.
   The desktop and both `pi-host` bundles embed the same version. The generated
-  version is applied only in the packaging jobs. Verification and packaging
-  run in parallel, and all jobs must pass before publication. Rerunning a
-  merge uses the same tag. Stable update checks continue to use the latest
-  stable release.
+  version is applied only in the packaging jobs. The repository requires
+  all four CI jobs to pass with the current `main` before merging a PR.
+  After the merge, the release workflow builds and validates the macOS
+  ZIP and DMG and the `pi-host` bundles, then publishes them. It skips
+  the duplicate build, lint, typecheck, and test gate. Rerunning a merge
+  uses the same tag. Stable update checks continue to use the latest stable release.
 - **Cutting a stable release**. Run `node scripts/release.mjs <version> --tag`,
   then push the branch and the tag. The tag must match the committed app
-  version. A `workflow_dispatch` run on a branch builds Actions artifacts only.
+  version. Tag and manual runs retain the full validation job. A
+  `workflow_dispatch` run on a branch builds Actions artifacts only.
 - **Known limitations**: an unsigned macOS build cannot update in place, and
   its first launch needs the quarantine attribute removed
   (`xattr -dr com.apple.quarantine /Applications/PI-Desktop.app`) or the app

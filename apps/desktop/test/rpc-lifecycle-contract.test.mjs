@@ -2,6 +2,7 @@ import { readMainModule, readMainSource } from "./helpers/source-contracts.mjs";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { rpcTimeoutMs } from "../../../packages/shared/src/rpc-timeouts.ts";
 
 const sidecarSource = await readFile(
   new URL("../../../packages/host-runtime/src/agent-sidecar.ts", import.meta.url),
@@ -163,10 +164,8 @@ test("Bash execution remains bounded while permission transport has no deadline"
   assert.doesNotMatch(rpcTimeoutSource, /DEFAULT_BASH_RPC_TIMEOUT_MS/);
   // A tool relay carries its own budget; the transport must not cut it with the
   // flat default. The same holds for the remote workspace counterpart.
-  assert.match(
-    rpcTimeoutSource,
-    /if \(method === "tools\.execute" \|\| method === "tools\.workspaceExecute"\) return undefined/,
-  );
+  assert.equal(rpcTimeoutMs("tools.execute", {}), undefined);
+  assert.equal(rpcTimeoutMs("tools.workspaceExecute", {}), undefined);
 });
 
 test("turn ownership and execution queue wake only after durable turn settlement", () => {
