@@ -45,7 +45,7 @@ export const fr = {
     loadFailed: "Échec du chargement : {{message}}",
     startFailed: "Impossible de démarrer la session distante : {{message}}",
     setupScript: "Script d’initialisation",
-    setupScriptHint: "S’exécute dans le nouveau worktree avant le premier message.",
+    setupScriptHint: "S’exécute sur l’hôte avant le premier message : dans le nouveau worktree d’une session de dépôt, sinon dans le dossier sélectionné ou le dossier temporaire de la session.",
     idleReclaimHours: "Libérer les espaces de travail inactifs après (heures)",
     idleReclaimHoursHint: "Saisissez un nombre entier de 1 à {{maxHours}}, ou 0 pour désactiver la libération automatique.",
     regenerableDirs: "Répertoires régénérables",
@@ -96,6 +96,13 @@ export const fr = {
     sessionBadge: {
       preparing: "Préparation",
       failed: "Échec",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "Les modifications s’appliquent aux sessions créées ensuite. Les sessions existantes conservent l’initialisation et les variables avec lesquelles elles ont démarré.",
+      plainText: "Les variables sont stockées en clair sur cet ordinateur et sur l’hôte. Ne les utilisez pas pour des secrets comme des jetons ou des mots de passe.",
+      variableNameRequired: "Saisissez un nom pour chaque variable qui a une valeur.",
+      variableNameInvalid: "Les noms de variable commencent par une lettre ou un trait de soulignement et ne contiennent que des lettres, des chiffres et des traits de soulignement. Certains noms, comme PATH, HOME ou ceux qui commencent par GIT_ ou PI_, sont réservés.",
+      variableNameDuplicate: "Chaque nom de variable ne peut être utilisé qu’une fois.",
     },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",

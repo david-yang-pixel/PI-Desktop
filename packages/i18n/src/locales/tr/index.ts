@@ -45,7 +45,7 @@ export const tr = {
     loadFailed: "Yüklenemedi: {{message}}",
     startFailed: "Uzak oturum başlatılamadı: {{message}}",
     setupScript: "Kurulum betiği",
-    setupScriptHint: "İlk istem gönderilmeden önce yeni worktree içinde çalışır.",
+    setupScriptHint: "İlk istem gönderilmeden önce ana bilgisayarda çalışır: depo oturumunda yeni worktree içinde, aksi halde seçilen klasörde veya oturumun geçici klasöründe.",
     idleReclaimHours: "Boşta kalan çalışma alanlarını kaldırma süresi (saat)",
     idleReclaimHoursHint: "1 ile {{maxHours}} arasında bir tam sayı girin. Otomatik kaldırmayı kapatmak için 0 girin.",
     regenerableDirs: "Yeniden oluşturulabilir dizinler",
@@ -96,6 +96,13 @@ export const tr = {
     sessionBadge: {
       preparing: "Hazırlanıyor",
       failed: "Başarısız",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "Değişiklikler bundan sonra oluşturulan oturumlara uygulanır. Mevcut oturumlar başladıkları kurulumu ve değişkenleri korur.",
+      plainText: "Değişkenler bu bilgisayarda ve ana bilgisayarda düz metin olarak saklanır. Belirteç veya parola gibi gizli bilgiler için kullanmayın.",
+      variableNameRequired: "Değeri olan her değişken için bir ad girin.",
+      variableNameInvalid: "Değişken adları bir harf veya alt çizgiyle başlar ve yalnızca harf, rakam ve alt çizgi içerir. PATH, HOME veya GIT_ ya da PI_ ile başlayan adlar gibi bazı adlar ayrılmıştır.",
+      variableNameDuplicate: "Her değişken adı yalnızca bir kez kullanılabilir.",
     },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",

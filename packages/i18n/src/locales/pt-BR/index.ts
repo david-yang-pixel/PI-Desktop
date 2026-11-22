@@ -45,7 +45,7 @@ export const ptBR = {
     loadFailed: "Não foi possível carregar: {{message}}",
     startFailed: "Não foi possível iniciar a sessão remota: {{message}}",
     setupScript: "Script de configuração",
-    setupScriptHint: "Executado no novo worktree antes de enviar a primeira mensagem.",
+    setupScriptHint: "Executado no host antes de enviar a primeira mensagem: no novo worktree de uma sessão de repositório ou, caso contrário, na pasta selecionada ou na pasta temporária da sessão.",
     idleReclaimHours: "Liberar áreas de trabalho inativas após (horas)",
     idleReclaimHoursHint: "Digite um número inteiro de 1 a {{maxHours}} ou 0 para desativar a liberação automática.",
     regenerableDirs: "Diretórios regeneráveis",
@@ -96,6 +96,13 @@ export const ptBR = {
     sessionBadge: {
       preparing: "Preparando",
       failed: "Falhou",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "As alterações valem para as sessões criadas depois. As sessões existentes mantêm a configuração e as variáveis com que começaram.",
+      plainText: "As variáveis são armazenadas em texto simples neste computador e no host. Não as use para segredos como tokens ou senhas.",
+      variableNameRequired: "Informe um nome para cada variável que tenha um valor.",
+      variableNameInvalid: "Nomes de variável começam com uma letra ou sublinhado e usam apenas letras, dígitos e sublinhados. Alguns nomes, como PATH, HOME ou os que começam com GIT_ ou PI_, são reservados.",
+      variableNameDuplicate: "Cada nome de variável só pode ser usado uma vez.",
     },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",

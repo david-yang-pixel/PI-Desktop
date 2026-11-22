@@ -189,6 +189,26 @@ test("every remote session target failure has a localized message in every shipp
   }
 });
 
+test("remote session target controls and notices are localized in every shipped catalog", () => {
+  // Nested groups after `sessionTarget.preparation`: Cancel while preparing,
+  // sidebar marks, and the environment editor's checks and notices.
+  const groups = ["preparationControl", "sessionBadge", "environmentEditor"];
+  const keys = Object.keys(english).filter((key) => groups.some((group) => key.startsWith(`sessionTarget.${group}.`)));
+  for (const group of groups) {
+    assert.ok(keys.some((key) => key.startsWith(`sessionTarget.${group}.`)), group);
+  }
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    const flat = flattenCatalog(catalog);
+    for (const key of [...keys, "sessionTarget.setupScriptHint"]) {
+      assert.equal(typeof flat[key], "string", `${locale} ${key}`);
+      assert.ok(flat[key].trim(), `${locale} ${key} must not be blank`);
+      if (locale !== "en") assert.notEqual(flat[key], english[key], `${locale} ${key} is still English`);
+    }
+    // Reserved names are identifiers and must survive translation.
+    assert.match(flat["sessionTarget.environmentEditor.variableNameInvalid"], /PATH.*GIT_.*PI_/, locale);
+  }
+});
+
 test("Live Voice preparation and call recovery copy is localized in every shipped catalog", () => {
   const keys = [
     "prepareCall", "details", "workOptions", "allowWork", "noWorkSession",

@@ -45,7 +45,7 @@ export const zhCN = {
     loadFailed: "加载失败：{{message}}",
     startFailed: "无法启动远程会话：{{message}}",
     setupScript: "初始化脚本",
-    setupScriptHint: "发送首条提示前，在新的 worktree 中运行。",
+    setupScriptHint: "发送首条提示前在主机上运行：仓库会话在新的 worktree 中运行，否则在所选文件夹或会话的临时文件夹中运行。",
     idleReclaimHours: "工作区闲置多久后回收（小时）",
     idleReclaimHoursHint: "请输入 1 至 {{maxHours}} 的整数。输入 0 可关闭自动回收。",
     regenerableDirs: "可重新生成的目录",
@@ -96,6 +96,13 @@ export const zhCN = {
     sessionBadge: {
       preparing: "准备中",
       failed: "失败",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "更改仅适用于之后创建的会话。现有会话保留其启动时的初始化脚本和变量。",
+      plainText: "变量以明文形式保存在本机和主机上。请勿用于令牌或密码等机密信息。",
+      variableNameRequired: "请为每个有值的变量填写名称。",
+      variableNameInvalid: "变量名须以字母或下划线开头，且只能包含字母、数字和下划线。部分名称已保留，例如 PATH、HOME，以及以 GIT_ 或 PI_ 开头的名称。",
+      variableNameDuplicate: "每个变量名只能使用一次。",
     },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",

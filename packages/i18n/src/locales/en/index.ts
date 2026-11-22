@@ -43,7 +43,7 @@ export const en = {
     loadFailed: "Could not load: {{message}}",
     startFailed: "Could not start the remote session: {{message}}",
     setupScript: "Setup script",
-    setupScriptHint: "Runs in the new worktree before the first prompt is sent.",
+    setupScriptHint: "Runs on the host before the first prompt is sent: in the new worktree for a repository session, otherwise in the selected folder or the session's scratch folder.",
     idleReclaimHours: "Reclaim idle workspaces after (hours)",
     idleReclaimHoursHint: "Enter a whole number from 1 to {{maxHours}}, or 0 to turn off automatic reclamation.",
     regenerableDirs: "Regenerable directories",
@@ -94,6 +94,13 @@ export const en = {
     sessionBadge: {
       preparing: "Preparing",
       failed: "Failed",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "Changes apply to sessions created afterwards. Existing sessions keep the setup and variables they started with.",
+      plainText: "Variables are stored in plain text on this computer and on the host. Do not use them for secrets such as tokens or passwords.",
+      variableNameRequired: "Enter a name for each variable that has a value.",
+      variableNameInvalid: "Variable names start with a letter or underscore and use only letters, digits, and underscores. Some names, such as PATH, HOME, or names starting with GIT_ or PI_, are reserved.",
+      variableNameDuplicate: "Each variable name can be used only once.",
     },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",

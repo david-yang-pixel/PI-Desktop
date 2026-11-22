@@ -45,7 +45,7 @@ export const de = {
     loadFailed: "Laden fehlgeschlagen: {{message}}",
     startFailed: "Die Remote-Sitzung konnte nicht gestartet werden: {{message}}",
     setupScript: "Einrichtungsskript",
-    setupScriptHint: "Wird im neuen Worktree vor der ersten Anfrage ausgeführt.",
+    setupScriptHint: "Wird vor der ersten Anfrage auf dem Host ausgeführt: im neuen Worktree einer Repository-Sitzung, sonst im ausgewählten Ordner oder im Arbeitsordner der Sitzung.",
     idleReclaimHours: "Inaktive Arbeitsbereiche freigeben nach (Stunden)",
     idleReclaimHoursHint: "Gib eine ganze Zahl zwischen 1 und {{maxHours}} ein. Mit 0 deaktivierst du die automatische Freigabe.",
     regenerableDirs: "Wiederherstellbare Verzeichnisse",
@@ -96,6 +96,13 @@ export const de = {
     sessionBadge: {
       preparing: "Wird vorbereitet",
       failed: "Fehlgeschlagen",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "Änderungen gelten für danach erstellte Sitzungen. Bestehende Sitzungen behalten die Einrichtung und Variablen, mit denen sie gestartet wurden.",
+      plainText: "Variablen werden im Klartext auf diesem Computer und auf dem Host gespeichert. Verwende sie nicht für Geheimnisse wie Tokens oder Passwörter.",
+      variableNameRequired: "Gib für jede Variable mit einem Wert einen Namen ein.",
+      variableNameInvalid: "Variablennamen beginnen mit einem Buchstaben oder Unterstrich und enthalten nur Buchstaben, Ziffern und Unterstriche. Einige Namen wie PATH, HOME oder Namen, die mit GIT_ oder PI_ beginnen, sind reserviert.",
+      variableNameDuplicate: "Jeder Variablenname darf nur einmal vorkommen.",
     },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",

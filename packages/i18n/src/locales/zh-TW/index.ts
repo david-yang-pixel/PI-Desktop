@@ -45,7 +45,7 @@ export const zhTW = {
     loadFailed: "載入失敗：{{message}}",
     startFailed: "無法啟動遠端工作階段：{{message}}",
     setupScript: "初始化指令碼",
-    setupScriptHint: "傳送首則提示前，在新的 worktree 執行。",
+    setupScriptHint: "傳送首則提示前在主機上執行：儲存庫工作階段在新的 worktree 中執行，否則在所選資料夾或工作階段的暫存資料夾中執行。",
     idleReclaimHours: "工作區閒置多久後回收（小時）",
     idleReclaimHoursHint: "請輸入 1 至 {{maxHours}} 的整數。輸入 0 可關閉自動回收。",
     regenerableDirs: "可重新產生的目錄",
@@ -96,6 +96,13 @@ export const zhTW = {
     sessionBadge: {
       preparing: "準備中",
       failed: "失敗",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "變更僅套用於之後建立的工作階段。現有工作階段會保留啟動時的初始化指令碼和變數。",
+      plainText: "變數會以明文形式儲存在本機和主機上。請勿用於權杖或密碼等機密資訊。",
+      variableNameRequired: "請為每個有值的變數填寫名稱。",
+      variableNameInvalid: "變數名稱須以字母或底線開頭，且只能包含字母、數字和底線。部分名稱已保留，例如 PATH、HOME，以及以 GIT_ 或 PI_ 開頭的名稱。",
+      variableNameDuplicate: "每個變數名稱只能使用一次。",
     },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",

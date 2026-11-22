@@ -45,7 +45,7 @@ export const ko = {
     loadFailed: "불러올 수 없음: {{message}}",
     startFailed: "원격 세션을 시작할 수 없습니다: {{message}}",
     setupScript: "설정 스크립트",
-    setupScriptHint: "첫 프롬프트를 보내기 전에 새 워크트리에서 실행합니다.",
+    setupScriptHint: "첫 프롬프트를 보내기 전에 호스트에서 실행합니다. 저장소 세션은 새 워크트리에서, 그 외에는 선택한 폴더나 세션의 임시 폴더에서 실행합니다.",
     idleReclaimHours: "유휴 작업 공간 회수까지의 시간(시간)",
     idleReclaimHoursHint: "1~{{maxHours}} 사이의 정수를 입력하세요. 자동 회수를 끄려면 0을 입력하세요.",
     regenerableDirs: "재생성 가능한 디렉터리",
@@ -96,6 +96,13 @@ export const ko = {
     sessionBadge: {
       preparing: "준비 중",
       failed: "실패",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "변경 사항은 이후에 만드는 세션에 적용됩니다. 기존 세션은 시작할 때의 설정과 변수를 유지합니다.",
+      plainText: "변수는 이 컴퓨터와 호스트에 일반 텍스트로 저장됩니다. 토큰이나 비밀번호 같은 비밀 정보에는 사용하지 마세요.",
+      variableNameRequired: "값이 있는 모든 변수에 이름을 입력하세요.",
+      variableNameInvalid: "변수 이름은 문자나 밑줄로 시작하고 문자, 숫자, 밑줄만 사용할 수 있습니다. PATH, HOME이나 GIT_ 또는 PI_로 시작하는 이름 등 일부 이름은 예약되어 있습니다.",
+      variableNameDuplicate: "각 변수 이름은 한 번만 사용할 수 있습니다.",
     },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",

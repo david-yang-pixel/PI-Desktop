@@ -45,7 +45,7 @@ export const es = {
     loadFailed: "No se pudo cargar: {{message}}",
     startFailed: "No se pudo iniciar la sesión remota: {{message}}",
     setupScript: "Script de configuración",
-    setupScriptHint: "Se ejecuta en el nuevo worktree antes de enviar el primer mensaje.",
+    setupScriptHint: "Se ejecuta en el host antes de enviar el primer mensaje: en el nuevo worktree de una sesión con repositorio o, si no, en la carpeta seleccionada o en la carpeta temporal de la sesión.",
     idleReclaimHours: "Liberar espacios de trabajo inactivos después de (horas)",
     idleReclaimHoursHint: "Introduce un número entero entre 1 y {{maxHours}}, o 0 para desactivar la liberación automática.",
     regenerableDirs: "Directorios regenerables",
@@ -96,6 +96,13 @@ export const es = {
     sessionBadge: {
       preparing: "Preparando",
       failed: "Error",
+    },
+    environmentEditor: {
+      appliesToNewSessions: "Los cambios se aplican a las sesiones que se creen después. Las sesiones existentes conservan la configuración y las variables con las que empezaron.",
+      plainText: "Las variables se guardan en texto sin cifrar en este equipo y en el host. No las uses para secretos como tokens o contraseñas.",
+      variableNameRequired: "Escribe un nombre para cada variable que tenga un valor.",
+      variableNameInvalid: "Los nombres de variable empiezan por una letra o un guion bajo y solo usan letras, dígitos y guiones bajos. Algunos nombres, como PATH, HOME o los que empiezan por GIT_ o PI_, están reservados.",
+      variableNameDuplicate: "Cada nombre de variable solo se puede usar una vez.",
     },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
