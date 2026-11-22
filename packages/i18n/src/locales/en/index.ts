@@ -107,6 +107,11 @@ export const en = {
       detail: "Sessions that already have a workspace keep it. New sessions can no longer choose this environment, and its setup script and variables are deleted from this computer.",
       failed: "Could not remove the environment: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "GitHub rejected the push because the remote branch has newer commits. Ask the agent to fetch and rebase, then push again.",
+      workflowScopeRequired: "GitHub refused changes to workflow files. Reconnect GitHub with 'Allow changes to GitHub Actions workflow files' turned on.",
+      stalled: "The transfer with GitHub stalled and was stopped. Try again.",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

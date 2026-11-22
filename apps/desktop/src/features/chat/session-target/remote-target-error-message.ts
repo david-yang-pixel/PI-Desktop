@@ -40,6 +40,11 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   [ErrorCodes.WORKSPACE_GIT_SETUP_FAILED, "sessionTarget.errors.setupRequired"],
   [ErrorCodes.WORKSPACE_GIT_TRANSPORT_REFUSED, "sessionTarget.errors.transportRefused"],
   [ErrorCodes.WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE, "sessionTarget.errors.credentialUnavailable"],
+  // Push failures the Host reports by these names. Plain strings: the codes
+  // are defined with the Host change that emits them.
+  ["WORKSPACE_GIT_PUSH_REJECTED", "sessionTarget.gitErrors.pushRejected"],
+  ["WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED", "sessionTarget.gitErrors.workflowScopeRequired"],
+  ["WORKSPACE_GIT_STALLED", "sessionTarget.gitErrors.stalled"],
 ]);
 
 /** The catalog's sentence for a remote target code, or `fallback` for any other. */

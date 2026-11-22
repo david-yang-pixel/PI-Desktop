@@ -109,6 +109,11 @@ export const zhTW = {
       detail: "已有工作區的工作階段會保留其工作區。新工作階段將無法再選擇此環境，其初始化指令碼和變數也會從本機刪除。",
       failed: "無法移除環境：{{message}}",
     },
+    gitErrors: {
+      pushRejected: "遠端分支有較新的提交，GitHub 拒絕了推送。請讓代理程式擷取並重定基底，然後再次推送。",
+      workflowScopeRequired: "GitHub 拒絕了對工作流程檔案的變更。請開啟「允許修改 GitHub Actions 工作流程檔案」後重新連接 GitHub。",
+      stalled: "與 GitHub 的傳輸停滯，已被中止。請重試。",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

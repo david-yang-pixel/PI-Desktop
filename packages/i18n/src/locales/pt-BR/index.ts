@@ -109,6 +109,11 @@ export const ptBR = {
       detail: "As sessões que já têm uma área de trabalho a mantêm. Novas sessões não poderão mais escolher este ambiente, e o script de configuração e as variáveis dele serão excluídos deste computador.",
       failed: "Não foi possível remover o ambiente: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "O GitHub rejeitou o envio porque a branch remota tem commits mais recentes. Peça ao agente para buscar e fazer rebase e envie novamente.",
+      workflowScopeRequired: "O GitHub recusou alterações em arquivos de workflow. Reconecte o GitHub com “Permitir alterações nos arquivos de workflow do GitHub Actions” ativado.",
+      stalled: "A transferência com o GitHub travou e foi interrompida. Tente novamente.",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

@@ -109,6 +109,11 @@ export const es = {
       detail: "Las sesiones que ya tienen un espacio de trabajo lo conservan. Las sesiones nuevas ya no podrán elegir este entorno, y su script de configuración y sus variables se eliminarán de este equipo.",
       failed: "No se pudo quitar el entorno: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "GitHub rechazó el envío porque la rama remota tiene commits más recientes. Pide al agente que obtenga los cambios y haga rebase, y luego vuelve a enviar.",
+      workflowScopeRequired: "GitHub rechazó los cambios en archivos de flujo de trabajo. Vuelve a conectar GitHub con «Permitir cambios en los archivos de flujo de trabajo de GitHub Actions» activado.",
+      stalled: "La transferencia con GitHub se detuvo y se canceló. Inténtalo de nuevo.",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

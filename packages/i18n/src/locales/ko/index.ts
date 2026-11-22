@@ -109,6 +109,11 @@ export const ko = {
       detail: "이미 작업 공간이 있는 세션은 그대로 유지됩니다. 새 세션은 더 이상 이 환경을 선택할 수 없으며, 설정 스크립트와 변수는 이 컴퓨터에서 삭제됩니다.",
       failed: "환경을 제거하지 못했습니다: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "원격 브랜치에 더 새로운 커밋이 있어 GitHub가 푸시를 거부했습니다. 에이전트에게 가져와서 리베이스하도록 요청한 후 다시 푸시하세요.",
+      workflowScopeRequired: "GitHub가 워크플로 파일 변경을 거부했습니다. 'GitHub Actions 워크플로 파일 변경 허용'을 켜고 GitHub를 다시 연결하세요.",
+      stalled: "GitHub와의 전송이 멈춰 중단되었습니다. 다시 시도하세요.",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

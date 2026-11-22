@@ -45,6 +45,10 @@ test("every remote target and workspace code main reports maps to a catalog sent
     WORKSPACE_GIT_FAILED: en.sessionTarget.errors.gitFailed,
     WORKSPACE_GIT_SETUP_FAILED: en.sessionTarget.errors.setupRequired,
     WORKSPACE_GIT_TRANSPORT_REFUSED: en.sessionTarget.errors.transportRefused,
+    WORKSPACE_GIT_PUSH_REJECTED: en.sessionTarget.gitErrors.pushRejected,
+    WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED: en.sessionTarget.gitErrors.workflowScopeRequired,
+    WORKSPACE_GIT_STALLED: en.sessionTarget.gitErrors.stalled,
+    WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE: en.sessionTarget.errors.credentialUnavailable,
   };
   for (const [code, sentence] of Object.entries(expected)) {
     assert.equal(typeof sentence, "string", code);
@@ -65,6 +69,10 @@ test("the sentence follows the current language", async () => {
     assert.equal(
       remoteTargetErrorText(t, coded("REMOTE_TARGET_HOST_OFFLINE", "The selected remote host is offline")),
       zhCN.sessionTarget.errors.hostOffline,
+    );
+    assert.equal(
+      remoteTargetErrorTextForCode(t, "WORKSPACE_GIT_PUSH_REJECTED", "! [rejected] (fetch first)"),
+      zhCN.sessionTarget.gitErrors.pushRejected,
     );
   } finally {
     await translator.changeLanguage("en");

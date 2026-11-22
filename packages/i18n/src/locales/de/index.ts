@@ -109,6 +109,11 @@ export const de = {
       detail: "Sitzungen, die bereits einen Arbeitsbereich haben, behalten ihn. Neue Sitzungen können diese Umgebung nicht mehr wählen, und ihr Einrichtungsskript und ihre Variablen werden von diesem Computer gelöscht.",
       failed: "Umgebung konnte nicht entfernt werden: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "GitHub hat den Push abgelehnt, weil der Remote-Branch neuere Commits hat. Bitte den Agenten, abzurufen und zu rebasen, und pushe dann erneut.",
+      workflowScopeRequired: "GitHub hat Änderungen an Workflow-Dateien abgelehnt. Verbinde GitHub erneut und aktiviere „Änderungen an GitHub-Actions-Workflow-Dateien erlauben“.",
+      stalled: "Die Übertragung mit GitHub ist ins Stocken geraten und wurde abgebrochen. Versuche es erneut.",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

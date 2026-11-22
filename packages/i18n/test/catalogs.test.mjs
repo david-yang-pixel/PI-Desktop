@@ -191,8 +191,9 @@ test("every remote session target failure has a localized message in every shipp
 
 test("remote session target controls and notices are localized in every shipped catalog", () => {
   // Nested groups after `sessionTarget.preparation`: Cancel while preparing,
-  // sidebar marks, the environment editor, and environment removal.
-  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval"];
+  // sidebar marks, the environment editor, environment removal, and the
+  // Host's push and credential failures.
+  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors"];
   const keys = Object.keys(english).filter((key) => groups.some((group) => key.startsWith(`sessionTarget.${group}.`)));
   for (const group of groups) {
     assert.ok(keys.some((key) => key.startsWith(`sessionTarget.${group}.`)), group);

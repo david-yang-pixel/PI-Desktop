@@ -109,6 +109,11 @@ export const tr = {
       detail: "Zaten bir çalışma alanı olan oturumlar onu korur. Yeni oturumlar bu ortamı artık seçemez ve ortamın kurulum betiği ile değişkenleri bu bilgisayardan silinir.",
       failed: "Ortam kaldırılamadı: {{message}}",
     },
+    gitErrors: {
+      pushRejected: "Uzak dalda daha yeni commit'ler olduğu için GitHub gönderimi reddetti. Ajandan getirip rebase yapmasını isteyin, ardından yeniden gönderin.",
+      workflowScopeRequired: "GitHub iş akışı dosyalarındaki değişiklikleri reddetti. GitHub'ı 'GitHub Actions iş akışı dosyalarında değişikliğe izin ver' açıkken yeniden bağlayın.",
+      stalled: "GitHub ile aktarım takıldı ve durduruldu. Tekrar deneyin.",
+    },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",
       hostOutdated: "Uzak ana bilgisayar bu uygulamanın farklı bir sürümünü çalıştırıyor. Ana bilgisayarı güncelleyin, ardından tekrar deneyin.",

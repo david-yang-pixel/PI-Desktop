@@ -109,6 +109,11 @@ export const fr = {
       detail: "Les sessions qui ont déjà un espace de travail le conservent. Les nouvelles sessions ne pourront plus choisir cet environnement, et son script d’initialisation et ses variables seront supprimés de cet ordinateur.",
       failed: "Impossible de supprimer l’environnement : {{message}}",
     },
+    gitErrors: {
+      pushRejected: "GitHub a refusé l’envoi, car la branche distante contient des commits plus récents. Demandez à l’agent de récupérer et de rebaser, puis renvoyez.",
+      workflowScopeRequired: "GitHub a refusé les modifications des fichiers de workflow. Reconnectez GitHub en activant « Autoriser la modification des fichiers de workflow GitHub Actions ».",
+      stalled: "Le transfert avec GitHub s’est bloqué et a été arrêté. Réessayez.",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",
