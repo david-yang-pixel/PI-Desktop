@@ -68,10 +68,12 @@ import type {
   OAuthVendor,
   OAuthStartResult,
   GitHubBranchList,
+  GitHubBranchSummary,
   GitHubConnectorStatus,
   GitHubRepositoryList,
   GitHubRepositoryListInput,
   GitHubRepositoryRef,
+  GitHubRepositorySummary,
   PluginSummary,
   LauncherCatalog,
   LauncherOpenPluginRequest,
@@ -1117,6 +1119,12 @@ export const api = {
     invoke<GitHubRepositoryList>(IPC.invoke.githubRepositories, input),
   listGithubBranches: (repository: GitHubRepositoryRef) =>
     invoke<GitHubBranchList>(IPC.invoke.githubBranches, repository),
+  /** Look up one repository by exact name; `null` when GitHub cannot find it. */
+  getGithubRepository: (repository: GitHubRepositoryRef) =>
+    invoke<{ repository: GitHubRepositorySummary | null }>(IPC.invoke.githubRepository, repository),
+  /** Look up one branch by exact name; `null` when the repository has none. */
+  getGithubBranch: (input: GitHubRepositoryRef & { branch: string }) =>
+    invoke<{ branch: GitHubBranchSummary | null }>(IPC.invoke.githubBranch, input),
   listEnvironments: () => invoke<{ environments: RemoteEnvironment[] }>(IPC.invoke.environmentsList),
   upsertEnvironment: (input: RemoteEnvironmentInput) => invoke<{ environment: RemoteEnvironment }>(IPC.invoke.environmentsUpsert, input),
   removeEnvironment: (id: string) => invoke<{ ok: boolean }>(IPC.invoke.environmentsRemove, id),

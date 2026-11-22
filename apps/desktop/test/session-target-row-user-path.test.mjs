@@ -78,3 +78,75 @@ test("an offline Host is marked in the environment picker and explained near Sen
   const result = await runRendererProbe(offlineFixture);
   assert.ok(result.passed, result.output);
 });
+
+const lookupFixture = String.raw`
+${setup}
+globalThis.rendererProbe = async () => {
+  useSessionTargetStore.getState().beginDraft({ environmentId: "default:build", defaultEnvironmentId: "default:build" });
+  const listed = Array.from({ length: 3 }, (_, index) => ({ owner: "octo", name: "app-" + index, fullName: "octo/app-" + index,
+    private: false, defaultBranch: "main", archived: false }));
+  const calls = await start({
+    [IPC.invoke.environmentsList]: () => ok({ environments: [environmentRow("default:build", "Build host", "build")] }),
+    [IPC.invoke.remoteHostList]: () => ok({ hosts: [{ hostKey: "build", label: "Build host", connected: true }] }),
+    [IPC.invoke.githubConnectorStatus]: () => ok({ connected: true, deviceLoginAvailable: false }),
+    [IPC.invoke.githubRepositories]: () => ok({ repositories: listed, truncated: true }),
+    [IPC.invoke.githubRepository]: ({ owner, name }) => ok({ repository: name === "hidden"
+      ? { owner, name, fullName: owner + "/" + name, private: true, defaultBranch: "trunk", archived: false } : null }),
+    [IPC.invoke.githubBranches]: () => ok({ branches: [{ name: "trunk", protected: true }], defaultBranch: "trunk", truncated: true }),
+    [IPC.invoke.githubBranch]: ({ branch }) => ok({ branch: branch === "release/2026.11" ? { name: branch, protected: false } : null }),
+  });
+  const searchBox = (label) => document.querySelector('.session-target-menu.is-open input[aria-label="' + label + '"]');
+
+  await until(() => trigger(copy.chooseRepository), "the repository picker did not appear");
+  trigger(copy.chooseRepository).click();
+  await until(() => menuButton("octo/app-0"), "the repository list did not load");
+  if (!document.querySelector(".session-target-menu.is-open").textContent.includes(copy.lookup.repositoryHint)) {
+    throw new Error("a truncated list does not say how to find more");
+  }
+  fill(searchBox(copy.searchRepositories), "big-org/missing");
+  await until(() => document.body.textContent.includes(copy.lookup.repositoryNotFound.replace("{{name}}", "big-org/missing")),
+    "a missing repository was not reported");
+  fill(searchBox(copy.searchRepositories), "big-org/hidden");
+  await until(() => menuButton("big-org/hidden"), "the unlisted repository was not offered");
+  if (calls.filter(({ channel }) => channel === IPC.invoke.githubRepository).some(({ input }) => input.name.length < 6)) {
+    throw new Error("a lookup was sent for a half-typed name");
+  }
+  menuButton("big-org/hidden").click();
+  await until(() => trigger(copy.chooseRepository)?.textContent.trim() === "big-org/hidden", "the unlisted repository was not selected");
+  const selected = useSessionTargetStore.getState();
+  if (selected.repository?.defaultBranch !== "trunk" || selected.baseBranch !== "trunk") throw new Error("the lookup lost the default branch");
+
+  // Typing a listed name looks nothing up.
+  trigger(copy.chooseRepository).click();
+  await until(() => searchBox(copy.searchRepositories), "the repository menu did not reopen");
+  const lookups = calls.filter(({ channel }) => channel === IPC.invoke.githubRepository).length;
+  fill(searchBox(copy.searchRepositories), "octo/app-1");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  if (calls.filter(({ channel }) => channel === IPC.invoke.githubRepository).length !== lookups) {
+    throw new Error("a listed repository was looked up");
+  }
+  trigger(copy.chooseRepository).click();
+
+  trigger(copy.chooseBranch).click();
+  await until(() => menuButton("trunk"), "the branch list did not load");
+  if (!document.querySelector(".session-target-menu.is-open").textContent.includes(copy.lookup.branchesTruncated)) {
+    throw new Error("a truncated branch list does not say so");
+  }
+  fill(searchBox(copy.searchBranches), "release/2026.11");
+  await until(() => menuButton("release/2026.11"), "the unlisted branch was not offered");
+  const branchLookup = calls.find(({ channel }) => channel === IPC.invoke.githubBranch);
+  if (JSON.stringify(branchLookup.input) !== JSON.stringify({ owner: "big-org", name: "hidden", branch: "release/2026.11" })) {
+    throw new Error("wrong branch lookup " + JSON.stringify(branchLookup.input));
+  }
+  menuButton("release/2026.11").click();
+  await until(() => trigger(copy.chooseBranch)?.textContent.trim() === "release/2026.11", "the unlisted branch was not selected");
+  return true;
+};
+`;
+
+test("a repository or branch beyond the capped lists is found by its exact name", {
+  timeout: 90_000, skip: electronProbeSkip,
+}, async () => {
+  const result = await runRendererProbe(lookupFixture);
+  assert.ok(result.passed, result.output);
+});

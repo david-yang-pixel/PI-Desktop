@@ -120,6 +120,14 @@ export const zhTW = {
     offlineHost: {
       sendHint: "{{host}} 已離線。傳送時會先重新連線，可能需要一點時間。",
     },
+    lookup: {
+      searching: "正在 GitHub 上尋找 {{name}}…",
+      foundOnGitHub: "不在清單中。已在 GitHub 上找到：",
+      repositoryNotFound: "GitHub 上沒有已連接帳號可見的儲存庫 {{name}}。",
+      branchNotFound: "此儲存庫沒有名為 {{name}} 的分支。",
+      repositoryHint: "輸入 owner/name 可尋找未列出的儲存庫。",
+      branchesTruncated: "僅顯示前 500 個分支。輸入分支全名可尋找其他分支。",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

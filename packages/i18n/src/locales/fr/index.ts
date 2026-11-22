@@ -120,6 +120,14 @@ export const fr = {
     offlineHost: {
       sendHint: "{{host}} est hors ligne. L’envoi le reconnecte d’abord, ce qui peut prendre un moment.",
     },
+    lookup: {
+      searching: "Recherche de {{name}} sur GitHub…",
+      foundOnGitHub: "Absent de la liste. Trouvé sur GitHub :",
+      repositoryNotFound: "GitHub n’a aucun dépôt {{name}} visible par le compte connecté.",
+      branchNotFound: "Ce dépôt n’a aucune branche nommée {{name}}.",
+      repositoryHint: "Saisissez owner/name pour trouver un dépôt qui n’est pas listé.",
+      branchesTruncated: "Les 500 premières branches sont affichées. Saisissez le nom complet d’une branche pour en trouver une autre.",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

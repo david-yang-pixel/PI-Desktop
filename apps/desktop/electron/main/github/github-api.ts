@@ -49,10 +49,20 @@ export type GitHubViewer = {
   scopes: string[];
 };
 
+/** One branch by name with the commit it points at. */
+export type GitHubBranchHead = GitHubBranchSummary & { sha: string };
+
 export type GitHubApi = {
   viewer(token: string): Promise<GitHubViewer>;
   listRepositories(token: string): Promise<GitHubRepositoryList>;
   listBranches(token: string, repository: GitHubRepositoryRef): Promise<GitHubBranchList>;
+  /**
+   * One repository by its exact name, for a name a capped or SSO-trimmed
+   * listing left out. `null` when GitHub cannot find it for this token.
+   */
+  getRepository(token: string, repository: GitHubRepositoryRef): Promise<GitHubRepositorySummary | null>;
+  /** One branch by its exact name. `null` when the repository has no such branch. */
+  getBranch(token: string, repository: GitHubRepositoryRef, branch: string): Promise<GitHubBranchHead | null>;
   findPullRequest(
     token: string,
     repository: GitHubRepositoryRef,
@@ -116,6 +126,21 @@ export function repositoryPath(repository: { owner: unknown; name: unknown }): s
 function branchName(value: unknown): string {
   if (!isGitBranchName(value)) throw invalid("branch name");
   return value;
+}
+
+/** A branch name as path segments: each part encoded, its slashes kept. */
+function branchPath(value: unknown): string {
+  return branchName(value).split("/").map(encodeURIComponent).join("/");
+}
+
+/** `null` for "GitHub has no such thing", the typed failure for anything else. */
+async function orNotFound<T>(read: () => Promise<T>): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.errorCode === ErrorCodes.GITHUB_NOT_FOUND) return null;
+    throw error;
+  }
 }
 
 /** Text that never carries the credential it describes. */
@@ -498,6 +523,27 @@ export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
       const list: GitHubBranchList = { branches: items, defaultBranch, truncated };
       if (ssoPartial || isSsoPartial(response)) list.ssoPartial = true;
       return list;
+    },
+
+    async getRepository(token, repository) {
+      const path = repositoryPath(repository);
+      return orNotFound(async () => {
+        const { response, json } = await request(token, "GET", path);
+        const summary = toRepository(json);
+        if (!summary || !summary.defaultBranch) throw unreadable(response.status);
+        return summary;
+      });
+    },
+
+    async getBranch(token, repository, branch) {
+      const path = `${repositoryPath(repository)}/branches/${branchPath(branch)}`;
+      return orNotFound(async () => {
+        const { response, json } = await request(token, "GET", path);
+        const summary = toBranch(json);
+        const sha = (json as { commit?: { sha?: unknown } } | null)?.commit?.sha;
+        if (!summary || typeof sha !== "string" || !/^[0-9a-f]{40,64}$/.test(sha)) throw unreadable(response.status);
+        return { ...summary, sha };
+      });
     },
 
     async findPullRequest(token, repository, head, state = "all") {

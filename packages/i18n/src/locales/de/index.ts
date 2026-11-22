@@ -120,6 +120,14 @@ export const de = {
     offlineHost: {
       sendHint: "{{host}} ist offline. Beim Senden wird zuerst die Verbindung wiederhergestellt, was einen Moment dauern kann.",
     },
+    lookup: {
+      searching: "{{name}} wird auf GitHub gesucht…",
+      foundOnGitHub: "Nicht in der Liste. Auf GitHub gefunden:",
+      repositoryNotFound: "GitHub hat kein Repository {{name}}, das das verbundene Konto sehen kann.",
+      branchNotFound: "Dieses Repository hat keinen Branch namens {{name}}.",
+      repositoryHint: "Gib owner/name ein, um ein nicht aufgeführtes Repository zu finden.",
+      branchesTruncated: "Die ersten 500 Branches werden angezeigt. Gib den vollständigen Namen eines Branches ein, um einen anderen zu finden.",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

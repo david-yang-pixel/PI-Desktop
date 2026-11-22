@@ -118,6 +118,14 @@ export const en = {
     offlineHost: {
       sendHint: "{{host}} is offline. Sending reconnects it first, which can take a moment.",
     },
+    lookup: {
+      searching: "Looking up {{name}} on GitHub…",
+      foundOnGitHub: "Not in the list. Found on GitHub:",
+      repositoryNotFound: "GitHub has no repository {{name}} that the connected account can see.",
+      branchNotFound: "This repository has no branch named {{name}}.",
+      repositoryHint: "Type owner/name to find a repository that is not listed.",
+      branchesTruncated: "Showing the first 500 branches. Type a branch's full name to find another.",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

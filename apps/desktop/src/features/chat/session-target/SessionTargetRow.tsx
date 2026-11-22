@@ -11,6 +11,7 @@ import { githubErrorText } from "../../settings/connectors/github-error-message"
 import { useGitHubConnector } from "../../settings/connectors/use-github-connector";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { useSessionTargetStore } from "./session-target-store";
+import { UnlistedBranchOption, UnlistedRepositoryOption } from "./UnlistedTargetOptions";
 import { useEnvironments } from "./use-environments";
 import "./session-target.css";
 
@@ -157,10 +158,12 @@ export function SessionTargetRow() {
         {search(t("sessionTarget.searchRepositories"))}
         <Button variant="secondary" onClick={() => { setError(undefined); setRevision((value) => value + 1); }}>{t("sessionTarget.refresh")}</Button>
         {errorRow}
-        {repositories?.truncated && <span>{t("sessionTarget.truncated")}</span>}
+        {repositories?.truncated && <span>{t("sessionTarget.truncated")} {t("sessionTarget.lookup.repositoryHint")}</span>}
         {repositories?.ssoPartial && <span>{t("sessionTarget.ssoPartial")}</span>}
         {repositories?.repositories.filter((item) => matches(item.fullName)).map((item) => <Button variant="secondary" key={item.fullName}
           onClick={() => { target.setRepository({ owner: item.owner, name: item.name, defaultBranch: item.defaultBranch }); setBranches(undefined); close(); }}>{item.fullName}</Button>)}
+        <UnlistedRepositoryOption query={query} listed={repositories?.repositories}
+          onSelect={(item) => { target.setRepository({ owner: item.owner, name: item.name, defaultBranch: item.defaultBranch }); setBranches(undefined); close(); }} />
       </> : <Button variant="secondary" onClick={() => { close(); openSettings("connectors"); }}>
         {t(status?.needsReauthentication ? "sessionTarget.reconnectGitHub" : "sessionTarget.connectGitHub")}
       </Button>}
@@ -168,9 +171,12 @@ export function SessionTargetRow() {
     {environment && connected && repository && <Picker label={target.baseBranch ?? t("sessionTarget.chooseBranch")} title={t("sessionTarget.chooseBranch")}
       open={menu === "branch"} toggle={() => open("branch")} close={close} search>
       {search(t("sessionTarget.searchBranches"))}{errorRow}
+      {branches?.truncated && <span>{t("sessionTarget.lookup.branchesTruncated")}</span>}
       {branches?.ssoPartial && <span>{t("sessionTarget.ssoPartial")}</span>}
       {branches?.branches.filter((item) => matches(item.name)).map((item) => <Button variant="secondary" key={item.name}
         onClick={() => { target.setBaseBranch(item.name); close(); }}>{item.name}</Button>)}
+      <UnlistedBranchOption query={query} repository={repository} listed={branches?.branches}
+        onSelect={(item) => { target.setBaseBranch(item.name); close(); }} />
     </Picker>}
     {offlineHost && <p className="session-target-note" role="status">
       {t("sessionTarget.offlineHost.sendHint", { host: offlineHost.label })}

@@ -120,6 +120,14 @@ export const zhCN = {
     offlineHost: {
       sendHint: "{{host}} 已离线。发送时会先重新连接，可能需要一点时间。",
     },
+    lookup: {
+      searching: "正在 GitHub 上查找 {{name}}…",
+      foundOnGitHub: "不在列表中。已在 GitHub 上找到：",
+      repositoryNotFound: "GitHub 上没有已连接账号可见的仓库 {{name}}。",
+      branchNotFound: "此仓库没有名为 {{name}} 的分支。",
+      repositoryHint: "输入 owner/name 可查找未列出的仓库。",
+      branchesTruncated: "仅显示前 500 个分支。输入分支全名可查找其他分支。",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

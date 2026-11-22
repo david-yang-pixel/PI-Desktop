@@ -826,3 +826,62 @@ test("the default transport is the process fetch, resolved at call time", async 
   assert.equal(seen.length, 1);
   assert.equal(seen[0].url, "https://api.github.com/user");
 });
+
+test("a repository the listing left out is read by exact name, and a missing one is null", async () => {
+  const { fetchImpl, requests } = scriptedFetch((request) =>
+    new URL(request.url).pathname === "/repos/octo-org/hello.world"
+      ? json(repository(3))
+      : json({ message: "Not Found" }, { status: 404 }));
+  const api = createGitHubApi({ fetchImpl });
+
+  assert.deepEqual(await api.getRepository(TOKEN, REPO), {
+    owner: "octo-org", name: "repo-3", fullName: "octo-org/repo-3", private: false,
+    defaultBranch: "main", archived: false, pushedAt: "2026-11-19T10:00:00Z",
+  });
+  assert.equal(await api.getRepository(TOKEN, { owner: "octo-org", name: "hidden" }), null);
+  assert.deepEqual(requests.map((request) => request.url), [
+    "https://api.github.com/repos/octo-org/hello.world",
+    "https://api.github.com/repos/octo-org/hidden",
+  ]);
+  requests.forEach(assertGitHubHeaders);
+  // Anything other than "not found" stays a typed failure.
+  const outage = createGitHubApi({ fetchImpl: async () => json({}, { status: 503 }) });
+  assert.equal((await rejection(outage.getRepository(TOKEN, REPO))).errorCode, "GITHUB_NETWORK");
+});
+
+test("a branch the listing left out is read by exact name with its head commit", async () => {
+  const sha = "a".repeat(40);
+  const { fetchImpl, requests } = scriptedFetch((request) =>
+    new URL(request.url).pathname.endsWith("/missing")
+      ? json({ message: "Branch not found" }, { status: 404 })
+      : json({ name: "release/2026.11", protected: true, commit: { sha } }));
+  const api = createGitHubApi({ fetchImpl });
+
+  assert.deepEqual(await api.getBranch(TOKEN, REPO, "release/2026.11"), { name: "release/2026.11", protected: true, sha });
+  assert.equal(await api.getBranch(TOKEN, REPO, "missing"), null);
+  // Each segment is encoded; the slash between them stays a path separator.
+  assert.equal(await api.getBranch(TOKEN, REPO, "fix/#12 a").catch((error) => error.errorCode), "INVALID_ARGUMENT");
+  await api.getBranch(TOKEN, REPO, "fix/#12");
+  assert.deepEqual(requests.map((request) => new URL(request.url).pathname), [
+    "/repos/octo-org/hello.world/branches/release/2026.11",
+    "/repos/octo-org/hello.world/branches/missing",
+    "/repos/octo-org/hello.world/branches/fix/%2312",
+  ]);
+  const unreadable = createGitHubApi({ fetchImpl: async () => json({ name: "main", commit: { sha: "nope" } }) });
+  assert.equal((await rejection(unreadable.getBranch(TOKEN, REPO, "main"))).errorCode, "GITHUB_NETWORK");
+});
+
+test("exact lookups check the names before any request", async () => {
+  const { fetchImpl, requests } = scriptedFetch(() => json({}));
+  const api = createGitHubApi({ fetchImpl });
+  for (const call of [
+    api.getRepository(TOKEN, { owner: "octo-org", name: ".." }),
+    api.getRepository(TOKEN, { owner: "octo/org", name: "repo" }),
+    api.getBranch(TOKEN, REPO, "a..b"),
+    api.getBranch(TOKEN, REPO, "/main"),
+    api.getBranch(TOKEN, { owner: "octo-org", name: "a/b" }, "main"),
+  ]) {
+    assert.equal((await rejection(call)).errorCode, "INVALID_ARGUMENT");
+  }
+  assert.equal(requests.length, 0);
+});

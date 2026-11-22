@@ -120,6 +120,14 @@ export const es = {
     offlineHost: {
       sendHint: "{{host}} está sin conexión. Al enviar, primero se vuelve a conectar, lo que puede tardar un momento.",
     },
+    lookup: {
+      searching: "Buscando {{name}} en GitHub…",
+      foundOnGitHub: "No está en la lista. Encontrado en GitHub:",
+      repositoryNotFound: "GitHub no tiene ningún repositorio {{name}} que la cuenta conectada pueda ver.",
+      branchNotFound: "Este repositorio no tiene ninguna rama llamada {{name}}.",
+      repositoryHint: "Escribe owner/name para encontrar un repositorio que no aparece.",
+      branchesTruncated: "Se muestran las primeras 500 ramas. Escribe el nombre completo de una rama para encontrar otra.",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

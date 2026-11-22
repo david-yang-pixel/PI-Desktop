@@ -47,6 +47,8 @@ describe("GitHub connector IPC", () => {
       ["githubConnectorDisconnect", "pi-desktop/github/disconnect"],
       ["githubRepositories", "pi-desktop/github/repositories"],
       ["githubBranches", "pi-desktop/github/branches"],
+      ["githubRepository", "pi-desktop/github/repository"],
+      ["githubBranch", "pi-desktop/github/branch"],
     ];
     for (const [key, channel] of invoke) {
       expect(IPC.invoke[key]).toBe(channel);

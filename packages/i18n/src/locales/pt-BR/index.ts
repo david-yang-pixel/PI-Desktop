@@ -120,6 +120,14 @@ export const ptBR = {
     offlineHost: {
       sendHint: "{{host}} está offline. Ao enviar, ele é reconectado primeiro, o que pode levar um momento.",
     },
+    lookup: {
+      searching: "Procurando {{name}} no GitHub…",
+      foundOnGitHub: "Não está na lista. Encontrado no GitHub:",
+      repositoryNotFound: "O GitHub não tem nenhum repositório {{name}} que a conta conectada possa ver.",
+      branchNotFound: "Este repositório não tem nenhuma branch chamada {{name}}.",
+      repositoryHint: "Digite owner/name para encontrar um repositório que não está na lista.",
+      branchesTruncated: "Mostrando as primeiras 500 branches. Digite o nome completo de uma branch para encontrar outra.",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

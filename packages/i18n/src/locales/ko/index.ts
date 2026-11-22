@@ -120,6 +120,14 @@ export const ko = {
     offlineHost: {
       sendHint: "{{host}}이(가) 오프라인입니다. 보내면 먼저 다시 연결하며, 잠시 걸릴 수 있습니다.",
     },
+    lookup: {
+      searching: "GitHub에서 {{name}} 찾는 중…",
+      foundOnGitHub: "목록에 없습니다. GitHub에서 찾았습니다:",
+      repositoryNotFound: "연결된 계정이 볼 수 있는 {{name}} 저장소가 GitHub에 없습니다.",
+      branchNotFound: "이 저장소에는 {{name}} 브랜치가 없습니다.",
+      repositoryHint: "목록에 없는 저장소를 찾으려면 owner/name을 입력하세요.",
+      branchesTruncated: "처음 500개 브랜치만 표시합니다. 다른 브랜치를 찾으려면 브랜치의 전체 이름을 입력하세요.",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

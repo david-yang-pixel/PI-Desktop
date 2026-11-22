@@ -2,7 +2,7 @@
  * Contract test for the GitHub connector's IPC surface (ADR
  * github-connector).
  *
- * These seven channels are how the renderer reaches a service that holds the
+ * These nine channels are how the renderer reaches a service that holds the
  * user's GitHub token. The handlers are the boundary: they accept only the
  * main window, check every input before the service sees it, and hand back
  * only the fields the shared contract names — so nothing a service method
@@ -28,6 +28,8 @@ const CHANNELS = {
   disconnect: "pi-desktop/github/disconnect",
   repositories: "pi-desktop/github/repositories",
   branches: "pi-desktop/github/branches",
+  repository: "pi-desktop/github/repository",
+  branch: "pi-desktop/github/branch",
 };
 const TOKEN = "gho_ipcFixtureToken";
 const MAIN_WINDOW = { sender: { id: 1 } };
@@ -77,6 +79,8 @@ function leakyConnector() {
       truncated: false,
       ...leak,
     }),
+    getRepository: record("getRepository", { ...REPOSITORY, ...leak }),
+    getBranch: record("getBranch", { name: "release/1", protected: true, sha: "c".repeat(40), ...leak }),
     token: record("token", TOKEN),
   };
   return { connector, calls };
@@ -114,7 +118,7 @@ async function rejection(promise) {
   assert.fail("expected the handler to reject");
 }
 
-test("exactly the seven connector channels are registered", () => {
+test("exactly the nine connector channels are registered", () => {
   const { connector } = leakyConnector();
   const { handlers } = setup(connector);
   assert.deepEqual([...handlers.keys()].sort(), Object.values(CHANNELS).sort());
@@ -143,6 +147,11 @@ test("each channel calls its service method and returns only contract fields", a
     defaultBranch: "main",
     truncated: false,
   });
+  assert.deepEqual(await invoke(CHANNELS.repository, { owner: "octo-org", name: "hello" }), { repository: REPOSITORY });
+  // The branch head stays in main: the picker needs only the name.
+  assert.deepEqual(await invoke(CHANNELS.branch, { owner: "octo-org", name: "hello", branch: "release/1" }), {
+    branch: { name: "release/1", protected: true },
+  });
 
   assert.deepEqual(calls, [
     { method: "status", args: [] },
@@ -152,7 +161,18 @@ test("each channel calls its service method and returns only contract fields", a
     { method: "disconnect", args: [] },
     { method: "listRepositories", args: [{ query: "hello", refresh: true }] },
     { method: "listBranches", args: [{ owner: "octo-org", name: "hello" }] },
+    { method: "getRepository", args: [{ owner: "octo-org", name: "hello" }] },
+    { method: "getBranch", args: [{ owner: "octo-org", name: "hello" }, "release/1"] },
   ]);
+});
+
+test("an exact lookup GitHub cannot answer crosses as null", async () => {
+  const { connector } = leakyConnector();
+  connector.getRepository = async () => null;
+  connector.getBranch = async () => null;
+  const { invoke } = setup(connector);
+  assert.deepEqual(await invoke(CHANNELS.repository, { owner: "octo-org", name: "gone" }), { repository: null });
+  assert.deepEqual(await invoke(CHANNELS.branch, { owner: "octo-org", name: "hello", branch: "gone" }), { branch: null });
 });
 
 test("no channel result contains the token, whatever the service returned", async () => {
@@ -166,6 +186,8 @@ test("no channel result contains the token, whatever the service returned", asyn
     await invoke(CHANNELS.disconnect),
     await invoke(CHANNELS.repositories, {}),
     await invoke(CHANNELS.branches, { owner: "octo-org", name: "hello" }),
+    await invoke(CHANNELS.repository, { owner: "octo-org", name: "hello" }),
+    await invoke(CHANNELS.branch, { owner: "octo-org", name: "hello", branch: "main" }),
   ];
   assert.equal(JSON.stringify(results).includes(TOKEN), false);
 });
@@ -233,6 +255,11 @@ test("malformed input is refused as INVALID_ARGUMENT before the service is calle
     [CHANNELS.branches, { owner: "octo-org" }],
     [CHANNELS.branches, { owner: "octo-org", name: 3 }],
     [CHANNELS.branches, { owner: ["octo-org"], name: "hello" }],
+    [CHANNELS.repository],
+    [CHANNELS.repository, "octo-org/hello"],
+    [CHANNELS.repository, { owner: "octo-org" }],
+    [CHANNELS.branch, { owner: "octo-org", name: "hello" }],
+    [CHANNELS.branch, { owner: "octo-org", name: "hello", branch: 7 }],
   ];
   for (const [channel, ...args] of malformed) {
     const error = await rejection(invoke(channel, ...args));

@@ -39,6 +39,8 @@ export type GitHubConnectorIpcDependencies = {
     | "disconnect"
     | "listRepositories"
     | "listBranches"
+    | "getRepository"
+    | "getBranch"
   >;
 };
 
@@ -177,5 +179,24 @@ export function registerGitHubConnectorIpc({
       throw invalidArgument("owner and name must be strings");
     }
     return toBranchList(await connector.listBranches({ owner, name }));
+  });
+
+  handle(IPC.invoke.githubRepository, async (input) => {
+    const { owner, name } = asRecord(input, "repository");
+    if (typeof owner !== "string" || typeof name !== "string") {
+      throw invalidArgument("owner and name must be strings");
+    }
+    const repository = await connector.getRepository({ owner, name });
+    return { repository: repository ? toRepository(repository) : null };
+  });
+
+  handle(IPC.invoke.githubBranch, async (input) => {
+    const { owner, name, branch } = asRecord(input, "branch");
+    if (typeof owner !== "string" || typeof name !== "string" || typeof branch !== "string") {
+      throw invalidArgument("owner, name, and branch must be strings");
+    }
+    const found = await connector.getBranch({ owner, name }, branch);
+    // The head commit stays in main; the picker needs only the name.
+    return { branch: found ? { name: found.name, protected: found.protected === true } : null };
   });
 }

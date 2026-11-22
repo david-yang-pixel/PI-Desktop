@@ -192,9 +192,9 @@ test("every remote session target failure has a localized message in every shipp
 test("remote session target controls and notices are localized in every shipped catalog", () => {
   // Nested groups after `sessionTarget.preparation`: Cancel while preparing,
   // sidebar marks, the environment editor, environment removal, the Host's
-  // push and credential failures, a send that could not start, and the hint
-  // for an offline Host.
-  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors", "sendFailure", "offlineHost"];
+  // push and credential failures, a send that could not start, the hint for
+  // an offline Host, and lookups beyond the capped GitHub lists.
+  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors", "sendFailure", "offlineHost", "lookup"];
   const keys = Object.keys(english).filter((key) => groups.some((group) => key.startsWith(`sessionTarget.${group}.`)));
   for (const group of groups) {
     assert.ok(keys.some((key) => key.startsWith(`sessionTarget.${group}.`)), group);
@@ -208,6 +208,8 @@ test("remote session target controls and notices are localized in every shipped 
     }
     // Reserved names are identifiers and must survive translation.
     assert.match(flat["sessionTarget.environmentEditor.variableNameInvalid"], /PATH.*GIT_.*PI_/, locale);
+    // The search syntax is typed as is.
+    assert.match(flat["sessionTarget.lookup.repositoryHint"], /owner\/name/, locale);
   }
 });
 

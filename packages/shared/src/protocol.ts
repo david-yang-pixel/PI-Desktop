@@ -340,6 +340,10 @@ export const IPC = {
     githubConnectorDisconnect: "pi-desktop/github/disconnect",
     githubRepositories: "pi-desktop/github/repositories",
     githubBranches: "pi-desktop/github/branches",
+    /** One repository by exact `owner/name`, for one a capped listing left out. */
+    githubRepository: "pi-desktop/github/repository",
+    /** One branch by exact name, for one a capped listing left out. */
+    githubBranch: "pi-desktop/github/branch",
     providersListModels: "pi-desktop/providers/listModels",
     /**
      * Look one model id up in the local models.dev snapshot.
