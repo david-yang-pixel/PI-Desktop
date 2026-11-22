@@ -27,6 +27,7 @@ import { createRemoteSessionCatalog } from "../remote/remote-session-catalog.js"
 import { syncRemoteProviders } from "../remote/remote-provider-transfer.js";
 import { workspaceExecutionError } from "../remote/remote-workspace-outcome.js";
 import { createWorkspaceGitBoot, type WorkspaceGitBoot } from "../remote/workspace-git-boot.js";
+import { recoverRepositoryHost } from "../remote/repository-session-recovery.js";
 import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 export { sshMetadataOf, sshHostRecord, transportOf } from "../remote/remote-host-metadata.js";
 export type { RemoteHostSummary };
@@ -428,11 +429,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     const onConnect = () => {
       void workspaceGit.hostConnected(live.hostKey).then(async () => {
         const sessions = getRemoteRepositorySessions();
-        if (!sessions) return;
-        await sessions.workspaces.announceEnvironments();
-        await sessions.workspaces.resume(live.hostKey);
-        await sessions.git.reconcile(live.hostKey);
-        await sessions.reclaimer.check(live.hostKey);
+        if (sessions) await recoverRepositoryHost(sessions, live.hostKey, (message, data) => log("warn", message, data));
       }).catch((error) => log("warn", "could not recover repository sessions", { hostKey: live.hostKey, error: String(error) }));
     };
     onConnect();

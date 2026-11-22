@@ -94,3 +94,19 @@ last fetched it; `workspace/gitStatus` does not fetch. A stale base can only
 cause an attempt that GitHub then validates. Fetching the base first needs a
 Host change and is left for a later release.
 
+## Amendment: one worktree cannot stop recovery
+
+- Date: 2026-11-22
+- Related: D695
+
+A Host connection runs four recovery phases for repository sessions:
+announce environments, resume workspaces, reconcile deleted sessions'
+worktrees, and check idle workspaces for reclamation. Each phase runs on its
+own; a failure is logged and the next phase still runs. Inside resume and
+reconcile, one workspace or worktree that fails is logged and stays for the
+next connection while the others continue. A Host that becomes unreachable
+ends the pass, because every later call would fail the same way. The
+leftover worktree list skips a worktree whose status cannot be read, which
+leaves it on the Host, and fails as a whole only when the Host is
+unreachable.
+

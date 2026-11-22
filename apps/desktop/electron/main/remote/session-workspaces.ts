@@ -470,23 +470,35 @@ export function createSessionWorkspaces(deps: {
       const waiting = bindings.filter(waitingForHost);
       if (!ready.length && !waiting.length) return;
       const connected = hostKey ? [hostKey] : (await hosts()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey);
+      // Every Host refuses the same way while it is away or outdated; there
+      // is nothing to report per workspace then.
+      const hostWide = (error: unknown) => offlineError(error) || remoteCode(error) === ErrorCodes.HOST_VERSION_MISMATCH;
+      /** One workspace's failure is logged and never skips the others. */
+      const each = async (task: () => Promise<unknown>) => {
+        try {
+          await task();
+        } catch (error) {
+          if (hostWide(error)) throw error;
+          log("Could not check a repository workspace on reconnect", error);
+        }
+      };
       await Promise.all(connected.map(async (key) => {
         const selected = ready.filter((current) => current.hostKey === key);
         const resumable = waiting.filter((current) => current.hostKey === key);
         try {
-          for (const current of resumable) await resumeAfterOffline(current);
+          for (const current of resumable) await each(() => resumeAfterOffline(current));
           if (!selected.length) return;
           const worktrees = new Map((await git().list(key)).map((worktree) => [worktree.sessionId, worktree]));
           for (const current of selected) {
-            const worktree = worktrees.get(current.sessionId);
-            if (current.state === "reclaiming") await settleReclaim(current.sessionId);
-            else if (current.state === "ready" && worktree) await recoverMissingCheckout(current, worktree);
-            if (deps.hasQueuedPrompt?.(current.sessionId)) await wake(current.sessionId);
+            await each(async () => {
+              const worktree = worktrees.get(current.sessionId);
+              if (current.state === "reclaiming") await settleReclaim(current.sessionId);
+              else if (current.state === "ready" && worktree) await recoverMissingCheckout(current, worktree);
+              if (deps.hasQueuedPrompt?.(current.sessionId)) await wake(current.sessionId);
+            });
           }
         } catch (error) {
-          if (!offlineError(error) && remoteCode(error) !== ErrorCodes.HOST_VERSION_MISMATCH) {
-            log("Could not check repository workspaces on reconnect", error);
-          }
+          if (!hostWide(error)) log("Could not check repository workspaces on reconnect", error);
         }
       }));
     },

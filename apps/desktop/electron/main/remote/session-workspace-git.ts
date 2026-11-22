@@ -2,7 +2,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   ErrorCodes, IPC, type GitHubPullRequestInput, type GitHubPullRequestSummary, type LeftoverWorktree,
   type RemoteSessionDeletePreflight, type RemoteSessionGitStatus, type SessionPullRequestLink,
-  type WorkspaceGitRepository,
+  type WorkspaceGitRepository, type WorkspaceGitWorktree,
 } from "@pi-desktop/shared";
 import type { GitHubConnector } from "../github/connector";
 import { busyJob, offlineError, remoteCode, remoteError, type HostCall, type SessionWorkspaces, type WorkspaceBinding } from "./session-workspaces";
@@ -167,36 +167,54 @@ export function createSessionWorkspaceGit(deps: {
     workspaces.announce(await workspaces.update(sessionId, { pullRequest: pullRequestLink(created) }));
     return created;
   }
+  /**
+   * One worktree's failure must not stop the others: it is logged and stays
+   * for the next connection. An unreachable Host ends the pass, since every
+   * later call would fail the same way.
+   */
+  async function isolated(message: string, task: () => Promise<void>) {
+    try {
+      await task();
+    } catch (error) {
+      if (offlineError(error)) throw error;
+      deps.log?.(message, error);
+    }
+  }
+  async function reconcileRemoval(hostKey: string, removal: PendingRemoval, worktrees: WorkspaceGitWorktree[]) {
+    if (await workspaces.binding(removal.sessionId)) return;
+    const tree = worktrees.find((candidate) => candidate.sessionId === removal.sessionId);
+    const foreign = tree && ((removal.workBranch && tree.workBranch !== removal.workBranch)
+      || tree.repository.owner !== removal.repository.owner || tree.repository.name !== removal.repository.name);
+    if (!foreign) {
+      try {
+        // Offline deletion cannot prove a worktree is clean. Keep any
+        // discovered local work for the leftover management view. Even
+        // with no worktree listed, a prepare the deleted session left
+        // running is stopped here before it can create one.
+        if (!(await removeWorktree(hostKey, removal.sessionId, false)).removed) return;
+      } catch (error) {
+        // Still busy: try again on the next connection.
+        if (remoteCode(error) === ErrorCodes.WORKSPACE_GIT_BUSY) return;
+        if (!missing(error)) throw error;
+      }
+    }
+    await discardPending(hostKey, removal.sessionId);
+  }
   async function reconcile(hostKey: string) {
     const { removals } = await pending(hostKey);
     const worktrees = await workspaces.git().list(hostKey);
     for (const removal of removals) {
-      if (await workspaces.binding(removal.sessionId)) continue;
-      const tree = worktrees.find((candidate) => candidate.sessionId === removal.sessionId);
-      const foreign = tree && ((removal.workBranch && tree.workBranch !== removal.workBranch)
-        || tree.repository.owner !== removal.repository.owner || tree.repository.name !== removal.repository.name);
-      if (!foreign) {
-        try {
-          // Offline deletion cannot prove a worktree is clean. Keep any
-          // discovered local work for the leftover management view. Even
-          // with no worktree listed, a prepare the deleted session left
-          // running is stopped here before it can create one.
-          if (!(await removeWorktree(hostKey, removal.sessionId, false)).removed) continue;
-        } catch (error) {
-          // Still busy: try again on the next connection.
-          if (remoteCode(error) === ErrorCodes.WORKSPACE_GIT_BUSY) continue;
-          if (!missing(error)) throw error;
-        }
-      }
-      await discardPending(hostKey, removal.sessionId);
+      await isolated("Could not remove a deleted session's worktree", () => reconcileRemoval(hostKey, removal, worktrees));
     }
     const bound = new Set((await workspaces.listBindings()).map((item) => item.sessionId));
     const pendingIds = new Set(removals.map((item) => item.sessionId));
     for (const tree of worktrees) {
       const age = Date.now() - Date.parse(tree.createdAt);
       if (bound.has(tree.sessionId) || pendingIds.has(tree.sessionId) || !(age >= ORPHAN_MIN_AGE)) continue;
-      await workspaces.git().remove(hostKey, tree.sessionId, false).catch((error) => {
-        if (!missing(error) && remoteCode(error) !== ErrorCodes.WORKSPACE_GIT_BUSY) throw error;
+      await isolated("Could not remove an orphaned worktree", async () => {
+        await workspaces.git().remove(hostKey, tree.sessionId, false).catch((error) => {
+          if (!missing(error) && remoteCode(error) !== ErrorCodes.WORKSPACE_GIT_BUSY) throw error;
+        });
       });
     }
   }
@@ -311,7 +329,11 @@ export function createSessionWorkspaceGit(deps: {
           result.push({ hostKey, sessionId: tree.sessionId, repository: tree.repository, workBranch: tree.workBranch,
             path: tree.path, createdAt: tree.createdAt, uncommittedFiles: status.uncommittedFiles, unpushedCommits: status.unpushedCommits });
         } catch (error) {
-          if (!missing(error)) throw error;
+          if (missing(error)) continue;
+          // An unreachable Host cannot give a trustworthy list at all. Any
+          // other failure hides only that worktree; it stays on the Host.
+          if (offlineError(error)) throw error;
+          deps.log?.("Could not read a leftover worktree's status", error);
         }
       }
       return result;
@@ -325,3 +347,5 @@ export function createSessionWorkspaceGit(deps: {
   };
   return api;
 }
+
+export type SessionWorkspaceGit = ReturnType<typeof createSessionWorkspaceGit>;

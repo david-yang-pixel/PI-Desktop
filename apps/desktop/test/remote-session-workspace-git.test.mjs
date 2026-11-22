@@ -62,6 +62,9 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } =
     jobs: new Map(jobs.map((job) => [job.jobId, { pollsAfterCancel: 0, ...job }])),
     requests: [],
     nextJob: 1,
+    /** Sessions whose worktree the Host fails to remove or to read. */
+    failRemove: new Set(),
+    failStatus: new Set(),
   };
   const runningJob = (sessionId) => [...remote.jobs.values()].find((job) => job.sessionId === sessionId && job.state === "running");
   const wire = (job) => {
@@ -103,6 +106,9 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } =
               return { ok: true };
             }
             case "workspace/gitRemove": {
+              if (remote.failRemove.has(params.sessionId)) throw hostError(ErrorCodes.WORKSPACE_GIT_FAILED, "git worktree remove failed");
+              // The connection drops before the reply arrives.
+              if (remote.dropOnRemove) { remote.online = false; remote.connectFailure = null; return { removed: false }; }
               const busy = runningJob(params.sessionId);
               if (busy) throw hostError(ErrorCodes.WORKSPACE_GIT_BUSY, "the worktree is in use", { jobId: busy.jobId });
               const tree = remote.worktrees.get(params.sessionId);
@@ -113,6 +119,7 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } =
               return { removed: true, uncommittedFiles: 0, unpushedCommits: 0 };
             }
             case "workspace/gitStatus": {
+              if (remote.failStatus.has(params.sessionId)) throw hostError(ErrorCodes.WORKSPACE_GIT_FAILED, "git status failed");
               const tree = remote.worktrees.get(params.sessionId);
               if (!tree) throw hostError(ErrorCodes.WORKSPACE_GIT_NOT_FOUND, "no such worktree");
               return { worktree: tree, ahead: tree.ahead ?? 0, behind: 0, aheadOfBase: tree.aheadOfBase ?? 0, pushedOnce: tree.pushedOnce ?? false,
@@ -497,4 +504,67 @@ test("using a session refreshes its pull request state at most once per interval
   const g = createFixture({ bindings: { "s-2": binding("s-2") }, connector: failing });
   await g.git.refreshPullRequest("s-2");
   assert.match(g.logs.join("\n"), /Could not refresh the session's pull request/);
+});
+
+// ---- one bad worktree -------------------------------------------------------
+
+const OLD = "2026-01-01T00:00:00.000Z";
+
+test("one worktree that cannot be removed does not stop reconciling the others", async () => {
+  const f = createFixture({
+    worktrees: [
+      readyWorktree("s-1"), readyWorktree("s-2", { workBranch: "pi-desktop/def456" }),
+      readyWorktree("orphan-1", { createdAt: OLD }), readyWorktree("orphan-2", { createdAt: OLD }),
+    ],
+  });
+  f.pendingRemovals.push({ sessionId: "s-1", hostKey: "h1", repository, workBranch },
+    { sessionId: "s-2", hostKey: "h1", repository, workBranch: "pi-desktop/def456" });
+  f.remote.failRemove.add("s-1");
+  f.remote.failRemove.add("orphan-1");
+
+  await f.git.reconcile("h1");
+  assert.deepEqual(f.pendingRemovals.map((item) => item.sessionId), ["s-1"], "the failed removal is retried on the next connection");
+  assert.equal(f.remote.worktrees.has("s-2"), false, "a later pending removal still runs");
+  assert.equal(f.remote.worktrees.has("orphan-1"), true);
+  assert.equal(f.remote.worktrees.has("orphan-2"), false, "a later orphan is still removed");
+  assert.match(f.logs.join("\n"), /Could not remove a deleted session's worktree/);
+  assert.match(f.logs.join("\n"), /Could not remove an orphaned worktree/);
+});
+
+test("a host that drops mid-reconcile ends the pass instead of failing every worktree", async () => {
+  const f = createFixture({ worktrees: [readyWorktree("s-1"), readyWorktree("s-2", { workBranch: "pi-desktop/def456" })] });
+  f.pendingRemovals.push({ sessionId: "s-1", hostKey: "h1", repository, workBranch },
+    { sessionId: "s-2", hostKey: "h1", repository, workBranch: "pi-desktop/def456" });
+  f.remote.dropOnRemove = true;
+  await assert.rejects(f.git.reconcile("h1"), (error) => error.errorCode === "AGENT_UNAVAILABLE");
+  assert.equal(f.removeRequests().length, 1, "nothing more is sent to a host that is gone");
+  assert.equal(f.pendingRemovals.length, 2, "both removals wait for the next connection");
+});
+
+test("leftover worktrees stay listed when one of them cannot be read", async () => {
+  const f = createFixture({ worktrees: [readyWorktree("gone-1"), readyWorktree("gone-2", { uncommittedFiles: 2 })] });
+  f.remote.failStatus.add("gone-1");
+  const leftovers = await f.git.leftovers("h1");
+  assert.deepEqual(leftovers.map((item) => [item.sessionId, item.uncommittedFiles]), [["gone-2", 2]]);
+  assert.match(f.logs.join("\n"), /Could not read a leftover worktree's status/);
+
+  // An unreachable Host cannot give a trustworthy list at all.
+  f.remote.online = false;
+  await assert.rejects(f.git.leftovers("h1"));
+});
+
+test("a reconnect that fails for one workspace still recovers the others", async (t) => {
+  useVirtualClock(t);
+  const f = createFixture({
+    bindings: {
+      "s-1": binding("s-1", { state: "reclaiming" }),
+      "s-2": binding("s-2", { state: "reclaiming" }),
+    },
+    worktrees: [readyWorktree("s-1"), readyWorktree("s-2")],
+  });
+  f.remote.failStatus.add("s-1");
+  await settle(t, f.workspaces.resume("h1"));
+  assert.equal(f.store.get("s-1").state, "reclaiming");
+  assert.equal(f.store.get("s-2").state, "ready", "the second workspace is settled despite the first failure");
+  assert.match(f.logs.join("\n"), /Could not check a repository workspace on reconnect/);
 });
