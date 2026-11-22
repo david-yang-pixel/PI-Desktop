@@ -602,10 +602,7 @@
   padding-right: 0;
 }
 
-/* Conversation top bar (Codex/WorkBuddy-style): replaces the empty chat
- * titlebar band with a real toolbar — session title and action buttons. It
- * mirrors the frameless drag semantics of .main-titlebar, with interactive
- * controls opting back into pointer events. */
+/* Conversation title and controls in the frameless window drag band. */
 .conversation-topbar {
   --ct-inline-padding: 12px;
   position: fixed;
@@ -898,15 +895,6 @@
   that used to sit here styled the retired top-bar control and are intentionally
   absent; do not reintroduce them.
 */
-
-.conversation-topbar .ct-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-  padding: 2px;
-  border-radius: var(--radius-md);
-  background: var(--ds-tile);
-}
 
 /* Keep the sole work-panel toggle anchored to the viewport while the in-flow
  * panel changes MainPane width. AppShell ownership keeps it available on every

@@ -130,21 +130,18 @@ async function checkConversationActionSpacing() {
       const panel = event.target;
       if (!panel.matches(".work-panel")) return;
       const animation = panel.getAnimations().find(a => a.animationName === event.animationName);
-      const actions = document.querySelector(".ct-actions");
+      const details = document.querySelector('[data-nav="conversation-details"]');
       const toggle = document.querySelector(".app-work-panel-toggle");
-      const buttons = [...actions.querySelectorAll(".ct-icon-btn")];
       const { duration } = animation.effect.getComputedTiming();
       const originalTime = animation.currentTime;
       const frames = [];
       for (let step = 0; step <= 20; step++) {
         animation.currentTime = duration * step / 20;
-        const gap = toggle.getBoundingClientRect().left - actions.getBoundingClientRect().right;
-        const reachable = buttons.every(button => {
-          const rect = button.getBoundingClientRect();
-          const y = rect.top + rect.height / 2;
-          return [rect.left + 1, rect.right - 1].every(x =>
-            button.contains(document.elementFromPoint(x, y)));
-        });
+        const rect = details.getBoundingClientRect();
+        const gap = toggle.getBoundingClientRect().left - rect.right;
+        const y = rect.top + rect.height / 2;
+        const reachable = [rect.left + 1, rect.right - 1].every(x =>
+          details.contains(document.elementFromPoint(x, y)));
         frames.push({ step, gap, reachable });
       }
       animation.currentTime = originalTime;
@@ -165,7 +162,7 @@ async function checkConversationActionSpacing() {
       await settle();
     }
     await waitFor(() => evaluate(`!document.querySelector(".work-panel")`), "spacing test panel closed");
-    console.log("PASS conversation actions are reachable throughout both work-panel animations (807×567 win32 CSS)");
+    console.log("PASS conversation details is reachable throughout both work-panel animations (807×567 win32 CSS)");
   } finally {
     await send("Emulation.clearDeviceMetricsOverride");
     await send("Emulation.setEmulatedMedia", { features: [] });
@@ -341,6 +338,26 @@ try {
   await waitFor(() => evaluate(`document.querySelector('.app-work-panel-toggle')?.disabled === false`), "active session");
   await settle();
   await checkControls("panel closed");
+  assert.equal(await evaluate(`document.querySelectorAll('.sidebar-primary-nav > button')[1]?.dataset.nav`), "search");
+  await click('.sidebar-primary-nav [data-nav="search"]');
+  await waitFor(() => evaluate(`document.activeElement?.classList.contains('search-input')`), "sidebar search opened and focused");
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  await waitFor(() => evaluate(`!document.querySelector('.search-dialog')`), "search closed");
+
+  await click('[data-nav="settings"]');
+  await waitFor(() => evaluate(`!!document.querySelector('.settings-nav-item')`), "settings navigation");
+  await evaluate(`[...document.querySelectorAll('.settings-nav-item')]
+    .find(button => button.textContent.trim() === 'Conversation').click()`);
+  await waitFor(() => evaluate(`!!document.querySelector('input[aria-label="Conversation width (px)"]')`), "conversation width setting");
+  const widthInput = `document.querySelector('input[aria-label="Conversation width (px)"]')`;
+  assert.equal(await evaluate(`${widthInput}.valueAsNumber`), 760);
+  await evaluate(`{ const field = ${widthInput}; field.focus(); field.value = '896'; field.blur(); }`);
+  await waitFor(() => evaluate(`window.piDesktop.invoke('pi-desktop/settings/get')
+    .then(reply => reply.ok && reply.data.chatContentMaxWidth === 896)`), "conversation width persisted");
+  await click('[data-nav="close-settings"]');
+  await waitFor(() => evaluate(`getComputedStyle(document.querySelector('.chat-surface'))
+    .getPropertyValue('--chat-content-max-width').trim() === '896px'`), "conversation width applied");
+  console.log("PASS sidebar search and conversation width setting");
   await checkConversationActionSpacing();
   await checkWindowsRoundedCorners("normal window corner behavior");
   await checkNativeWindowResizes(["left-min", "bottom-min"]);

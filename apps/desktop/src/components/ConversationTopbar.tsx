@@ -6,13 +6,7 @@ import {
 } from "react";
 import { isRemoteSession } from "../lib/remote-session-safety";
 import { normalizeProjectPath } from "../lib/sidebar-session-groups";
-import {
-  KEYBOARD_SHORTCUTS,
-  MAX_SESSION_TITLE_LENGTH,
-  keybindingDisplayParts,
-  resolveKeybinding,
-  type ShortcutPlatform,
-} from "@pi-desktop/shared";
+import { MAX_SESSION_TITLE_LENGTH } from "@pi-desktop/shared";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../stores/app-store";
 import {
@@ -23,10 +17,10 @@ import {
   IconChevronLeft,
   IconFolder,
   IconSidebar,
-  IconNewSession,
-  IconSearch,
 } from "./icons";
 import { TooltipButton } from "./ui";
+import { ConversationDetails } from "./ConversationDetails";
+import { ConversationMoreMenu } from "./ConversationMoreMenu";
 
 function projectName(path?: string | null, name?: string | null) {
   if (name) return name;
@@ -44,13 +38,9 @@ function isDefaultSessionTitle(title?: string | null) {
 export function ConversationTopbar({
   sidebarCollapsed,
   onToggleSidebar,
-  onNewTask,
-  onOpenSearch,
 }: {
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
-  onNewTask: () => void;
-  onOpenSearch: () => void;
 }) {
   const { t } = useTranslation();
   const activeSessionId = useAppStore((s) => s.activeSessionId);
@@ -59,45 +49,10 @@ export function ConversationTopbar({
   const projectMeta = useAppStore((s) => s.projectMeta);
   const renameSession = useAppStore((s) => s.renameSession);
   const showToast = useAppStore((s) => s.showToast);
-  const keybindings = useAppStore((s) => s.settings?.keybindings);
   const navStack = useAppStore((s) => s.navStack);
   const navIndex = useAppStore((s) => s.navIndex);
   const navBack = useAppStore((s) => s.navBack);
   const setPage = useAppStore((s) => s.setPage);
-  const platform = (
-    typeof window === "undefined" ? "darwin" : window.piDesktop?.platform ?? "darwin"
-  ) as ShortcutPlatform;
-  const newTaskShortcut = KEYBOARD_SHORTCUTS.find(
-    (shortcut) => shortcut.id === "newTask",
-  );
-  const searchShortcut = KEYBOARD_SHORTCUTS.find(
-    (shortcut) => shortcut.id === "openSearch",
-  );
-  const newTaskBinding = newTaskShortcut
-    ? resolveKeybinding(newTaskShortcut, keybindings, platform)
-    : null;
-  const searchBinding = searchShortcut
-    ? resolveKeybinding(searchShortcut, keybindings, platform)
-    : null;
-  const newTaskShortcutLabel = keybindingDisplayParts(newTaskBinding, platform).join(
-    platform === "darwin" ? "" : "+",
-  );
-  const searchShortcutLabel = keybindingDisplayParts(searchBinding, platform).join(
-    platform === "darwin" ? "" : "+",
-  );
-  const newTaskTooltip = newTaskShortcutLabel
-    ? t("nav.actionWithShortcut", {
-        action: t("nav.newTask"),
-        shortcut: newTaskShortcutLabel,
-      })
-    : t("nav.newTask");
-  const searchTooltip = searchShortcutLabel
-    ? t("nav.actionWithShortcut", {
-        action: t("nav.search"),
-        shortcut: searchShortcutLabel,
-      })
-    : t("nav.search");
-
   const activeSession = sessions.find((session) => session.id === activeSessionId);
 
   /*
@@ -248,82 +203,61 @@ export function ConversationTopbar({
             <span className="ct-back-label">{t("nav.backToScheduled")}</span>
           </button>
         ) : null}
-        {!cloudSession && (
-          <div
-            className="ct-title-wrap"
-            title={editing ? undefined : breadcrumbTitle}
-          >
-            {project ? (
-              <>
-                <span className="ct-project">
-                  <IconFolder size={12} aria-hidden />
-                  <span className="ct-project-name">{project}</span>
-                </span>
-                <span className="ct-sep" aria-hidden>/</span>
-              </>
-            ) : null}
-            {editing ? (
-              <input
-                ref={inputRef}
-                className="ct-title-input"
-                value={draft}
-                aria-label={t("session.renameLabel")}
-                spellCheck={false}
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="off"
-                onChange={(event) =>
-                  setDraft(
-                    Array.from(event.target.value)
-                      .slice(0, MAX_SESSION_TITLE_LENGTH)
-                      .join(""),
-                  )
-                }
-                onKeyDown={onRenameKeyDown}
-                onBlur={commitRename}
-              />
-            ) : (
-              <h1 className="ct-title">
-                {canRename ? (
-                  <button
-                    type="button"
-                    className="ct-title-trigger"
-                    aria-label={t("session.renameAction", { title: fullTaskTitle })}
-                    onClick={beginRename}
-                  >
-                    {fullTaskTitle}
-                  </button>
-                ) : (
-                  fullTaskTitle
-                )}
-              </h1>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="ct-right">
-        <div className="ct-actions">
-          <TooltipButton
-            type="button"
-            className="ct-icon-btn"
-            tooltip={newTaskTooltip}
-            ariaLabel={t("nav.newTask")}
-            onClick={onNewTask}
-          >
-            <IconNewSession size={15} />
-          </TooltipButton>
-          <TooltipButton
-            type="button"
-            className="ct-icon-btn"
-            tooltip={searchTooltip}
-            ariaLabel={t("nav.search")}
-            onClick={onOpenSearch}
-          >
-            <IconSearch size={15} />
-          </TooltipButton>
+        <div className="ct-title-wrap" title={editing ? undefined : breadcrumbTitle}>
+          {project ? (
+            <>
+              <span className="ct-project">
+                <IconFolder size={12} aria-hidden />
+                <span className="ct-project-name">{project}</span>
+              </span>
+              <span className="ct-sep" aria-hidden>/</span>
+            </>
+          ) : null}
+          {editing ? (
+            <input
+              ref={inputRef}
+              className="ct-title-input"
+              value={draft}
+              aria-label={t("session.renameLabel")}
+              spellCheck={false}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              onChange={(event) =>
+                setDraft(
+                  Array.from(event.target.value)
+                    .slice(0, MAX_SESSION_TITLE_LENGTH)
+                    .join(""),
+                )
+              }
+              onKeyDown={onRenameKeyDown}
+              onBlur={commitRename}
+            />
+          ) : (
+            <h1 className="ct-title">
+              {canRename ? (
+                <button
+                  type="button"
+                  className="ct-title-trigger"
+                  aria-label={t("session.renameAction", { title: fullTaskTitle })}
+                  onClick={beginRename}
+                >
+                  {fullTaskTitle}
+                </button>
+              ) : (
+                fullTaskTitle
+              )}
+            </h1>
+          )}
         </div>
       </div>
+
+      {activeSession && (
+        <div className="ct-right">
+          <ConversationDetails key={`details:${activeSession.id}`} session={activeSession} cloud={cloudSession} />
+          <ConversationMoreMenu key={`more:${activeSession.id}`} session={activeSession} />
+        </div>
+      )}
     </div>
   );
 }

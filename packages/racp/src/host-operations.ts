@@ -3,6 +3,7 @@ import type {
   FsEntry,
   FsReadResult,
   RacpProjectSummary,
+  RacpHostModel,
   WorkspaceDiff,
   WorkspaceToolExecute, WorkspaceToolAbort, WorkspaceToolResult, CommandShellOption, WorkspaceFilesRequest,
   WorkspacePluginFilesRequest, WorkspacePluginFilesResult,
@@ -38,6 +39,7 @@ export type SessionConfigureInput = {
 };
 
 export interface RacpSessionCatalog {
+  models?(): Promise<RacpHostModel[]>;
   list(): Promise<SessionSummary[]>;
   create(input: SessionCreateInput, principal: Principal): Promise<SessionSummary & { setup?: WorkspaceEnvironmentSetupResult }>;
   configure(sessionId: string, input: SessionConfigureInput): Promise<SessionSummary>;

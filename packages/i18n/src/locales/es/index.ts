@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const es = {
+  conversationDetails: {
+    title: "Detalles de la conversación",
+    environment: "Entorno y repositorio",
+    location: "Ubicación",
+    environmentId: "ID del entorno",
+    workspace: "Espacio de trabajo",
+    repository: "Repositorio",
+    branch: "Rama",
+    noUsage: "Aún no hay datos de uso del contexto.",
+    tools: "Herramientas utilizadas",
+    unknownTool: "Herramienta",
+    noTools: "No hay llamadas a herramientas en el historial cargado.",
+    changes: "Cambios",
+    openInReview: "Abrir en Revisión",
+    width: "Ancho de la conversación (px)",
+    widthDescription: "Ancho máximo del historial y del campo de entrada. Predeterminado: {{defaultWidth}} px, mínimo: {{minWidth}} px.",
+    widthSaveError: "No se pudo guardar el ancho de la conversación.",
+  },
   sessionTarget: {
     thisComputer: "Este equipo",
     environments: "Entornos",

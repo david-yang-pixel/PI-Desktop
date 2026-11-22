@@ -38,6 +38,8 @@ export function racpSessionToSummary(
       canReadWorkspace: true,
     },
     title: session.title,
+    ...(session.providerId ? { providerId: session.providerId } : {}),
+    ...(session.modelId ? { modelId: session.modelId } : {}),
     messageCount,
     // RACP's mode and permission-mode literals are a subset of the renderer's,
     // so they pass through unchanged; `inherit` is desktop-only and never sent.

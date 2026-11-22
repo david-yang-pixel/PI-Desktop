@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const zhCN = {
+  conversationDetails: {
+    title: "会话详情",
+    environment: "环境与仓库",
+    location: "运行位置",
+    environmentId: "环境 ID",
+    workspace: "工作区",
+    repository: "仓库",
+    branch: "分支",
+    noUsage: "暂无上下文用量数据。",
+    tools: "已调用的工具",
+    unknownTool: "工具",
+    noTools: "已加载的对话记录中没有工具调用。",
+    changes: "更改",
+    openInReview: "在审阅中打开",
+    width: "对话记录宽度（像素）",
+    widthDescription: "设置对话记录和输入框的最大宽度。默认 {{defaultWidth}} 像素，最小 {{minWidth}} 像素。",
+    widthSaveError: "无法保存对话记录宽度。",
+  },
   sessionTarget: {
     thisComputer: "本机",
     environments: "环境",

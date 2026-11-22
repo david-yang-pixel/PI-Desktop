@@ -145,6 +145,8 @@ export const SETTINGS_NAV: SettingsNavEntry[] = [
       "settings.transcriptDisplayModeDesc",
       "settings.autoCollapseSettledGroups",
       "settings.autoCollapseSettledGroupsDesc",
+      "conversationDetails.width",
+      "conversationDetails.widthDescription",
       "settings.contextUsageDisplay",
       "settings.contextUsageDisplayRemaining",
       "settings.contextUsageDisplayUsed",

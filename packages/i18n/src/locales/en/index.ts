@@ -1,4 +1,22 @@
 export const en = {
+  conversationDetails: {
+    title: "Conversation details",
+    environment: "Environment and repository",
+    location: "Location",
+    environmentId: "Environment ID",
+    workspace: "Workspace",
+    repository: "Repository",
+    branch: "Branch",
+    noUsage: "No context usage reported yet.",
+    tools: "Tools used",
+    unknownTool: "Tool",
+    noTools: "No tool calls in the loaded conversation.",
+    changes: "Changes",
+    openInReview: "Open in Review",
+    width: "Conversation width (px)",
+    widthDescription: "Sets the maximum width of the conversation and composer. Default {{defaultWidth}} px, minimum {{minWidth}} px.",
+    widthSaveError: "Could not save the conversation width.",
+  },
   sessionTarget: {
     thisComputer: "This computer",
     environments: "Environments",

@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const zhTW = {
+  conversationDetails: {
+    title: "工作階段詳細資料",
+    environment: "環境與儲存庫",
+    location: "執行位置",
+    environmentId: "環境 ID",
+    workspace: "工作區",
+    repository: "儲存庫",
+    branch: "分支",
+    noUsage: "尚無上下文用量資料。",
+    tools: "已呼叫的工具",
+    unknownTool: "工具",
+    noTools: "已載入的對話記錄中沒有工具呼叫。",
+    changes: "更改",
+    openInReview: "在審閱中開啟",
+    width: "對話記錄寬度（像素）",
+    widthDescription: "設定對話記錄和輸入框的最大寬度。預設 {{defaultWidth}} 像素，最小 {{minWidth}} 像素。",
+    widthSaveError: "無法儲存對話記錄寬度。",
+  },
   sessionTarget: {
     thisComputer: "本機",
     environments: "環境",

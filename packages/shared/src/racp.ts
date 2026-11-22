@@ -12,6 +12,7 @@
  * unscheduled; `RACP-GRPC` is reserved.
  */
 import Type from "typebox";
+import * as Value from "typebox/value";
 import { WorkspaceEnvironmentVariablesSchema, WorkspaceGitEnvironmentSchema } from "./racp-workspace-git.js";
 
 import { ErrorCodes } from "./errors.js";
@@ -185,6 +186,8 @@ export const RacpSessionSchema = Type.Object({
   title: Type.String(),
   projectId: Type.Optional(Type.String()),
   workspaceLabel: Type.Optional(Type.String()),
+  providerId: Type.Optional(Type.String()),
+  modelId: Type.Optional(Type.String()),
   mode: RacpSessionModeSchema,
   status: RacpSessionStatusSchema,
   planningState: RacpPlanningStateSchema,
@@ -482,6 +485,29 @@ export const RacpClientCapabilitiesSchema = Type.Object({
   terminal: Type.Optional(Type.Boolean()),
 });
 
+const HostModelIdSchema = Type.String({ minLength: 1, maxLength: 256, pattern: "^[^\\u0000-\\u001f]+$" });
+export const RacpHostModelSelectionSchema = Type.Object({
+  providerId: HostModelIdSchema,
+  modelId: HostModelIdSchema,
+}, { additionalProperties: false });
+export type RacpHostModelSelection = Static<typeof RacpHostModelSelectionSchema>;
+
+export const RACP_MAX_HOST_MODELS = 256;
+export const RacpHostModelSchema = Type.Object({
+  ...RacpHostModelSelectionSchema.properties,
+  providerName: Type.String({ minLength: 1, maxLength: 200, pattern: "^[^\\u0000-\\u001f]+$" }),
+  alias: Type.Optional(Type.String({ minLength: 1, maxLength: 200, pattern: "^[^\\u0000-\\u001f]+$" })),
+}, { additionalProperties: false });
+export type RacpHostModel = Static<typeof RacpHostModelSchema>;
+export const RacpHostModelsResultSchema = Type.Object({
+  models: Type.Array(RacpHostModelSchema, { maxItems: RACP_MAX_HOST_MODELS }),
+}, { additionalProperties: false });
+export type RacpHostModelsResult = Static<typeof RacpHostModelsResultSchema>;
+
+export const isRacpHostModelSelection = (value: unknown): value is RacpHostModelSelection => Value.Check(RacpHostModelSelectionSchema, value);
+export const isRacpHostModel = (value: unknown): value is RacpHostModel => Value.Check(RacpHostModelSchema, value);
+export const isRacpHostModelsResult = (value: unknown): value is RacpHostModelsResult => Value.Check(RacpHostModelsResultSchema, value);
+
 export const RacpServerCapabilitiesSchema = Type.Object({
   eventReplay: Type.Boolean(),
   snapshot: Type.Boolean(),
@@ -502,6 +528,7 @@ export const RacpServerCapabilitiesSchema = Type.Object({
   workspaceGitSafeRemoval: Type.Optional(Type.Boolean()),
   workspaceGitReclaim: Type.Optional(Type.Boolean()),
   workspaceEnvironment: Type.Optional(Type.Boolean()),
+  sessionModels: Type.Optional(Type.Boolean()),
   notifications: Type.Boolean(),
   bindings: Type.Array(Type.Union([Type.Literal("RACP-WS"), Type.Literal("RACP-HTTP"), Type.Literal("RACP-GRPC")])),
 });
@@ -610,6 +637,7 @@ export const RACP_OPERATIONS = {
   "project/list": { role: "viewer", profile: "v1", mutation: false },
   "session/list": { role: "viewer", profile: "v1", mutation: false },
   "session/get": { role: "viewer", profile: "v1", mutation: false },
+  "session/models": { role: "owner", profile: "remote-host", mutation: false },
   "session/create": { role: "controller", profile: "v1", mutation: true },
   "session/attach": { role: "viewer", profile: "v1", mutation: false },
   "session/history": { role: "viewer", profile: "v1", mutation: false },

@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const de = {
+  conversationDetails: {
+    title: "Unterhaltungsdetails",
+    environment: "Umgebung und Repository",
+    location: "Ausführungsort",
+    environmentId: "Umgebungs-ID",
+    workspace: "Arbeitsbereich",
+    repository: "Repository",
+    branch: "Branch",
+    noUsage: "Noch keine Kontextnutzung gemeldet.",
+    tools: "Verwendete Werkzeuge",
+    unknownTool: "Werkzeug",
+    noTools: "Keine Werkzeugaufrufe im geladenen Verlauf.",
+    changes: "Änderungen",
+    openInReview: "In der Prüfung öffnen",
+    width: "Unterhaltungsbreite (px)",
+    widthDescription: "Maximale Breite von Verlauf und Eingabefeld. Standard: {{defaultWidth}} px, Minimum: {{minWidth}} px.",
+    widthSaveError: "Die Unterhaltungsbreite konnte nicht gespeichert werden.",
+  },
   sessionTarget: {
     thisComputer: "Dieser Computer",
     environments: "Umgebungen",

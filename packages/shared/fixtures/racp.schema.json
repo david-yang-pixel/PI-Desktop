@@ -222,6 +222,12 @@
       "workspaceLabel": {
         "type": "string"
       },
+      "providerId": {
+        "type": "string"
+      },
+      "modelId": {
+        "type": "string"
+      },
       "mode": {
         "anyOf": [
           {
@@ -718,6 +724,12 @@
             "type": "string"
           },
           "workspaceLabel": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "modelId": {
             "type": "string"
           },
           "mode": {
@@ -2235,6 +2247,9 @@
             "type": "boolean"
           },
           "workspaceEnvironment": {
+            "type": "boolean"
+          },
+          "sessionModels": {
             "type": "boolean"
           },
           "notifications": {

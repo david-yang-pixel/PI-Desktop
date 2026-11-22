@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { ConversationTopbar } from "../../components/ConversationTopbar";
+import { WorktreeDialogs } from "../worktree/WorktreeSidebarParts";
 import { ExtensionPromptHost } from "../../components/ExtensionPromptDialog";
 import { PluginRendererHost } from "../../plugins/renderer-host/PluginRendererHost";
 import {
@@ -149,6 +150,7 @@ export function AppShell() {
               onAnimationEnd={handleSidebarAnimationEnd}
               onToggleSidebar={toggleSidebar}
               onNewTask={() => void runMenuCommand("newTask")}
+              onOpenSearch={() => setSearchOpen(true)}
               sidebarToggleShortcut={sidebarToggleShortcut}
               sidebarWidth={sidebarWidth}
               widthMax={sidebarWidthMax}
@@ -196,8 +198,6 @@ export function AppShell() {
                 <ConversationTopbar
                   sidebarCollapsed={sidebarCollapsed}
                   onToggleSidebar={toggleSidebar}
-                  onNewTask={() => void runMenuCommand("newTask")}
-                  onOpenSearch={() => setSearchOpen(true)}
                 />
               ) : (
                 <div
@@ -345,6 +345,7 @@ export function AppShell() {
         <LiveVoiceStatusHost />
         <PluginRendererHost />
         <ExtensionPromptHost />
+        <WorktreeDialogs />
       </>
     );
   }

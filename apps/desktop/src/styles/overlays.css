@@ -4,6 +4,109 @@
   banners and the destination page shell.
 */
 
+.overlay.conversation-details-overlay {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: calc(var(--ds-toolbar-height) + 8px) 8px 8px;
+}
+
+.dialog.conversation-details {
+  display: flex;
+  width: min(100%, 380px);
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.conversation-details-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--ds-border-subtle);
+}
+
+.conversation-details-header h2 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--font-weight-semibold);
+}
+
+.conversation-details-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px;
+  font-size: var(--text-md);
+}
+
+.conversation-details-body > section {
+  padding: 14px 0;
+}
+
+.conversation-details-body > section + section {
+  border-top: 1px solid var(--ds-border-subtle);
+}
+
+.conversation-details-body h3 {
+  margin: 0 0 8px;
+  font-size: inherit;
+  font-weight: var(--font-weight-semibold);
+}
+
+.conversation-details-body :is(dl, dd, p) {
+  margin: 0;
+}
+
+.conversation-details-body :is(p, dt) {
+  color: var(--ds-text-secondary);
+}
+
+.conversation-details-body dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.conversation-details-body dd {
+  min-width: 0;
+  text-align: end;
+}
+
+.conversation-details-body meter {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  accent-color: var(--ds-accent);
+}
+
+.conversation-details-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-bottom: 6px;
+}
+
+.conversation-details-section-header h3 {
+  margin: 0;
+}
+
+.conversation-details-changes .review-change-card {
+  margin-top: 6px;
+}
+
+.conversation-details-pr {
+  display: inline-block;
+  margin-bottom: 4px;
+  color: var(--ds-accent);
+  text-decoration: underline;
+}
+
 /*
   Global search (Codex-style ⌘K spotlight): top-anchored dialog over a dimmed
   scrim. Same floating-surface family as .dialog; rows reuse the menu idiom.

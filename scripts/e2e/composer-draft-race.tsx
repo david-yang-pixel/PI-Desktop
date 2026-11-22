@@ -50,7 +50,7 @@ globalThis.startComposerDraftRace = async (scenario, existing) => {
     return <>
       <CollapsedTitlebarActions onToggleSidebar={noop} sidebarToggleShortcut=""
         onNewTask={() => { creation = useAppStore.getState().newSession(); }} />
-      <Sidebar onToggleSidebar={noop} sidebarToggleShortcut="" sidebarWidth={260}
+      <Sidebar onToggleSidebar={noop} onNewTask={noop} onOpenSearch={noop} sidebarToggleShortcut="" sidebarWidth={260}
         onWidthChange={noop} onWidthCommit={noop} onResizeCollapse={noop} />
       <Composer variant={activeSessionId ? "docked" : "home"} />
     </>;

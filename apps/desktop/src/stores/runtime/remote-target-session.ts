@@ -12,7 +12,7 @@ export async function materializeRemoteTargetSession(
   runtime: SessionRuntime,
   persist: (options?: PersistSessionOptions) => Promise<string | null>,
 ) {
-  const { environmentId, repository, baseBranch, remoteProject, folderProject } = useSessionTargetStore.getState();
+  const { environmentId, repository, baseBranch, remoteProject, folderProject, hostModel } = useSessionTargetStore.getState();
   const initial = get();
   const intent = runtime.beginNavigationIntent();
 
@@ -42,6 +42,7 @@ export async function materializeRemoteTargetSession(
       projectId,
       mode,
       permissionMode,
+      ...(hostModel?.hostKey === environment.hostKey ? { model: hostModel.selection } : {}),
     });
     if (setup?.status === "failed") {
       get().showToast([i18n.t("sessionTarget.preparation.setupFailed"), setup.logTail].filter(Boolean).join("\n"), { variant: "error" });

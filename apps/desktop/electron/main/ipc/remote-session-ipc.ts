@@ -1,5 +1,6 @@
 import {
   IPC, PROVIDER_SYNC_MAX_PROVIDERS, RACP_PERMISSION_MODES, RACP_SESSION_MODES,
+  isRacpHostModelSelection,
   type RemoteHostCreateSessionRequest, type RemoteHostSyncProvidersRequest,
 } from "@pi-desktop/shared";
 import type { RemoteHostsBoot } from "../bootstrap/remote-hosts.js";
@@ -41,6 +42,9 @@ export function registerRemoteSessionIpc(registrar: IpcRegistrar, getBoot: () =>
   registrar.handle(IPC.invoke.remoteHostSessions, async (request: unknown) => {
     return { sessions: await getBoot().sessions(hostKey(object(request))) };
   });
+  registrar.handle(IPC.invoke.remoteHostModels, async (request: unknown) => {
+    return getBoot().models(hostKey(object(request)));
+  });
   registrar.handle(IPC.invoke.remoteHostRegisterProject, async (request: unknown) => {
     const input = object(request);
     const key = hostKey(input);
@@ -56,11 +60,14 @@ export function registerRemoteSessionIpc(registrar: IpcRegistrar, getBoot: () =>
     const title = input.title === undefined ? undefined : text(input.title, "title", 200);
     if (input.mode !== undefined && !(RACP_SESSION_MODES as readonly unknown[]).includes(input.mode)) invalid("mode");
     if (input.permissionMode !== undefined && !(RACP_PERMISSION_MODES as readonly unknown[]).includes(input.permissionMode)) invalid("permissionMode");
+    const model = input.model;
+    if (model !== undefined && !isRacpHostModelSelection(model)) invalid("model");
     const parsed: RemoteHostCreateSessionRequest = {
       hostKey: key, ...(projectId ? { projectId } : {}), ...(title ? { title } : {}),
       ...(environmentId ? { environmentId } : {}),
       ...(input.mode ? { mode: input.mode as RemoteHostCreateSessionRequest["mode"] } : {}),
       ...(input.permissionMode ? { permissionMode: input.permissionMode as RemoteHostCreateSessionRequest["permissionMode"] } : {}),
+      ...(model ? { model } : {}),
     };
     const { setup, ...session } = await getBoot().createSession(parsed);
     return { session, ...(setup ? { setup } : {}) };

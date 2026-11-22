@@ -1230,30 +1230,24 @@ folder/mixed-selection behavior. No system clipboard contents are changed.
 
 ## E2E-087: Conversation top bar renders on the chat route
 
-- **Preconditions**: Provider configured; at least one session exists.
-- **Steps**: 1) Open the chat route. 2) Inspect the 46px bar at the top of the
-  conversation area. 3) Confirm it shows the concise session/task title and the
-  New task / Search buttons; hover or focus each and inspect its tooltip. Confirm
-  the sidebar toggle appears **only when collapsed**. 4) Customize each shortcut
-  in Settings → Shortcuts and confirm the tooltip updates; disable each binding
-  and confirm its shortcut is omitted. 5) Switch to Scheduled, Plugins, or
-  Settings and inspect the same top region.
-- **Expected**: Every route-owned top region uses the same `--ds-toolbar-height`
-  (46px), bg-primary surface, and bottom border; Windows/Linux reserve the
-  same 120px native-control band at the right. On the chat route the
-  conversation top bar renders with its title and actions only; it has no model
-  or Agent|Plan|Goal mode control. The
-  left-of-input Composer chip owns the active session's Agent/Plan/Goal switch,
-  and the Composer-right combined chip owns model and reasoning selection. The
-  task title is the only visible title text and uses the available width,
-  with an ellipsis only on overflow. Check an English title longer than 10
-  characters in wide and narrow layouts, with the sidebar expanded/collapsed
-  and the work panel open/closed; titles must not overlap the action buttons.
-  The complete title and project scope remain available through its tooltip.
-  New task and Search tooltips show their effective platform-formatted
-  shortcuts, including custom bindings; an explicitly unbound shortcut is
-  omitted, while the accessible name remains the localized action. The sidebar
-  toggle is present only when collapsed (no duplicate of the sidebar's control).
+- **Preconditions**: A local or cloud session exists.
+- **Steps**: Open the session, inspect the title, and click Conversation details.
+  Expand a recorded file diff, then choose Open in Review. Open More from
+  the topbar with the sidebar expanded and collapsed. Compare its actions to
+  the sidebar session menu, then open Search from the sidebar. Switch to
+  Scheduled, Plugins, or Settings and inspect the same top region.
+- **Expected**: The 46px topbar shows the active session title on the left and
+  a labelled details action on the right. Local titles are editable. Cloud
+  and scheduled titles are read-only. Long titles ellipsize only on overflow
+  and keep their full tooltip. The details sheet shows available environment,
+  repository, context and tool information plus recorded file diffs. Escape
+  closes the sheet and returns focus to its trigger. Changing sessions closes
+  the sheet. Open in Review closes details and selects the same session's
+  Review tab. More targets the active session with the same action guards as
+  the sidebar. The sidebar toggle appears in the bar while collapsed. Search is
+  the second default sidebar row, below New task, and opens the same focused
+  search dialog as its keyboard shortcut. The chat topbar has neither action.
+  The composer owns mode, model, and reasoning selection.
   On every other route the frameless drag band renders instead (no chat top-bar
   controls) while retaining the same surface and alignment. The bar is draggable
   to move the window; interactive controls do not start a window drag.
@@ -1263,7 +1257,7 @@ folder/mixed-selection behavior. No system clipboard contents are changed.
 - **Specs linked**: `04-ux/08-component-spec.md` (§2 Topbar)
 - **Acceptance**: C (send/UI), Quality
 - **Milestone**: M2
-- **Status**: Draft
+- **Status**: Covered by `test:e2e:window-controls` and `test:e2e:remote-mvp-ui`.
 
 ## E2E-087a: Destination page headers clear the titlebar band on macOS
 
@@ -2718,15 +2712,18 @@ must keep splitting are covered by `markdown-blocks.test.mjs`.
   compresses without a horizontal scroll. 5) Close the panel / collapse the
   sidebar and confirm the preference returns. 6) Double-click a handle to
   restore 760px. 7) Repeat with Arrow keys on a focused handle.
+  8) In Settings → Conversation, enter a preferred width and press Enter.
+  Close Settings and confirm the transcript and composer use the new width.
 - **Expected**: Default 760px. Drag floor 560px (or the pane if smaller).
   User bubbles stay compact. Handles stay keyboard-accessible
-  (`role="separator"`). Preference persists as `chatContentMaxWidth`.
+  (`role="separator"`). Settings and handles use the same `chatContentMaxWidth`
+  preference, and invalid numeric input restores the saved width.
 - **Specs linked**: `04-ux/01-ui-ia.md`, `04-ux/08-component-spec.md`,
   ADR 0277, D439
 - **Acceptance**: C (conversation), Quality
 - **Milestone**: M5
-- **Status**: Unit-covered (`chat-content-width.test.mjs`,
-  `packages/shared/src/chat-content-width.test.ts`); rendered scenario Draft
+- **Status**: Width mathematics and handles have unit coverage. The settings
+  user path is covered by `test:e2e:window-controls`.
 
 ## E2E-071i: Long session opens under a settle veil and sends clear instantly
 

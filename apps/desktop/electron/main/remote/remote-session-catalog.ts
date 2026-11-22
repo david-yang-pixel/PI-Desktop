@@ -1,4 +1,4 @@
-import { WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS } from "@pi-desktop/shared";
+import { isRacpHostModelsResult, WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS } from "@pi-desktop/shared";
 import type {
   WorkspaceGitEnvironment, WorkspaceEnvironmentSetupResult, RacpProjectSummary, RacpSession, RemoteHostCreateSessionRequest, SessionSummary, RemoteHostBrowseProjectsResult,
 } from "@pi-desktop/shared";
@@ -64,6 +64,15 @@ export function createRemoteSessionCatalog(options: {
       });
     },
     forget(hostKey: string) { cache.delete(hostKey); pending.delete(hostKey); },
+    async models(hostKey: string) {
+      const host = requireHost(hostKey);
+      const result = await host.client.request<unknown>("session/models");
+      stillCurrent(host);
+      if (!isRacpHostModelsResult(result)) {
+        throw Object.assign(new Error("invalid remote model catalog"), { errorCode: "INVALID_ARGUMENT" });
+      }
+      return result;
+    },
     async projects(hostKey: string): Promise<RacpProjectSummary[]> {
       const host = requireHost(hostKey);
       const result = await host.client.request<{ projects: RacpProjectSummary[] }>("project/list");
@@ -90,8 +99,12 @@ export function createRemoteSessionCatalog(options: {
         ...(input.title ? { title: input.title } : {}),
         ...(input.mode ? { mode: input.mode } : {}),
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+        ...(input.model ? { model: input.model } : {}),
       }, environment?.setupScript?.trim() ? WORKSPACE_ENVIRONMENT_SETUP_TIMEOUT_MS : undefined);
       stillCurrent(host);
+      if (input.model && (result.session.providerId !== input.model.providerId || result.session.modelId !== input.model.modelId)) {
+        throw Object.assign(new Error("remote Host did not apply the selected model"), { errorCode: "CAPABILITY_UNAVAILABLE" });
+      }
       await host.connection.ensureSession(result.session.id);
       stillCurrent(host);
       const row = summary(host, result.session);

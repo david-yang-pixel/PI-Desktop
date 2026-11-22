@@ -294,6 +294,7 @@ export const IPC = {
     remoteHostBrowseProjects: "pi-desktop/remoteHost/browseProjects",
     remoteHostRegisterProject: "pi-desktop/remoteHost/registerProject",
     remoteHostSessions: "pi-desktop/remoteHost/sessions",
+    remoteHostModels: "pi-desktop/remoteHost/models",
     remoteHostCreateSession: "pi-desktop/remoteHost/createSession",
     remoteHostSyncProviders: "pi-desktop/remoteHost/syncProviders",
     providersList: "pi-desktop/providers/list",

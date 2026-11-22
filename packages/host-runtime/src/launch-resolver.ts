@@ -6,6 +6,7 @@ import {
   OAUTH_AUTH_KIND,
   isActiveInProject,
   isCommandShellCatalog,
+  modelSupportsConversation,
   normalizeMode,
   resolveBindingLimits,
   trustedExtensionAgentKeyFromProviderId,
@@ -223,8 +224,12 @@ export function createHeadlessLaunchResolver(options: HeadlessLaunchResolverOpti
     }
     const defaultProviderId = typeof settings.defaultProviderId === "string" ? settings.defaultProviderId : undefined;
     const defaultModelId = typeof settings.defaultModelId === "string" ? settings.defaultModelId : undefined;
+    const requestedProvider = providers.providers.find((item) => item.id === requestedProviderId);
+    if (requestedProviderId && (overrides.modelId ?? sessionModelId) && !requestedProvider) {
+      throw launchError("The selected provider is no longer available on this Host", ErrorCodes.MODEL_NOT_CONFIGURED);
+    }
     const provider =
-      providers.providers.find((item) => item.id === requestedProviderId) ||
+      requestedProvider ||
       providers.providers.find((item) => item.id === defaultProviderId) ||
       providers.providers.find((item) => item.hasSecret || item.authKind === "none") ||
       providers.providers[0];
@@ -245,6 +250,9 @@ export function createHeadlessLaunchResolver(options: HeadlessLaunchResolverOpti
       provider.models?.[0]?.id ||
       provider.defaultModelId;
     if (!modelId) throw launchError("No model selected for provider", ErrorCodes.MODEL_NOT_CONFIGURED);
+    if (!modelSupportsConversation(modelId)) {
+      throw launchError("The selected model cannot run a conversation", ErrorCodes.MODEL_NOT_CONFIGURED);
+    }
 
     const { modelConfig, capabilities, storedModel } = effectiveModelConfig(provider, modelId, provider.baseUrl);
     const thinkingLevel = clampThinkingLevel(

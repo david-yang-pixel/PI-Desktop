@@ -367,12 +367,16 @@ does or what it is allowed to do, and the Display card's caption says so once
 so no row repeats it.
 
 - **Display** card, in rendered order: the **Show thinking** toggle with its
-  **Auto-fold finished thinking** sub-row, the **Transcript display** segmented
-  control with its **Auto-fold finished groups** sub-row, **Context usage
-  display** (remaining or used), **Smooth streaming**, and **Inline
-  visualizations**. Context usage display controls whether the composer toolbar
-  context ring and its popover lead with the remaining or the used capacity
-  figure; the default is remaining.
+  **Auto-fold finished thinking** sub-row and the **Transcript display** segmented
+  control with its **Auto-fold finished groups** sub-row, followed by
+  **Conversation width (px)**, **Context usage display** (remaining or used),
+  **Smooth streaming**, and **Inline visualizations**. The numeric width commits
+  on blur or Enter and uses the existing `chatContentMaxWidth` preference shared
+  with the two conversation resize handles. It defaults to 760px and accepts
+  whole pixel values from 560px. The pane can temporarily compress the
+  transcript and composer below the preferred width. Context usage display
+  controls whether the composer toolbar context ring and its popover lead with
+  the remaining or used capacity figure. The default is remaining.
 - **Input & links** card: the **Enter-to-send** control, the large text paste
   threshold, and the **Link open destination**. The threshold controls when a
   text-only paste becomes a temporary session-scratch file; it defaults to 600

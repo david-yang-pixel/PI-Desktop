@@ -32,9 +32,9 @@ test("home sidebar exposes only the supported destination entries", async () => 
     "utf8",
   );
   assert.match(sidebarSource, /data-nav="home"/);
-  assert.match(sidebarSource, /<SidebarPrimaryNav onNewTask=\{onNewTask\}/);
+  assert.match(appSource, /<Sidebar\s[\s\S]*?onOpenSearch=\{\(\) => setSearchOpen\(true\)\}/);
+  assert.match(sidebarSource, /<SidebarPrimaryNav\s+onNewTask=\{onNewTask\}\s+onOpenSearch=\{onOpenSearch\}/);
   assert.match(sidebarSource, /<SidebarFooter \/>/);
-  // Top: new task, scheduled, plugin market. Footer: settings + version only.
   const primary = navigationSource.slice(
     navigationSource.indexOf("export function SidebarPrimaryNav"),
     navigationSource.indexOf("export function SidebarFooter"),
@@ -42,13 +42,14 @@ test("home sidebar exposes only the supported destination entries", async () => 
   const footer = navigationSource.slice(navigationSource.indexOf("export function SidebarFooter"));
   assert.deepEqual(
     [...primary.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]),
-    ["new-task", "scheduled", "plugins"],
+    ["new-task", "search", "scheduled", "plugins"],
   );
   assert.deepEqual(
     [...footer.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]),
     ["settings", "build"],
   );
   assert.match(primary, /t\("nav\.pluginMarket"\)/);
+  assert.match(primary, /data-nav="search"[\s\S]*?onOpenSearch\(\)[\s\S]*?t\("nav\.search"\)/);
   assert.match(primary, /usePluginBrowseState\.getState\(\)\.setTab\("market"\)/);
   assert.match(primary, /settings\?\.scheduledTasksEnabled !== false/);
   assert.doesNotMatch(sidebarSource + navigationSource, /data-nav="projects"/);
@@ -223,10 +224,9 @@ test("sidebar floating menus stay anchored to triggers and pointer positions", (
   actions behind hover-opened second-level menus while leaving common actions
   one click away and destructive actions isolated.
 */
-test("sidebar row menus expose hover submenus for related actions", () => {
-  const sessionMenu = sidebarSource.match(
-    /const sessionMenuContent = useCallback\([\s\S]*?\n    \[\n[\s\S]*?\n    \],\n  \);/,
-  )?.[0] ?? "";
+test("sidebar row menus expose hover submenus for related actions", async () => {
+  const sessionMenu = await readFile(new URL("../src/components/useSessionMenuContent.tsx", import.meta.url), "utf8");
+  assert.match(sidebarSource, /useSessionMenuContent\(/);
   const projectMenu = sidebarSource.match(
     /const projectMenuContent = useCallback\([\s\S]*?\n    \[\n[\s\S]*?\n    \],\n  \);/,
   )?.[0] ?? "";
@@ -247,7 +247,7 @@ test("sidebar row menus expose hover submenus for related actions", () => {
   /* Related actions open as real second-level menus. */
   assert.match(sessionMenu, /sidebarMenuSubmenu\(\{[\s\S]*?id: "session-git"[\s\S]*?items: gitItems/);
   assert.match(sessionMenu, /id: "session-copy"[\s\S]*?id: "copy-conversation-id"[\s\S]*?id: "copy-session-path"[\s\S]*?id: "copy-session-link"/);
-  assert.match(sidebarSource, /api\.getSessionScratchPath\(session\.id\)/);
+  assert.match(sessionMenu, /api\.getSessionScratchPath\(session\.id\)/);
   assert.match(sessionMenu, /id: "open-session-path"/);
   assert.match(projectMenu, /sidebarMenuSubmenu\(\{[\s\S]*?id: "project-git"[\s\S]*?items: projectIsolationItems/);
   assert.match(projectMenu, /id: "project-copy"[\s\S]*?id: "copy-project-name"[\s\S]*?id: "copy-project-path"/);

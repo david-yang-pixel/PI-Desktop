@@ -830,16 +830,22 @@ starts at the parent's unpushed commit.
 
 In `pnpm test:e2e:remote-mvp-ui`, open a cloud repository session with a
 recorded PR. Verify the sidebar identifies the project and task, and the chat
-topbar provides a blank, full-height drag area. At narrow widths and with the
-sidebar collapsed, the topbar still provides New task and Search and exposes the
-sidebar toggle while collapsed. Switch to a local session and verify its title
-returns. The window-control suite covers the native caption and window buttons.
+topbar shows the session title in its full-height drag area. At narrow widths
+and with the sidebar collapsed, verify the details action is still reachable
+and the topbar exposes the sidebar toggle. Open details, inspect the repository,
+branch, context, tools, and saved PR. Expand a file diff and close with Escape.
+Reopen details and choose Open in Review. Verify the sheet closes and opens the
+owning conversation's Review tab. Reopen it and switch to a local session.
+Verify the sheet closes and the title
+updates. The window-control suite covers the native caption and window buttons.
 
 ## E2E-REMOTE-no-repository-environment
 
 Choose a paired environment containing a setup script and a variable. Leave
-No repository selected and send the first prompt. For a temporary Host-owned
-session, verify setup writes its marker in that session's scratch workspace
+No repository selected, choose a non-default model configured on the Host, and
+send the first prompt. Verify the Host uses that exact model and Host-owned
+credentials. Switching environments clears the previous selection. For a
+temporary Host-owned session, verify setup writes its marker in its scratch workspace
 and Bash reads both the marker and the saved variable. Repeat with an existing
 remote folder project and verify that setup writes to the selected folder and
 subsequent Bash runs there using the Desktop-owned session. Setup failures show

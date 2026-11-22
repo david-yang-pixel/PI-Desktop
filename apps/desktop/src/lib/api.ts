@@ -151,6 +151,7 @@ import type {
   RemoteHostBrowseProjectsResult,
   RemoteHostRegisterProjectResult,
   RemoteHostSessionsResult,
+  RacpHostModelsResult,
   RemoteHostCreateSessionRequest,
   WorkspaceEnvironmentSetupResult,
   RemoteHostCreateSessionResult,
@@ -2221,6 +2222,8 @@ export const api = {
     invoke<RemoteHostRegisterProjectResult>(IPC.invoke.remoteHostRegisterProject, { hostKey, path }),
   remoteHostSessions: (hostKey: string) =>
     invoke<RemoteHostSessionsResult>(IPC.invoke.remoteHostSessions, { hostKey }),
+  listRemoteHostModels: (hostKey: string) =>
+    invoke<RacpHostModelsResult>(IPC.invoke.remoteHostModels, { hostKey }),
   createRemoteSession: (request: RemoteHostCreateSessionRequest) =>
     invoke<RemoteHostCreateSessionResult>(IPC.invoke.remoteHostCreateSession, request),
   syncRemoteProviders: (request: RemoteHostSyncProvidersRequest) =>

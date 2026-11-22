@@ -11,7 +11,7 @@ const [protocolSource, apiSource, mainSource, sidebarSource, english, chinese] =
     read("../../../packages/shared/src/protocol.ts"),
     read("../src/lib/api.ts"),
     readMainSource(),
-    read("../src/components/Sidebar.tsx"),
+    read("../src/components/useSessionMenuContent.tsx"),
     read("../../../packages/i18n/src/locales/en/index.ts"),
     read("../../../packages/i18n/src/locales/zh-CN/index.ts"),
   ]);
@@ -49,13 +49,13 @@ test("session Copy menu exposes id, scratch path, and link", () => {
   assert.match(sidebarSource, /id: "copy-conversation-id"/);
   assert.match(sidebarSource, /id: "copy-session-path"/);
   assert.match(sidebarSource, /api\.getSessionScratchPath\(session\.id\)/);
-  assert.match(sidebarSource, /if \(isRemoteSession\(session\)\) return/);
+  assert.match(sidebarSource, /\.\.\.\(!remote \? \[sidebarMenuAction\(\{\s+id: "copy-session-path"/);
   assert.match(sidebarSource, /id: "copy-session-link"/);
   assert.match(sidebarSource, /formatSessionLink\(session\.id\)/);
-  assert.match(sidebarSource, /navigator\.clipboard\.writeText\(value\)/);
+  assert.match(sidebarSource, /navigator\.clipboard\.writeText\(/);
 
   const developerActions = sidebarSource.slice(
-    sidebarSource.indexOf("settings?.developerMode === true"),
+    sidebarSource.indexOf("...(developerMode && !remote"),
     sidebarSource.indexOf('id: "session-danger"'),
   );
   assert.match(developerActions, /id: "open-session-path"/);

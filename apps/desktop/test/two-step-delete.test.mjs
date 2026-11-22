@@ -97,26 +97,16 @@ test("only session rows use the shared two-step delete arm", () => {
   assert.doesNotMatch(projectRequest, /armedDelete|deleteProjectAction/);
 });
 
-test("the session menu deletes on the second click, not the first", () => {
-  assert.match(sidebarSource, /id: "delete-session"/);
-  assert.match(sidebarSource, /onSelect: \(\) => requestDeleteSession\(session\),/);
-  // The item shows which click it is on, for the pointer and for the tests.
-  assert.match(
-    sidebarSource,
-    /label:[\s\S]*?armedDelete === session\.id[\s\S]*?t\("nav\.deleteTaskConfirm", \{ defaultValue: "Delete\?" \}\)[\s\S]*?t\("nav\.deleteTask", \{ defaultValue: "Delete" \}\)/,
-  );
-
-  const request = handlerBlock(sidebarSource, "requestDeleteSession");
-  assert.match(request, /if \(armedDelete !== session\.id\) \{/);
-  assert.match(request, /setArmedDelete\(session\.id\);\s*return;/);
-  assert.match(request, /setArmedDelete\(null\);\s*void deleteSession\(session\);/);
-  assert.ok(
-    request.indexOf("deleteSession(session)") > request.indexOf("setArmedDelete(session.id)"),
-    "the delete runs only behind the arm",
-  );
-  // Nothing closes the menu on the first click, so the second one can land on
-  // the very same item.
-  assert.doesNotMatch(request, /closeMenus/);
+test("the shared session menu deletes on the second click, not the first", async () => {
+  const source = await read("../src/components/useSessionMenuContent.tsx");
+  assert.match(source, /id: "delete-session"/);
+  assert.match(source, /onSelect: requestDelete/);
+  assert.match(source, /label: deleteArmed \? t\("nav\.deleteTaskConfirm"/);
+  const request = handlerBlock(source, "requestDelete");
+  assert.match(request, /if \(!deleteArmed\) \{\s*setArmed\(session\.id\);\s*return;/);
+  assert.match(request, /setArmed\(null\);\s*void deleteSession\(\);/);
+  assert.ok(request.indexOf("deleteSession()") > request.indexOf("setArmed(session.id)"));
+  assert.doesNotMatch(request, /onClose/);
 });
 
 test("the session delete label ships in every catalog", () => {

@@ -134,6 +134,8 @@ export type SessionSummary = {
   title: string;
   projectId?: string;
   workspaceLabel?: string;
+  providerId?: string;
+  modelId?: string;
   /** Private session-root identity used only for final local admission checks. */
   workspaceIdentity?: string | null;
   mode: "agent" | "plan" | "goal";

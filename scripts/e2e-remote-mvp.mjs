@@ -36,8 +36,8 @@ const model = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const input = JSON.parse(body);
-    assert.equal(input.model, "mvp-fixture");
     calls++;
+    assert.equal(input.model, calls <= 2 ? "mvp-fixture" : "mvp-alternative");
     const frame = (delta, finish_reason = null) => res.write(`data: ${JSON.stringify({
       id: `mvp-${calls}`, object: "chat.completion.chunk", created: 1, model: input.model,
       choices: [{ index: 0, delta, finish_reason }],
@@ -49,10 +49,14 @@ const model = createServer(async (req, res) => {
         name: "Bash", arguments: JSON.stringify({ command: "printf 'remote-mvp\\n' >> MVP.txt" }),
       } }] });
       frame({}, "tool_calls");
-    } else {
-      assert.equal(calls, 2, "no mutation or model request replay");
+    } else if (calls === 2) {
       assert.ok(input.messages.some((message) => message.role === "tool"), "model receives actual Bash result");
       frame({ role: "assistant", content: "REMOTE_MVP_OK" });
+      frame({}, "stop");
+    } else {
+      assert.equal(calls, 3, "no mutation or model request replay");
+      assert.equal(req.headers.authorization, "Bearer fixture-host-key");
+      frame({ role: "assistant", content: "REMOTE_MVP_SELECTED" });
       frame({}, "stop");
     }
     res.end("data: [DONE]\n\n");
@@ -80,11 +84,12 @@ function waitEvent(predicate, timeout = 30_000) {
 async function runImport(payload) {
   const importer = spawn(process.execPath, [cli, "provider-import", "--data-dir", dataDir], { cwd: dataDir, env, stdio: ["pipe", "pipe", "pipe"] });
   let output = "";
+  let diagnostic = "";
   importer.stdout.on("data", (chunk) => { output += chunk; });
-  importer.stderr.resume();
+  importer.stderr.on("data", (chunk) => { diagnostic = (diagnostic + chunk).slice(-1000); });
   importer.stdin.end(JSON.stringify(payload));
   const [code] = await once(importer, "exit");
-  assert.equal(code, 0, "CLI imports through the running Host admin socket");
+  assert.equal(code, 0, `CLI imports through the running Host admin socket: ${diagnostic.trim()}`);
   assert.ok(output.startsWith("PI_HOST_PROVIDERS "));
   return JSON.parse(output.slice("PI_HOST_PROVIDERS ".length));
 }
@@ -125,8 +130,11 @@ try {
     models: [{ id: "mvp-fixture", contextWindow: 32768, maxTokens: 2048, thinkingLevels: [], defaultThinkingLevel: null }],
     supportsReasoning: false, supportedThinkingLevels: [],
   } }], defaultModel: { sourceId: "mvp-fixture", modelId: "mvp-fixture" } };
+  const alternate = { ...payload.providers[0].input, name: "Host alternative", authKind: "api_key", secretValue: "fixture-host-key",
+    defaultModelId: "mvp-alternative", models: [{ ...payload.providers[0].input.models[0], id: "mvp-alternative" }] };
+  payload.providers.push({ sourceId: "mvp-alternative", input: alternate });
   const imported = await runImport(payload);
-  assert.equal(imported.imported.length, 1);
+  assert.equal(imported.imported.length, 2);
   assert.equal(imported.defaultSet, true);
   assert.deepEqual(await runImport(payload), imported, "repeat import is idempotent");
   const url = `ws://127.0.0.1:${ready.host.port}/v1/racp/ws`;
@@ -165,9 +173,23 @@ try {
   assert.ok(JSON.stringify(transcript.session.messages).includes("REMOTE_MVP_OK"));
   await assert.rejects(route(IPC.invoke.fsRead, { sessionId: session.id, path: "../outside" }));
   await route(IPC.invoke.workspaceDiff, { sessionId: session.id });
+  const { models } = await boot.models("fixture");
+  const selected = models.find((entry) => entry.modelId === "mvp-alternative");
+  assert.deepEqual(selected, { providerId: selected?.providerId, providerName: "Host alternative", modelId: "mvp-alternative" });
+  const projectless = await boot.createSession({ hostKey: "fixture", model: { providerId: selected.providerId, modelId: selected.modelId } });
+  assert.equal(projectless.projectPath, undefined);
+  assert.equal(projectless.remoteProjectId, undefined);
+  assert.equal(projectless.modelId, "mvp-alternative");
+  const selectedEnded = waitEvent((event) => event.payload?.sessionId === projectless.id && event.payload?.event?.type === "agent_end");
+  await route(IPC.invoke.agentPrompt, { sessionId: projectless.id, content: "Use the selected model." });
+  await selectedEnded;
+  assert.equal(fixtureFailure, undefined);
+  assert.equal(calls, 3);
+  const selectedTranscript = await route(IPC.invoke.sessionGet, { id: projectless.id });
+  assert.ok(JSON.stringify(selectedTranscript.session.messages).includes("REMOTE_MVP_SELECTED"));
   await boot.removeHost("fixture");
   await assert.rejects(route(IPC.invoke.agentPrompt, { sessionId: session.id, content: "must not run locally" }), { errorCode: "AGENT_UNAVAILABLE" });
-  console.log("PASS packaged Host: import/reimport, pair, browse/select/register project, session, prompt, approval across reconnect, file read, diff, removal");
+  console.log("PASS packaged Host: import/reimport, pairing, project browsing, approvals across reconnect, Host model selection and transport, file reads, diff, removal");
 } catch (error) {
   console.error(error);
   console.error(hostLog);

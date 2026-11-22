@@ -587,8 +587,8 @@
   Enter/Space.
 - **Expected**: macOS uses one 46px row with native lights at left, a usable
   drag region, and an accessible Collapse button at right; the Logo/Home brand
-  is absent in both windowed and fullscreen modes. Global search stays on the
-  conversation topbar, shortcuts, and application menu, not the sidebar header.
+  is absent in both windowed and fullscreen modes. Search opens from the
+  sidebar's second primary row, keyboard shortcut, and application menu.
   Windows/Linux render the canonical 20px logo beside the 15px shell name; the
   complete brand has a localized Home accessible name, visible hover/focus
   feedback, and returns the main pane to chat without clearing the active
@@ -3600,11 +3600,11 @@ PowerShell-launched fixture; activation must not restore the native outline.
   enter and leave native fullscreen with the panel open. Check the three controls
   with Chromium hit testing throughout, including light/dark Windows/Linux CSS.
   At an 807×567 viewport with Windows renderer styles, sample the opening and
-  closing dock animations and hit-test both edges of each conversation action.
+  closing dock animations and hit-test both edges of the conversation details button.
 - **Expected:** Windows/Linux minimize, maximize/restore, and close stay visible
   and hit-testable at the window edge. Native actions work with the panel open.
-  The New Task and Search buttons stay clickable across their width, with at
-  least 8px between the action group and the work-panel toggle in every frame.
+  The Conversation details button stays clickable across its width, with at
+  least 8px between it and the work-panel toggle in every frame.
   Preview sidebar navigation remains clickable. On macOS no duplicate renderer
   window controls appear; the native traffic-light and fullscreen contracts stay
   unchanged. CSS emulation does not qualify another operating system's native UI.

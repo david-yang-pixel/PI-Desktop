@@ -228,6 +228,15 @@ export function createRacpRemoteHostClient(
     async request<T = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<T> {
       // Offline errors remain offline errors; capabilities belong to the live handshake.
       if (racp.state === "connected") {
+        const selectingModel = method === "session/create" && params && typeof params === "object" && "model" in params;
+        if (method === "session/models" || selectingModel) {
+          if (!racp.initialized?.capabilities.sessionModels) {
+            throw Object.assign(new Error("the remote Host does not offer a session model catalog"), { errorCode: "CAPABILITY_UNAVAILABLE" });
+          }
+          if (!racp.initialized.principal.roles.includes("owner")) {
+            throw Object.assign(new Error("the remote model catalog requires an owner"), { errorCode: "FORBIDDEN" });
+          }
+        }
         if (method === "workspace/pluginFiles") {
           if (!racp.initialized?.capabilities.workspacePluginFiles) {
             throw Object.assign(new Error("Upgrade pi-host to a matching Desktop release with plugin file browsing support"), {
