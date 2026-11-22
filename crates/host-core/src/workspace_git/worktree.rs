@@ -6,11 +6,11 @@
 //! `--` wherever git accepts it, so nothing a caller supplies can be read as
 //! an option.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::{fs, io};
 
 use super::layout::validate_branch;
-use super::repository::{self, NetworkContext, PUSH_TIMEOUT};
+use super::repository;
 use super::WorkspaceGitError;
 use crate::session_worktrees::git::GitRunner;
 use crate::session_worktrees::registry::{WorktreeRow, WorktreeStatus};
@@ -521,44 +521,13 @@ async fn remove_locked(
     Ok(())
 }
 
-/// Push the work branch, and only it, to `origin`; returns the remote head.
-pub async fn push(
-    ctx: &NetworkContext<'_>,
-    worktree_path: &Path,
-    work_branch: &str,
-) -> Result<String, WorkspaceGitError> {
-    validate_branch(work_branch)?;
-    let common = ctx
-        .git
-        .run(
-            worktree_path,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-        )
-        .await
-        .map_err(git_failed("rev-parse"))?;
-    let _lock = repo_lock::lock(&crate::workspace::simple_canonicalize(&PathBuf::from(
-        common.trim(),
-    ))?)
-    .await;
-    let local = format!("refs/heads/{work_branch}");
-    let refspec = format!("{local}:{local}");
-    let args = ["push", "--progress", "--", "origin", &refspec];
-    repository::run(ctx, worktree_path, "push", &args, PUSH_TIMEOUT).await?;
-    let head = ctx
-        .git
-        .run(
-            worktree_path,
-            &["rev-parse", "--verify", "--end-of-options", &local],
-        )
-        .await
-        .map_err(git_failed("rev-parse"))?;
-    Ok(head.trim().to_string())
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::session_worktrees::test_support::git_cmd;
+    use crate::workspace_git::push;
     use crate::workspace_git::repository::{ensure, NetworkContext};
     use crate::workspace_git::test_support::{commit_file, rev_parse, Remote};
 
@@ -859,7 +828,11 @@ mod tests {
         );
 
         let head = rev_parse(&a, "HEAD");
-        assert_eq!(push(&f.context(), &a, WORK_A).await.unwrap(), head);
+        let plan = push::plan(&f.git, &a, WORK_A).await.unwrap();
+        assert_eq!(
+            push::push(&f.context(), &a, WORK_A, &plan).await.unwrap(),
+            head
+        );
         assert_eq!(f.remote.head(WORK_A), head);
         let pushed = status(&f.git, &a, WORK_A).await.unwrap();
         assert_eq!(
@@ -895,29 +868,6 @@ mod tests {
             status(&f.git, &a, WORK_A).await.unwrap().uncommitted_files,
             1
         );
-    }
-
-    #[tokio::test]
-    async fn push_sends_only_the_work_branch() {
-        let f = Fixture::new().await;
-        let a = f.path("aaaaaaaaaaaa");
-        create(
-            &f.git,
-            &f.main,
-            &a,
-            WORK_A,
-            StartPoint::RemoteBranch("main"),
-        )
-        .await
-        .unwrap();
-        let main_before = f.remote.head("main");
-        let head = commit_file(&a, "work.txt", "work\n");
-        assert!(!f.remote.has_branch(WORK_A));
-        assert_eq!(push(&f.context(), &a, WORK_A).await.unwrap(), head);
-        assert_eq!(f.remote.head(WORK_A), head);
-        assert_eq!(f.remote.head("main"), main_before);
-        // Pushing again with nothing new still reports the remote head.
-        assert_eq!(push(&f.context(), &a, WORK_A).await.unwrap(), head);
     }
 
     #[tokio::test]

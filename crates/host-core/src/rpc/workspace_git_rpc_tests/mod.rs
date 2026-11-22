@@ -932,5 +932,6 @@ async fn a_restore_only_request_cannot_create_a_new_registration() {
 mod interrupted_prepare;
 /// Tests that spawn real git processes and inspect the process table.
 mod process;
+mod push;
 mod reclaim;
 mod setup_and_progress;

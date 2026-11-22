@@ -803,6 +803,12 @@ type WorkspaceGitJob = {
   already `succeeded` with that worktree. A prepare, push, or remove while a
   job for the same `(installationId, sessionId)` is running fails with
   `WORKSPACE_GIT_BUSY`.
+- A push sends the commit the work branch pointed at when the job started,
+  as `<commit>:refs/heads/<workBranch>`, and reports it as `remoteHead`.
+  The session's exclusive guard covers only resolving that commit: while
+  the transfer runs, `workspace/toolExecute` and `workspace/gitStatus` in
+  the worktree keep working, and no repository-wide lock is held, so other
+  sessions of the repository are not held up by the network.
 - A failing setup script does not fail the job. The worktree reports
   `setup: { status: "failed", logTail }` with the last 16 KiB of output.
   The live `setupLogTail`, the stored log, and the output of tools in a

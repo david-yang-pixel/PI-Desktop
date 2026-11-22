@@ -41,7 +41,9 @@ use crate::workspace_git::worktree::{self, StartPoint};
 use crate::workspace_git::WorkspaceGitError;
 
 mod prepare;
+mod push;
 use prepare::start_prepare;
+use push::start_push;
 
 type SharedState = Arc<Mutex<AppState>>;
 
@@ -698,89 +700,6 @@ async fn discard(
     if let Err(error) = registry::remove(&st.db, &request.installation_id, &request.session_id) {
         tracing::warn!(%error, "could not remove a cancelled worktree record");
     }
-}
-
-// ---- push ---------------------------------------------------------------------
-
-async fn start_push(
-    state: &SharedState,
-    context: &Arc<WorkspaceGitContext>,
-    params: PushParams,
-) -> Result<Value, WorkspaceGitError> {
-    layout(&params.workspaces_root)?;
-    let proxy_url = proxy_url(params.git_proxy.as_ref())?;
-    session_key(&params.installation_id, &params.session_id)?;
-    let (jobs, job_id, cancel, record, access) = {
-        let st = state.lock().await;
-        let access = exclusive_access(&st, &params.installation_id, &params.session_id)?;
-        let jobs = st.workspace_git_jobs.clone();
-        let mut table = lock(&jobs);
-        let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
-            .filter(|record| {
-                !record.recovery.blocks_access() && is_real_dir(Path::new(&record.path))
-            })
-            .ok_or_else(not_found)?;
-        let (job_id, cancel) =
-            table.start(JobKind::Push, &params.installation_id, &params.session_id)?;
-        drop(table);
-        (jobs, job_id, cancel, record, access)
-    };
-    tokio::spawn(run_push(
-        context.clone(),
-        jobs,
-        job_id.clone(),
-        record,
-        proxy_url,
-        cancel,
-        access,
-    ));
-    Ok(json!({ "jobId": job_id }))
-}
-
-async fn run_push(
-    context: Arc<WorkspaceGitContext>,
-    jobs: SharedJobs,
-    job_id: String,
-    record: WorktreeRecord,
-    proxy_url: String,
-    mut cancel: watch::Receiver<bool>,
-    access: tokio::sync::OwnedRwLockWriteGuard<()>,
-) {
-    lock(&jobs).set_phase(&job_id, JobPhase::Pushing);
-    let outcome = match record.repository.validated() {
-        Err(error) => Outcome::Failed(error),
-        Ok(repository) => {
-            let config = context.network_config(&proxy_url, &repository);
-            let config: Vec<(&str, &str)> = config
-                .iter()
-                .map(|(key, value)| (key.as_str(), value.as_str()))
-                .collect();
-            let on_progress = |progress: JobProgress| {
-                lock(&jobs).set_progress(&job_id, Some(progress));
-            };
-            let network = NetworkContext {
-                git: &context.git,
-                config: &config,
-                on_progress: Some(&on_progress),
-            };
-            let pushed = tokio::select! {
-                biased;
-                _ = jobs::cancelled(&mut cancel) => None,
-                result = worktree::push(&network, Path::new(&record.path), &record.work_branch) => Some(result),
-            };
-            match pushed {
-                None => Outcome::Cancelled,
-                Some(Err(error)) => Outcome::Failed(error),
-                Some(Ok(remote_head)) => Outcome::Pushed(Pushed {
-                    branch: record.work_branch.clone(),
-                    remote_head,
-                }),
-            }
-        }
-    };
-    let mut table = lock(&jobs);
-    drop(access);
-    table.finish(&job_id, outcome);
 }
 
 // ---- status and remove ----------------------------------------------------------

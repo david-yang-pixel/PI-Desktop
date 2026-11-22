@@ -12,6 +12,7 @@ pub mod environment;
 pub mod jobs;
 pub mod layout;
 pub mod locks;
+pub mod push;
 pub mod reclaim;
 pub mod registry;
 pub mod repository;
