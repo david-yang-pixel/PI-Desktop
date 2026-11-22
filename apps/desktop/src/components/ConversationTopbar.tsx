@@ -1,4 +1,3 @@
-import { RemoteSessionActions } from "../features/chat/session-target/RemoteSessionActions";
 import {
   useEffect,
   useRef,
@@ -114,13 +113,12 @@ export function ConversationTopbar({
      same commit, not a second one. */
   const renameSettledRef = useRef(false);
 
-  const remoteSession = isRemoteSession(activeSession);
-  /* Scheduled runs and remote transcripts are host-owned: their titles are not
-     editable from this desktop. */
-  const canRename = Boolean(
-    activeSession && !isRemoteSession(activeSession) && !activeSession.scheduledRun,
+  const cloudSession = isRemoteSession(activeSession) || Boolean(
+    activeSession?.remoteRepository || activeSession?.remoteWorkspace
+      || activeSession?.projectPath?.startsWith("remote-project:"),
   );
-  const editing = editingId !== null && editingId === activeSession?.id;
+  const canRename = Boolean(activeSession && !cloudSession && !activeSession.scheduledRun);
+  const editing = canRename && editingId !== null && editingId === activeSession?.id;
 
   useEffect(() => {
     setEditingId(null);
@@ -185,7 +183,7 @@ export function ConversationTopbar({
    * session list keeps automation transcripts out, so this row is the way
    * back. The remembered origin is what restores the task and run exactly.
    */
-  const scheduledSession = activeSession?.scheduledRun === true ? activeSession : null;
+  const scheduledSession = activeSession?.scheduledRun === true && !cloudSession ? activeSession : null;
   const scheduledReturn = scheduledSession ? scheduledReturnFor(scheduledSession.id) : null;
   const backAction = t("nav.backToScheduledAction");
   const backTooltip = scheduledReturn
@@ -200,32 +198,22 @@ export function ConversationTopbar({
   const fullTaskTitle = isDefaultSessionTitle(activeSession?.title)
     ? t("chat.untitledTask")
     : activeSession?.title || t("chat.untitledTask");
-  /*
-   * The crumb names the project the conversation lives in, not the workspace
-   * the app happens to show: a task can be opened from a project other than
-   * the active one. A remote session carries its display-only label; a local
-   * one resolves its project path through the sidebar's naming preferences,
-   * and a temporary session keeps the plain title. Before the first prompt
-   * there is no session yet, so the active workspace names the draft.
-   */
-  const sessionProjectPath = remoteSession ? null : activeSession?.projectPath;
-  const projectKey = sessionProjectPath
-    ? normalizeProjectPath(sessionProjectPath)
-    : null;
-  const project = remoteSession
-    ? activeSession?.remoteWorkspaceLabel?.trim() || null
-    : projectKey
-      ? projectMeta[projectKey]?.name?.trim() || projectName(sessionProjectPath)
-      : activeSession
-        ? null
-        : projectName(workspace?.path, workspace?.name);
+  /* The active workspace names a draft. An existing local task uses its own
+   * project's sidebar name, while a temporary task has no breadcrumb. */
+  const sessionProjectPath = cloudSession ? undefined : activeSession?.projectPath;
+  const projectKey = sessionProjectPath ? normalizeProjectPath(sessionProjectPath) : null;
+  const project = projectKey
+    ? projectMeta[projectKey]?.name?.trim() || projectName(sessionProjectPath)
+    : activeSession
+      ? null
+      : projectName(workspace?.path, workspace?.name);
   const breadcrumbTitle = project
     ? `${project} · ${fullTaskTitle}`
     : fullTaskTitle;
 
   return (
     <div
-      className={`conversation-topbar${sidebarCollapsed ? " ct-collapsed" : ""}`}
+      className={`conversation-topbar${sidebarCollapsed ? " ct-collapsed" : ""}${cloudSession ? " ct-cloud" : ""}`}
       role="toolbar"
       aria-label={t("nav.conversation")}
     >
@@ -260,66 +248,61 @@ export function ConversationTopbar({
             <span className="ct-back-label">{t("nav.backToScheduled")}</span>
           </button>
         ) : null}
-        {/* The hover tooltip would otherwise keep advertising the old title
-            and the crumb while the title is an editor. */}
-        <div
-          className="ct-title-wrap"
-          title={editing ? undefined : breadcrumbTitle}
-        >
-          {project ? (
-            <>
-              <span className="ct-project">
-                <IconFolder size={12} aria-hidden />
-                <span className="ct-project-name">{project}</span>
-              </span>
-              <span className="ct-sep" aria-hidden>
-                /
-              </span>
-            </>
-          ) : null}
-          {editing ? (
-            <input
-              ref={inputRef}
-              className="ct-title-input"
-              value={draft}
-              aria-label={t("session.renameLabel")}
-              spellCheck={false}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              onChange={(event) =>
-                setDraft(
-                  Array.from(event.target.value)
-                    .slice(0, MAX_SESSION_TITLE_LENGTH)
-                    .join(""),
-                )
-              }
-              onKeyDown={onRenameKeyDown}
-              onBlur={commitRename}
-            />
-          ) : (
-            <h1 className="ct-title">
-              {canRename ? (
-                <button
-                  type="button"
-                  className="ct-title-trigger"
-                  aria-label={t("session.renameAction", { title: fullTaskTitle })}
-                  onClick={beginRename}
-                >
-                  {fullTaskTitle}
-                </button>
-              ) : (
-                fullTaskTitle
-              )}
-            </h1>
-          )}
-          {remoteSession && <span className="thread-item-source">{t("remote:remote")} · {activeSession?.remoteHostLabel}</span>}
-        </div>
+        {!cloudSession && (
+          <div
+            className="ct-title-wrap"
+            title={editing ? undefined : breadcrumbTitle}
+          >
+            {project ? (
+              <>
+                <span className="ct-project">
+                  <IconFolder size={12} aria-hidden />
+                  <span className="ct-project-name">{project}</span>
+                </span>
+                <span className="ct-sep" aria-hidden>/</span>
+              </>
+            ) : null}
+            {editing ? (
+              <input
+                ref={inputRef}
+                className="ct-title-input"
+                value={draft}
+                aria-label={t("session.renameLabel")}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                onChange={(event) =>
+                  setDraft(
+                    Array.from(event.target.value)
+                      .slice(0, MAX_SESSION_TITLE_LENGTH)
+                      .join(""),
+                  )
+                }
+                onKeyDown={onRenameKeyDown}
+                onBlur={commitRename}
+              />
+            ) : (
+              <h1 className="ct-title">
+                {canRename ? (
+                  <button
+                    type="button"
+                    className="ct-title-trigger"
+                    aria-label={t("session.renameAction", { title: fullTaskTitle })}
+                    onClick={beginRename}
+                  >
+                    {fullTaskTitle}
+                  </button>
+                ) : (
+                  fullTaskTitle
+                )}
+              </h1>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="ct-right">
-        {activeSessionId && activeSession?.remoteRepository && <RemoteSessionActions key={activeSessionId}
-          workspace={activeSession.remoteRepository} />}
         <div className="ct-actions">
           <TooltipButton
             type="button"

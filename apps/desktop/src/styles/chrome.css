@@ -667,6 +667,13 @@
   margin-right: auto;
 }
 
+.conversation-topbar.ct-cloud .ct-left {
+  align-self: stretch;
+  --window-drag-region: drag;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
 .conversation-topbar .ct-right {
   flex: 0 0 auto;
   justify-content: flex-end;

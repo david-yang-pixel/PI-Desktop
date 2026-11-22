@@ -72,7 +72,7 @@ test("an editable session renders the title as a real rename trigger", async () 
   });
 });
 
-test("remote, scheduled and empty sessions render a plain title", async () => {
+test("cloud sessions omit the title while scheduled and empty sessions keep it read-only", async () => {
   await withTopbar(async ({ render }) => {
     const remote = render({
       activeSessionId: "remote:7",
@@ -86,8 +86,7 @@ test("remote, scheduled and empty sessions render a plain title", async () => {
         },
       ],
     });
-    assert.match(remote, /<h1 class="ct-title">Remote build<\/h1>/);
-    assert.ok(!remote.includes("ct-title-trigger"));
+    assert.doesNotMatch(remote, /ct-title|Remote build/);
 
     const scheduled = render({
       activeSessionId: "session-scheduled",
@@ -130,7 +129,6 @@ test("inline rename wires the edit lifecycle through the store", async () => {
   );
 
   // The editor only exists for an editable session and cannot outlive it.
-  assert.match(source, /activeSession && !isRemoteSession\(activeSession\) && !activeSession\.scheduledRun/);
   assert.match(source, /canRename \? \([\s\S]*?className="ct-title-trigger"/);
   assert.match(source, /useEffect\(\(\) => \{\s*setEditingId\(null\);\s*\}, \[activeSessionId\]\)/);
   assert.match(source, /title=\{editing \? undefined : breadcrumbTitle\}/);
