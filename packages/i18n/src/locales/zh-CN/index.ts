@@ -101,6 +101,7 @@ export const zhCN = {
       gitFailed: "远程主机上的 Git 操作失败。请重试。",
       setupRequired: "环境的初始化脚本运行失败，工作区尚未就绪。请查看日志，然后重试。",
       transportRefused: "远程主机未通过 SSH、wss:// 或本机回环连接，因此未发送 GitHub 凭据。",
+      credentialUnavailable: "无法将 GitHub 凭据传送到远程主机。请检查与主机的连接，然后重试。",
     },
   },
   worktree: {

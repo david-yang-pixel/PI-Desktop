@@ -306,6 +306,11 @@ export const ErrorCodes = {
   WORKSPACE_GIT_SETUP_FAILED: "WORKSPACE_GIT_SETUP_FAILED",
   /** The Host is not reached over SSH, `wss://`, or loopback; the credential was not sent. */
   WORKSPACE_GIT_TRANSPORT_REFUSED: "WORKSPACE_GIT_TRANSPORT_REFUSED",
+  /**
+   * Desktop-side only: the GitHub credential could not be delivered to the
+   * Host's current connection, so an operation that needs it was not started.
+   */
+  WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE: "WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE",
   PAIRING_FAILED: "PAIRING_FAILED",
   PAIRING_TOKEN_EXPIRED: "PAIRING_TOKEN_EXPIRED",
   /** The Host does not advertise the capability the operation needs. */

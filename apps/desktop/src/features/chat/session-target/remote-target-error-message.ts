@@ -38,6 +38,7 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   [ErrorCodes.WORKSPACE_GIT_FAILED, GIT_FAILED],
   [ErrorCodes.WORKSPACE_GIT_SETUP_FAILED, "sessionTarget.errors.setupRequired"],
   [ErrorCodes.WORKSPACE_GIT_TRANSPORT_REFUSED, "sessionTarget.errors.transportRefused"],
+  [ErrorCodes.WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE, "sessionTarget.errors.credentialUnavailable"],
 ]);
 
 /** The catalog's sentence for a remote target code, or `fallback` for any other. */

@@ -171,6 +171,7 @@ test("every remote session target failure has a localized message in every shipp
     "sessionTarget.errors.gitFailed",
     "sessionTarget.errors.setupRequired",
     "sessionTarget.errors.transportRefused",
+    "sessionTarget.errors.credentialUnavailable",
   ];
   assert.deepEqual(
     Object.keys(english).filter((key) => key.startsWith("sessionTarget.errors.")).sort(),

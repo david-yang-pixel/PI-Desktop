@@ -101,6 +101,7 @@ export const zhTW = {
       gitFailed: "遠端主機上的 Git 作業失敗。請重試。",
       setupRequired: "環境的初始化指令碼執行失敗，工作區尚未就緒。請查看記錄，然後重試。",
       transportRefused: "遠端主機並非透過 SSH、wss:// 或本機迴路連線，因此未傳送 GitHub 憑證。",
+      credentialUnavailable: "無法將 GitHub 憑證傳送到遠端主機。請檢查與主機的連線，然後再試一次。",
     },
   },
   worktree: {

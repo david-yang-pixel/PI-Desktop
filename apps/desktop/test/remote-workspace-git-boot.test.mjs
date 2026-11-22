@@ -204,22 +204,23 @@ test("a connect sends the provider's token, and a null token clears", async () =
   assert.equal(f.requests.length, 3);
 });
 
-test("a missing provider clears credentials and an unsupported host receives nothing", async () => {
+test("a missing provider sends nothing to clear and an unsupported host receives nothing", async () => {
+  // A new connection holds no credential, so there is nothing to clear.
   const none = setup();
   await none.boot.hostConnected("h");
   await none.boot.refreshCredential();
-  assert.deepEqual(none.requests.map(({ method }) => method), ["workspace/gitCredentialClear", "workspace/gitCredentialClear"]);
+  assert.deepEqual(none.requests, []);
   const old = setup({ capabilities: NO_GIT });
   old.boot.setCredentialProvider(async () => TOKEN);
   await old.boot.hostConnected("h");
   await old.boot.refreshCredential();
   assert.deepEqual(old.requests, []);
-  // Removing the provider sends a clear instead of a token.
+  // Removing the provider before anything was sent sends no token.
   const removed = setup();
   removed.boot.setCredentialProvider(async () => TOKEN);
   removed.boot.setCredentialProvider(null);
   await removed.boot.hostConnected("h");
-  assert.deepEqual(removed.requests.map(({ method }) => method), ["workspace/gitCredentialClear"]);
+  assert.deepEqual(removed.requests, []);
 });
 
 test("the credential is sent only over SSH, wss, or loopback ws", async () => {
@@ -246,19 +247,19 @@ test("the credential is sent only over SSH, wss, or loopback ws", async () => {
     f.boot.setCredentialProvider(async () => TOKEN);
     await f.boot.hostConnected("h");
     await f.boot.refreshCredential();
-    // The request only clears any old credential.
-    assert.deepEqual(f.requests.map(({ method }) => method), ["workspace/gitCredentialClear", "workspace/gitCredentialClear"], url);
+    // Nothing is sent: the connection never held a credential to clear.
+    assert.deepEqual(f.requests, [], url);
     // A git session on such a host fails with the typed reason, still without a send.
     await assert.rejects(f.boot.prepare("h", { sessionId: "s", repository, baseBranch: "main" }), code("WORKSPACE_GIT_TRANSPORT_REFUSED"), url);
     await assert.rejects(f.boot.push("h", "s"), code("WORKSPACE_GIT_TRANSPORT_REFUSED"), url);
-    assert.equal(f.requests.length, 2, url);
+    assert.equal(f.requests.length, 0, url);
     assert.ok(!f.logs.join("\n").includes(TOKEN));
   }
   // With no token to send there is nothing to refuse: the host stays usable.
   const anonymous = setup({ record: { hostKey: "h", label: "H", url: "ws://10.0.0.5:1", deviceToken: "d" }, respond: () => ({ jobId: "job-1" }) });
   anonymous.boot.setCredentialProvider(async () => null);
   await anonymous.boot.hostConnected("h");
-  assert.deepEqual(anonymous.requests.map((request) => request.method), ["workspace/gitCredentialClear"]);
+  assert.deepEqual(anonymous.requests, []);
   assert.deepEqual(await anonymous.boot.prepare("h", { sessionId: "s", repository, baseBranch: "main" }), { jobId: "job-1" });
 });
 
@@ -266,7 +267,7 @@ test("a failing provider leaves the host usable and without a credential", async
   const f = setup({ respond: (method) => (method === "workspace/gitList" ? { worktrees: [] } : { jobId: "job-1" }) });
   f.boot.setCredentialProvider(async () => { throw new Error(`keychain failed for ${TOKEN}`); });
   await f.boot.hostConnected("h");
-  assert.deepEqual(f.requests.map(({ method }) => method), ["workspace/gitCredentialClear"]);
+  assert.deepEqual(f.requests, []);
   assert.deepEqual(await f.boot.list("h"), []);
   assert.deepEqual(await f.boot.prepare("h", { sessionId: "s", repository, baseBranch: "main" }), { jobId: "job-1" });
   assert.ok(f.logs.length > 0);
@@ -429,8 +430,9 @@ test("removing a credential provider or losing its store clears the prior remote
   await f.boot.refreshCredential();
   f.boot.setCredentialProvider(null);
   await f.boot.refreshCredential();
+  // The first change clears the token the host held; the second has nothing left to clear.
   assert.deepEqual(f.requests.map((request) => request.method), [
-    "workspace/gitCredentialSet", "workspace/gitCredentialClear", "workspace/gitCredentialClear",
+    "workspace/gitCredentialSet", "workspace/gitCredentialClear",
   ]);
   assert.ok(f.logs.every((line) => !line.includes(token)));
 });
@@ -465,4 +467,56 @@ test("prepare forwards rerunSetup and works without requiring credential transpo
     },
     timeoutMs: 30_000,
   });
+});
+
+// ---- delivery is verified per connection ------------------------------------
+
+/** A host whose credential set fails `failures` times, then succeeds. */
+function flakyCredential(failures) {
+  let remaining = failures;
+  return (method) => {
+    if (method === "workspace/gitCredentialSet" && remaining-- > 0) throw Object.assign(new Error("timed out"), { code: "TIMEOUT" });
+    return method === "workspace/gitPush" ? { jobId: "push-1" } : {};
+  };
+}
+
+test("a credential that was not delivered at connect is sent again before the call that needs it", async () => {
+  const f = setup({ respond: flakyCredential(1) });
+  f.boot.setCredentialProvider(async () => TOKEN);
+  await f.boot.hostConnected("h");
+  assert.deepEqual(await f.boot.push("h", "s"), { jobId: "push-1" });
+  assert.deepEqual(f.requests.map(({ method }) => method), ["workspace/gitCredentialSet", "workspace/gitCredentialSet", "workspace/gitPush"]);
+  assert.ok(!f.logs.join("\n").includes(TOKEN));
+});
+
+test("a credential that still cannot be delivered fails the call with a typed error and runs nothing", async () => {
+  const f = setup({ respond: flakyCredential(Number.POSITIVE_INFINITY) });
+  f.boot.setCredentialProvider(async () => TOKEN);
+  await f.boot.hostConnected("h");
+  await assert.rejects(f.boot.push("h", "s"), code("WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE"));
+  await assert.rejects(f.boot.prepare("h", { sessionId: "s", repository, baseBranch: "main" }), code("WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE"));
+  assert.equal(f.requests.some(({ method }) => method === "workspace/gitPush" || method === "workspace/gitPrepare"), false);
+  // Calls that need no credential are unaffected.
+  await f.boot.status("h", "s");
+  assert.ok(!f.logs.join("\n").includes(TOKEN));
+});
+
+test("a delivered credential is not sent again per call, but a new connection gets it again", async () => {
+  const f = setup({ respond: flakyCredential(0) });
+  f.boot.setCredentialProvider(async () => TOKEN);
+  await f.boot.hostConnected("h");
+  await f.boot.push("h", "s");
+  await f.boot.push("h", "s");
+  assert.deepEqual(f.requests.map(({ method }) => method), ["workspace/gitCredentialSet", "workspace/gitPush", "workspace/gitPush"]);
+
+  // The transport reconnected and this time the connect-time delivery failed:
+  // the earlier delivery belonged to the old connection and does not count.
+  f.host.adapter.client.request = async (method, params, timeoutMs) => {
+    f.requests.push({ method, params, timeoutMs });
+    if (method === "workspace/gitCredentialSet") throw Object.assign(new Error("closed"), { code: "HOST_DISCONNECTED" });
+    return { jobId: "push-2" };
+  };
+  await f.boot.hostConnected("h");
+  await assert.rejects(f.boot.push("h", "s"), code("WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE"));
+  assert.deepEqual(f.requests.slice(3).map(({ method }) => method), ["workspace/gitCredentialSet", "workspace/gitCredentialSet"]);
 });

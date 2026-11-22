@@ -101,6 +101,7 @@ export const de = {
       gitFailed: "Ein Git-Vorgang auf dem Remote-Host ist fehlgeschlagen. Versuche es erneut.",
       setupRequired: "Das Einrichtungsskript der Umgebung ist fehlgeschlagen, daher ist der Arbeitsbereich nicht bereit. Prüfe das Protokoll und versuche es dann erneut.",
       transportRefused: "Die GitHub-Anmeldedaten wurden nicht gesendet, weil der Remote-Host nicht über SSH, wss:// oder Loopback verbunden ist.",
+      credentialUnavailable: "Die GitHub-Anmeldedaten konnten nicht an den Remote-Host übermittelt werden. Prüfe die Verbindung zum Host und versuche es dann erneut.",
     },
   },
   "worktree": {

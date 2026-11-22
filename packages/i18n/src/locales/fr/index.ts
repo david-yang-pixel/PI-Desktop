@@ -101,6 +101,7 @@ export const fr = {
       gitFailed: "Une opération Git a échoué sur l’hôte distant. Réessayez.",
       setupRequired: "Le script d’initialisation de l’environnement a échoué ; l’espace de travail n’est donc pas prêt. Consultez le journal, puis réessayez.",
       transportRefused: "L’identifiant GitHub n’a pas été envoyé, car l’hôte distant n’est pas connecté via SSH, wss:// ou loopback.",
+      credentialUnavailable: "L’identifiant GitHub n’a pas pu être transmis à l’hôte distant. Vérifiez la connexion à l’hôte, puis réessayez.",
     },
   },
   "worktree": {

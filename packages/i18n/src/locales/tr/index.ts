@@ -101,6 +101,7 @@ export const tr = {
       gitFailed: "Uzak ana bilgisayarda bir Git işlemi başarısız oldu. Tekrar deneyin.",
       setupRequired: "Ortamın kurulum betiği başarısız oldu, bu yüzden çalışma alanı hazır değil. Günlüğü inceleyin, ardından tekrar deneyin.",
       transportRefused: "Uzak ana bilgisayar SSH, wss:// veya geri döngü üzerinden bağlı olmadığı için GitHub kimlik bilgisi gönderilmedi.",
+      credentialUnavailable: "GitHub kimlik bilgisi uzak ana bilgisayara iletilemedi. Ana bilgisayar bağlantısını kontrol edip yeniden deneyin.",
     },
   },
   worktree: {

@@ -101,6 +101,7 @@ export const ptBR = {
       gitFailed: "Uma operação do Git falhou no host remoto. Tente novamente.",
       setupRequired: "O script de configuração do ambiente falhou, então a área de trabalho não está pronta. Verifique o log e tente novamente.",
       transportRefused: "A credencial do GitHub não foi enviada porque o host remoto não está conectado por SSH, wss:// ou loopback.",
+      credentialUnavailable: "Não foi possível entregar a credencial do GitHub ao host remoto. Verifique a conexão com o host e tente novamente.",
     },
   },
   worktree: {

@@ -97,6 +97,15 @@ Host gains a mutation capability. Hence this record.
    `wss://` URL, or a loopback `ws://` URL. Otherwise nothing is sent and a
    prepare or push fails with `WORKSPACE_GIT_TRANSPORT_REFUSED`.
 
+   Delivery is tracked per connection (D695). Before a prepare or push the
+   desktop checks that the Host's current connection holds the current
+   credential; a delivery that failed, or one made to an earlier connection,
+   is sent again then. When it still cannot be delivered the operation is not
+   started and fails with the desktop-side code
+   `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE`. With no token to send the
+   operation proceeds without one, as before, and a connection that never
+   held a token is not sent a clear.
+
 9. **Long work is a job, not a long call.** Every request budget between the
    desktop and host-core is between 15 and 135 seconds, and RACP has no
    progress notification outside session events. `workspace/gitPrepare` and

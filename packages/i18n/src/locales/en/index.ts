@@ -99,6 +99,7 @@ export const en = {
       gitFailed: "A Git operation on the remote host failed. Try again.",
       setupRequired: "The environment's setup script failed, so the workspace is not ready. Check the log, then retry.",
       transportRefused: "The GitHub credential was not sent because the remote host is not connected over SSH, wss://, or loopback.",
+      credentialUnavailable: "The GitHub credential could not be delivered to the remote host. Check the connection to the host, then try again.",
     },
   },
   worktree: {

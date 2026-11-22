@@ -101,6 +101,7 @@ export const ko = {
       gitFailed: "원격 호스트에서 Git 작업이 실패했습니다. 다시 시도하세요.",
       setupRequired: "환경 설정 스크립트가 실패하여 작업 공간이 준비되지 않았습니다. 로그를 확인한 후 다시 시도하세요.",
       transportRefused: "원격 호스트가 SSH, wss:// 또는 루프백으로 연결되지 않아 GitHub 자격 증명을 보내지 않았습니다.",
+      credentialUnavailable: "GitHub 자격 증명을 원격 호스트에 전달하지 못했습니다. 호스트 연결을 확인한 다음 다시 시도하세요.",
     },
   },
   worktree: {
