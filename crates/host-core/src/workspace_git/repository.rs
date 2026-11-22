@@ -141,7 +141,9 @@ pub async fn ensure(
         Ok(metadata) if metadata.is_dir() => {
             on_phase(Phase::Fetching);
             let args = ["fetch", "--progress", "--prune", "--", "origin"];
-            run(ctx, main_path, "fetch", &args, FETCH_TIMEOUT).await
+            run(ctx, main_path, "fetch", &args, FETCH_TIMEOUT).await?;
+            fast_forward_main(ctx, main_path).await;
+            Ok(())
         }
         // A link or a file where the checkout belongs is never followed.
         Ok(_) => Err(WorkspaceGitError::failed(
@@ -152,6 +154,44 @@ pub async fn ensure(
             clone::clone(ctx, remote_url, parent, name, main_path).await
         }
         Err(error) => Err(error.into()),
+    }
+}
+
+/// Move the main checkout's default branch up to what was just fetched, when
+/// it is checked out and has no local changes: the main checkout backs the
+/// project-level file view, which should show the current default branch.
+/// Best effort under the repository lock: a checkout that is not clean, not
+/// on the default branch, or not a fast-forward is left exactly as it is.
+async fn fast_forward_main(ctx: &NetworkContext<'_>, main_path: &Path) {
+    let _repository = super::locks::repository(&common_dir(main_path), super::locks::Wait::Block)
+        .await
+        .ok();
+    let output = |args: &'static [&'static str]| ctx.git.output(main_path, args);
+    let Ok(head) = output(&["symbolic-ref", "-q", "HEAD"]).await else {
+        return;
+    };
+    let Ok(default) = output(&["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]).await else {
+        return;
+    };
+    let (Some(branch), Some(remote_branch)) = (
+        head.stdout.trim().strip_prefix("refs/heads/"),
+        default.stdout.trim().strip_prefix("refs/remotes/origin/"),
+    ) else {
+        return;
+    };
+    if !head.success() || !default.success() || branch != remote_branch {
+        return;
+    }
+    let clean = output(&["status", "--porcelain=v1", "-z", "--untracked-files=no"])
+        .await
+        .is_ok_and(|status| status.success() && status.stdout.is_empty());
+    if !clean || super::layout::validate_branch(branch).is_err() {
+        return;
+    }
+    let target = format!("refs/remotes/origin/{branch}");
+    let args = ["merge", "-q", "--ff-only", "--no-edit", &target];
+    if let Err(error) = run(ctx, main_path, "merge", &args, FETCH_TIMEOUT).await {
+        tracing::debug!(%error, "left the main checkout where it was");
     }
 }
 
@@ -374,6 +414,43 @@ mod tests {
             .unwrap();
         assert_eq!(*phases.lock().unwrap(), [Phase::Cloning, Phase::Fetching]);
         assert_eq!(rev_parse(&main_path, "refs/remotes/origin/main"), added);
+    }
+
+    #[tokio::test]
+    async fn a_fetch_fast_forwards_a_clean_main_checkout_to_the_default_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let remote = Remote::new(dir.path());
+        let main_path = dir.path().join("root/repos/github.com/octo/repo");
+        let git = GitRunner::default();
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        let added = remote.commit("main", "later.txt", "later\n");
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        // The project-level file view sees the default branch as fetched.
+        assert_eq!(rev_parse(&main_path, "HEAD"), added);
+        assert!(main_path.join("later.txt").is_file());
+        assert!(crate::session_worktrees::test_support::git_cmd(
+            &main_path,
+            &["status", "--porcelain"]
+        )
+        .is_empty());
+
+        // A main checkout with local changes is left exactly as it is.
+        std::fs::write(main_path.join("README.md"), "edited by hand\n").unwrap();
+        let next = remote.commit("main", "next.txt", "next\n");
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(rev_parse(&main_path, "refs/remotes/origin/main"), next);
+        assert_eq!(rev_parse(&main_path, "HEAD"), added);
+        assert_eq!(
+            std::fs::read_to_string(main_path.join("README.md")).unwrap(),
+            "edited by hand\n"
+        );
+        assert!(!main_path.join("next.txt").exists());
     }
 
     #[tokio::test]

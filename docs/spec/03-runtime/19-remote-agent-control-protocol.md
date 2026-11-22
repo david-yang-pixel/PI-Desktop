@@ -793,7 +793,14 @@ type WorkspaceGitJob = {
 
 - A prepare ensures the main checkout (clone when absent, otherwise fetch
   with prune), creates the worktree from `refs/remotes/origin/<baseBranch>`,
-  and runs the environment's setup script when it has one. With
+  and runs the environment's setup script when it has one. A clone that
+  failed, timed out, stalled, or was cut short by a Host restart is kept
+  beside the main checkout, and the next prepare completes it with a fetch
+  and a checkout of the remote's default branch instead of starting over; a
+  cancelled clone is removed. It is always a full clone. After a fetch, the
+  main checkout's default branch is fast-forwarded to the fetched one when
+  it is checked out and has no local changes, so the project-level file
+  view shows the current default branch; otherwise it is left as it is. With
   `fromSessionId` the worktree instead starts at the current head of that
   session's work branch on this Host, in the same repository and installation,
   including commits it never pushed; `baseBranch` is still recorded as given,
