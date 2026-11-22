@@ -41,6 +41,30 @@ matching turn boundary and `turn-process-header.test.mjs` the rendered labels.
   General.
 - **Status:** Documented; run after integration into main.
 
+## E2E-GITHUB-device-flow-rest-tool-fallback
+
+- **Preconditions** A session uses the built-in GitHub agent tools and a
+  Device Flow credential. The hosted endpoint returns a credential rejection
+  and GitHub REST accepts that credential.
+- **Steps** Discover repository tools in an Agent session under `ask`. Request
+  an issue read, approve a comment, and check the repository. Repeat with a
+  hosted write that receives a rejection after successful discovery. Refresh
+  the session tools, then configure a custom `github` server for the workspace.
+- **Expected** Discovery exposes `mcp_github_rest_*` through MCP. The ordinary
+  approval card precedes dispatch, and the comment creates one REST mutation.
+  The rejected hosted write is never replayed. The next catalog exposes
+  separately named REST tools. The configured `github` server takes precedence
+  with its own credential. Tool results, status, and diagnostics omit the
+  connector token.
+- **Specs linked** [GitHub agent tools](../../../adr/github-agent-tools.md),
+  [Tools and permissions](../../03-runtime/03-tools-and-permissions.md)
+- **Acceptance** E / Security / Quality
+- **Milestone** M6+
+- **Status** Offline integration is covered by
+  `apps/desktop/test/github-builtin-mcp.test.mjs`. Host permission behavior is
+  covered by the `mcp_tools_*` tests in `crates/host-core/src/permissions.rs`.
+  The rendered approval journey remains a draft scenario.
+
 ## E2E-MCP-stdio-login-path: Market stdio MCP finds uvx/npx after a GUI launch (issue #571)
 
 - **Preconditions**: macOS; the app was started from Finder/Dock so `process.env.PATH`

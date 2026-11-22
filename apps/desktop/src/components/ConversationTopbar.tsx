@@ -20,7 +20,6 @@ import {
 } from "./icons";
 import { TooltipButton } from "./ui";
 import { ConversationDetails } from "./ConversationDetails";
-import { ConversationMoreMenu } from "./ConversationMoreMenu";
 
 function projectName(path?: string | null, name?: string | null) {
   if (name) return name;
@@ -255,7 +254,6 @@ export function ConversationTopbar({
       {activeSession && (
         <div className="ct-right">
           <ConversationDetails key={`details:${activeSession.id}`} session={activeSession} cloud={cloudSession} />
-          <ConversationMoreMenu key={`more:${activeSession.id}`} session={activeSession} />
         </div>
       )}
     </div>

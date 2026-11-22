@@ -820,6 +820,7 @@ export function createSessionLaunchRuntime({
             .filter((tool) => pluginActiveInProject(tool.pluginId, projectPath))
             .map((tool) => ({
               name: tool.fullName,
+              ...(tool.externalToolSource ? { externalToolSource: tool.externalToolSource } : {}),
               description: tool.description,
               parameters: tool.schema ?? { type: "object", properties: {} },
               ...(tool.risk === "low" || tool.risk === "medium" || tool.risk === "high"

@@ -1232,19 +1232,17 @@ folder/mixed-selection behavior. No system clipboard contents are changed.
 
 - **Preconditions**: A local or cloud session exists.
 - **Steps**: Open the session, inspect the title, and click Conversation details.
-  Expand a recorded file diff, then choose Open in Review. Open More from
-  the topbar with the sidebar expanded and collapsed. Compare its actions to
-  the sidebar session menu, then open Search from the sidebar. Switch to
+  Expand a recorded file diff, then choose Open in Review. Open Search from the sidebar. Switch to
   Scheduled, Plugins, or Settings and inspect the same top region.
 - **Expected**: The 46px topbar shows the active session title on the left and
   a labelled details action on the right. Local titles are editable. Cloud
   and scheduled titles are read-only. Long titles ellipsize only on overflow
-  and keep their full tooltip. The details sheet shows available environment,
-  repository, context and tool information plus recorded file diffs. Escape
-  closes the sheet and returns focus to its trigger. Changing sessions closes
-  the sheet. Open in Review closes details and selects the same session's
-  Review tab. More targets the active session with the same action guards as
-  the sidebar. The sidebar toggle appears in the bar while collapsed. Search is
+  and keep their full tooltip. The details sidebar shows environment, repository and context information,
+  the loaded connector and MCP tools, and recorded file diffs. An unused MCP
+  tool appears while a previous Read call is absent. The composer stays interactive.
+  Escape in the sidebar returns focus to its trigger. Changing sessions closes
+  the sidebar. Open in Review closes details and selects the same session's
+  Review tab. The sidebar toggle appears in the bar while collapsed. Search is
   the second default sidebar row, below New task, and opens the same focused
   search dialog as its keyboard shortcut. The chat topbar has neither action.
   The composer owns mode, model, and reasoning selection.

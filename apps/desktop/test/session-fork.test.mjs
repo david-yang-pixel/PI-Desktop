@@ -9,7 +9,7 @@ import test from "node:test";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-test("session fork is wired through protocol, main, API, store, and both session menus", () => {
+test("session fork is wired through protocol, main, API, store, and the sidebar session menu", () => {
   const protocol = read("../../../packages/shared/src/protocol.ts");
   const main = readMainSourceSync();
   const api = read("../src/lib/api.ts");
@@ -18,7 +18,6 @@ test("session fork is wired through protocol, main, API, store, and both session
     readStoreModuleSync("runtime/session-coordination.ts"),
   ].join("\n");
   const sidebar = read("../src/components/Sidebar.tsx");
-  const topbarMenu = read("../src/components/ConversationMoreMenu.tsx");
   const sessionMenu = read("../src/components/useSessionMenuContent.tsx");
   const panelSource = read("../src/components/SidebarMenuPanel.tsx");
 
@@ -37,7 +36,6 @@ test("session fork is wired through protocol, main, API, store, and both session
   assert.match(store, /forkSession:\s*async \(id\)/);
   assert.match(store, /commitForkedSession\(result\.session/);
   assert.match(sidebar, /useSessionMenuContent\(/);
-  assert.match(topbarMenu, /useSessionMenuContent\(/);
   assert.match(sessionMenu, /const running = [^\n]*state\.runningSessions\[session\.id\]/);
   const forkItem = sessionMenu.match(/id: "fork-session",[\s\S]*?\n    \}\)/)?.[0] ?? "";
   assert.match(forkItem, /disabled: running/);

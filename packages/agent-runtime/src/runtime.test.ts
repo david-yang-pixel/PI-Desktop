@@ -3874,6 +3874,23 @@ describe("DesktopAgentRuntime deferred tool catalog", () => {
     }
   });
 
+  it("reports only loaded connector and MCP tools from the session catalog before any calls", async () => {
+    const pluginTools = [
+      { name: "mcp_example_lookup", mcpServerId: "example" },
+      { name: "plugin_github_publish", externalToolSource: "connector" as const },
+      { name: "plugin_managed_lookup", externalToolSource: "mcp" as const },
+      { name: "plugin_regular" },
+    ].map(tool => ({ ...tool, description: "Test tool", parameters: {} }));
+    const agent = createRuntime({ pluginTools });
+    const plan = createRuntime({ pluginTools, mode: "plan" });
+    try {
+      expect(agent.getStatus().loadedExternalToolNames).toEqual(["mcp_example_lookup", "plugin_github_publish", "plugin_managed_lookup"]);
+      expect(plan.getStatus().loadedExternalToolNames).toEqual([]);
+    } finally {
+      await Promise.all([agent.dispose(), plan.dispose()]);
+    }
+  });
+
   it("starts Agent with core tools plus workspace search and discovery", async () => {
     const runtime = createRuntime({
       pluginTools: [

@@ -4,18 +4,30 @@
   banners and the destination page shell.
 */
 
-.overlay.conversation-details-overlay {
-  align-items: stretch;
-  justify-content: flex-end;
-  padding: calc(var(--ds-toolbar-height) + 8px) 8px 8px;
+.conversation-content-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
-.dialog.conversation-details {
+#conversation-details-dock { display: contents; }
+.conversation-content-row:has(.conversation-details) > .chat-surface { min-width: 0; }
+
+.conversation-details {
   display: flex;
-  width: min(100%, 380px);
+  flex: 0 1 min(360px, 44%);
+  min-width: 0;
   flex-direction: column;
-  padding: 0;
   overflow: hidden;
+  border-inline-start: 1px solid var(--ds-border-subtle);
+  background: var(--ds-bg-primary);
+}
+
+.conversation-details-tools ul {
+  margin: 0;
+  padding-inline-start: 18px;
+  overflow-wrap: anywhere;
 }
 
 .conversation-details-header {

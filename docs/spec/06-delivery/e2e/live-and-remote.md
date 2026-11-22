@@ -861,7 +861,9 @@ and RACP tests cover the failure log, reserved variables and capability checks.
 The remote workspace Git fixture pushes the prepared work branch into a real
 Git server before the PR service sees it. The connector fixture returns one
 open PR for repeated requests. The publishing tool returns the PR URL to the
-conversation. The test verifies uncommitted work survives an ordinary delete
+conversation. While the Host push job is running, the composer shows its Git
+percentage when available. Updates are scoped to the session and clear when
+polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
 
 ## E2E-REMOTE-idle-reclaim-restores-the-original-commit

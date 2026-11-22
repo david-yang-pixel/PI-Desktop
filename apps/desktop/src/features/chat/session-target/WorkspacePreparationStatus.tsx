@@ -5,7 +5,28 @@ import { Button } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { useAppStore } from "../../../stores/app-store";
 
-export function WorkspacePreparationStatus({ sessionId, workspace }: { sessionId: string; workspace: SessionRemoteRepository }) {
+type StatusProps = { sessionId: string; workspace: SessionRemoteRepository };
+
+export function WorkspacePreparationStatus(props: StatusProps) {
+  return <>
+    <PushStatus key={props.sessionId} sessionId={props.sessionId} />
+    <PreparationStatus {...props} />
+  </>;
+}
+
+function PushStatus({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation();
+  const [progress, setProgress] = useState<{ percent?: number } | null>(null);
+  useEffect(() => api.onRemoteSessionPushProgress((event) => {
+    if (event.sessionId === sessionId) setProgress(event.active ? event.progress ?? {} : null);
+  }), [sessionId]);
+  if (!progress) return null;
+  return <div className="composer-status" role="status">
+    {t("sessionTarget.pushing")}{progress.percent !== undefined && ` ${progress.percent}%`}
+  </div>;
+}
+
+function PreparationStatus({ sessionId, workspace }: StatusProps) {
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(false);
   const [busy, setBusy] = useState(false);

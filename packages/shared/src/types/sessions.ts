@@ -184,6 +184,8 @@ export type MessageRevisionSummary = {
 };
 
 export type AgentStatus = {
+  /** Connector and MCP tools in this session runtime's mode-filtered catalog. */
+  loadedExternalToolNames?: string[];
   sessionId: string;
   isRunning: boolean;
   currentTurnId?: string;

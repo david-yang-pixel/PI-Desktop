@@ -75,6 +75,9 @@ window.piDesktop = {
       data = { ok: true };
     }
     else if (channel === IPC.invoke.environmentsList) data = { environments: projectFlow ? [environment, secondEnvironment] : [environment] };
+    else if (channel === IPC.invoke.agentGetStatus) data = { status: { sessionId: input, isRunning: false,
+      loadedExternalToolNames: input === cloudSession.id ? ["mcp_example_lookup", "plugin_pi_github_CreateSessionPullRequest"] : [],
+    } };
     else if (channel === IPC.invoke.githubConnectorStatus) data = { connected: !projectFlow, deviceLoginAvailable: true };
     else if (channel === IPC.invoke.githubRepositories) data = { repositories: [repository] };
     else if (channel === IPC.invoke.githubBranches) data = { branches: [{ name: "develop" }] };
@@ -192,7 +195,10 @@ function ProjectFixture({ onOpenSearch }) {
       sidebarToggleShortcut="" sidebarWidth={260} onWidthChange={ignore} onWidthCommit={ignore} onResizeCollapse={ignore} />}
     <div style={{ flex: 1, minWidth: 0, anchorName: "--main-pane" }}>
       <ConversationTopbar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
-      <ChatSurface />
+      <div className="conversation-content-row">
+        <ChatSurface />
+        <div id="conversation-details-dock" />
+      </div>
     </div>
   </div>;
 }
@@ -525,32 +531,6 @@ globalThis.remoteMvpProbe = async () => {
   document.querySelector('.sidebar [data-nav="toggle-sidebar"]').click();
   await until(() => !document.querySelector(".sidebar"), "the sidebar did not collapse");
   checkCloudCaption(true);
-  const more = topbar().querySelector('[data-nav="conversation-more"]');
-  assert(more, "the collapsed sidebar hid the conversation actions");
-  more.focus();
-  more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
-  const currentMenu = () => document.querySelector(".conversation-more-menu");
-  await until(currentMenu, "the titlebar menu did not open");
-  assert(currentMenu().contains(document.activeElement), "opening More did not focus a menu item");
-  const pin = [...currentMenu().querySelectorAll('[role="menuitem"]')]
-    .find((item) => item.textContent.trim() === catalogs.en.nav.pinTask);
-  assert(pin, "More did not expose the sidebar's pin action");
-  pin.click();
-  await until(() => !currentMenu() && useAppStore.getState().sessionMeta[cloudSession.id]?.pinned,
-    "pinning from More did not update the active session");
-  more.click();
-  await until(currentMenu, "More did not reopen");
-  const unpin = [...currentMenu().querySelectorAll('[role="menuitem"]')]
-    .find((item) => item.textContent.trim() === catalogs.en.nav.unpinTask);
-  assert(unpin, "More did not reflect the pinned state");
-  unpin.click();
-  await until(() => !currentMenu() && !useAppStore.getState().sessionMeta[cloudSession.id]?.pinned,
-    "unpinning from More did not update the active session");
-  more.click();
-  await until(currentMenu, "More did not reopen after unpinning");
-  document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-  await until(() => !currentMenu(), "Escape did not close More");
-  assert(document.activeElement === more, "closing More did not restore trigger focus");
   topbarAction(catalogs.en.nav.toggleSidebar).click();
   await until(() => rowIn("sidebar-cloud-projects", cloudSession.id), "the caption could not reopen the sidebar");
   checkCloudCaption(false);
@@ -562,7 +542,17 @@ globalThis.remoteMvpProbe = async () => {
   const details = () => document.querySelector(".conversation-details");
   await until(() => details()?.querySelector("meter"), "the conversation details did not show context usage");
   await until(() => details().textContent.includes(environment.name), "details did not resolve the named environment");
-  for (const label of [repository.fullName, "pi-desktop/fixture", "Read"]) {
+  await until(() => details()?.querySelector(".conversation-details-tools")?.textContent.includes("mcp_example_lookup"), "unused loaded MCP tool is missing");
+  assert(details().tagName === "ASIDE" && !details().closest('[role="dialog"]'), "details must be a non-modal sidebar");
+  const chatBounds = document.querySelector(".conversation-content-row .chat-surface").getBoundingClientRect();
+  const panelBounds = details().getBoundingClientRect();
+  assert(chatBounds.width > 0 && panelBounds.width > 0 && chatBounds.right <= panelBounds.left + 1, "details overlaps the chat");
+  const liveComposer = document.querySelector(".conversation-content-row .composer-input");
+  liveComposer.focus();
+  assert(document.activeElement === liveComposer && details(), "details blocks the composer");
+  details().querySelector(".conversation-details-header button").focus();
+  assert(!details().querySelector(".conversation-details-tools").textContent.includes("Read"), "a core tool appeared in loaded tools");
+  for (const label of [repository.fullName, "pi-desktop/fixture", "plugin_pi_github_CreateSessionPullRequest"]) {
     assert(details().textContent.includes(label), `details omitted ${label}`);
   }
   const changes = details().querySelector(".conversation-details-changes");

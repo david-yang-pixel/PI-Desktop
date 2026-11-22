@@ -1012,6 +1012,7 @@ function contextFallbackReminder(): string {
 
 
 export type PluginToolDef = {
+  externalToolSource?: "connector" | "mcp";
   /** Present only on tools resolved from a user MCP server by Electron main. */
   mcpServerId?: string;
   /** Full exposed name (`plugin_<pluginIdSafe>_<toolName>`, D015). */
@@ -1917,6 +1918,7 @@ export class DesktopAgentRuntime {
   private batchPlanner: BatchPlanner;
   /** Complete tool registry; only the active subset is sent to the provider. */
   private toolCatalog = new Map<string, AgentTool>();
+  private loadedExternalToolNames: string[] = [];
   /** Tools intentionally omitted from the initial provider request. */
   private deferredToolNames = new Set<string>();
   /** Deferred tools activated for this runtime and declaration epoch. */
@@ -4342,6 +4344,9 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
       catalog.set(tool.name, catalogTool);
     }
     this.toolCatalog = catalog;
+    this.loadedExternalToolNames = this.pluginTools
+      .filter(tool => (tool.mcpServerId || tool.externalToolSource) && catalog.has(tool.name))
+      .map(tool => tool.name).sort();
     this.deferredToolNames = new Set(
       [...this.toolCatalog.keys()].filter(
         (name) => !this.isCoreTool(name) && name !== TOOL_SEARCH_NAME,
@@ -9826,6 +9831,7 @@ Do not invent objections or turn speculative risks into blockers. Stop when the 
 
   getStatus(): AgentStatus {
     return {
+      loadedExternalToolNames: this.loadedExternalToolNames,
       sessionId: this.sessionId,
       isRunning:
         this.aborting !== undefined ||
