@@ -806,6 +806,17 @@ type WorkspaceGitJob = {
 - `workspace/gitJobCancel` stops the job's git process and returns once the
   job has stopped. A cancelled prepare leaves no worktree, record, or branch;
   the main checkout stays.
+- A prepare that fails while it creates the worktree leaves none of them
+  either. The Host registers the session before git creates the work branch
+  and checkout, and rolls both back when that step does not finish. If the
+  Host stops during the step, the next prepare or remove for the session
+  finishes the rollback. Until then `workspace/gitList` reports the
+  registration with `checkoutPresent: false`, while status, push, reclaim,
+  and a `restoreOnly` prepare answer `WORKSPACE_GIT_NOT_FOUND`. A work branch
+  that gained commits meanwhile is kept: the prepare fails, removal without
+  `force` reports the commits, and `force` discards them. A non-empty
+  directory at the worktree path, or a work branch that no registration
+  owns, is never removed; the prepare fails instead.
 
 **Status and removal.** `WorkspaceGitStatus` carries the worktree, `ahead` and
 `behind` relative to the remote work branch (zero before the first push),
@@ -813,7 +824,11 @@ type WorkspaceGitJob = {
 `pushedOnce`. `workspace/gitRemove` removes the worktree and its local work
 branch. Without `force`, uncommitted files or unpushed commits make it answer
 `{ removed: false, uncommittedFiles, unpushedCommits }` and change nothing.
-The remote branch is never deleted.
+The remote branch is never deleted. A restore that stopped while recreating a
+checkout is rolled back first, and removal continues as for a missing
+checkout. A reclamation that stopped part way is removed only with `force`,
+which also discards its quarantined checkout; without `force` the Host
+answers `WORKSPACE_GIT_FAILED`.
 
 **Idle reclamation.** A Host with `workspaceGitReclaim` supports the owner-only
 `workspace/gitReclaim` operation. Allowed responses report a pinned commit and
@@ -828,7 +843,9 @@ To restore it, use `workspace/gitPrepare` with `restoreOnly`, `rerunSetup`, and
 `requireSetupSuccess`. This uses the saved commit and the latest supplied
 environment, with the saved environment as a fallback. `WORKSPACE_GIT_SETUP_FAILED`
 leaves the checkout available for setup retry and returns the setup result on the
-job. Successful restoration clears the Host's reclaim metadata.
+job. Successful restoration clears the Host's reclaim metadata. A restoration that
+stopped while recreating the checkout is retried from a clean checkout by the next
+one.
 
 **Credential.** `workspace/gitCredentialSet` hands the Host the GitHub token
 for the calling connection. The Host keeps it in `pi-host` memory only and

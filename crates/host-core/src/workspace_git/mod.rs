@@ -15,6 +15,7 @@ pub mod locks;
 pub mod reclaim;
 pub mod registry;
 pub mod repository;
+pub mod rollback;
 pub mod setup;
 pub mod worktree;
 

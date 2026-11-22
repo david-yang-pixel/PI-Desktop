@@ -794,6 +794,34 @@ The same refusals, a gzip-encoded foreign push, and a push whose ref updates
 do not end within 64 KiB are pinned byte-for-byte in
 `apps/pi-host/src/git-credential-proxy.test.ts`.
 
+## E2E-REMOTE-interrupted-prepare-leaves-no-orphan-branch
+
+Covered by host-core tests in
+`crates/host-core/src/rpc/workspace_git_rpc_tests/interrupted_prepare.rs`,
+run by `cargo test -p host-core --locked`. They use a real git, a local bare
+repository, and a git wrapper that stalls or fails a chosen step. No Desktop,
+`pi-host`, or network takes part.
+
+1. Cancelling a prepare after `git worktree add` finished, or failing a later
+   step of the creation (also for a forked session), leaves no checkout, git
+   worktree entry, work branch, or registration. The parent's branch keeps
+   its unpushed commit, and a retry with a healthy git succeeds.
+2. A registration left unfinished by a stopped Host is listed with
+   `checkoutPresent: false`, answers `WORKSPACE_GIT_NOT_FOUND` to status,
+   push, reclaim, and `restoreOnly`, and is rolled back by the next prepare,
+   which starts from the current base, or by removal without `force`.
+3. If its work branch gained a commit, the prepare fails and keeps the
+   commit and the checkout; removal without `force` reports the commit, and
+   `force` removes everything.
+4. A non-empty directory already at the worktree path, and a work branch
+   without a registration, survive a failed prepare.
+5. A cancelled setup whose cleanup failed stays registered and is finished
+   by the next prepare.
+6. An interrupted strict restore is retried from a clean checkout, or
+   removed without `force` when its branch is published. An interrupted
+   reclamation is refused without `force` and removed, quarantine included,
+   with it.
+
 ## E2E-REMOTE-composer-target-starts-isolated-repo-session
 
 On New Task, This computer is in a separate location row underneath the

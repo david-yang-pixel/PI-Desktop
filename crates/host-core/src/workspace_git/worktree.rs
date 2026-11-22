@@ -16,6 +16,7 @@ use crate::session_worktrees::git::GitRunner;
 use crate::session_worktrees::registry::{WorktreeRow, WorktreeStatus};
 use crate::session_worktrees::remove::{drop_admin_entry, remove_worktree};
 use crate::session_worktrees::repo_lock;
+use tokio::sync::OwnedMutexGuard;
 
 /// Where a new worktree starts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,8 +81,8 @@ fn git_failed(
 }
 
 /// Create the worktree on a new `work_branch` and return the commit it starts
-/// at. Leave existing paths and branches intact unless the caller has a
-/// registry record proving ownership.
+/// at, with no registration in between.
+#[cfg(test)]
 pub async fn create(
     git: &GitRunner,
     main_path: &Path,
@@ -89,10 +90,52 @@ pub async fn create(
     work_branch: &str,
     start: StartPoint<'_>,
 ) -> Result<String, WorkspaceGitError> {
+    begin_create(git, main_path, worktree_path, work_branch, start)
+        .await?
+        .add(git, main_path)
+        .await
+}
+
+/// A worktree that can be created: its path is free or an empty directory,
+/// its work branch does not exist, and its start commit is resolved. It
+/// holds the repository lock until `add`, so the caller can record that it
+/// owns what `add` creates before anything exists.
+pub struct NewWorktree {
+    _lock: OwnedMutexGuard<()>,
+    path: String,
+    work_branch: String,
+    pub base_commit: String,
+}
+
+impl NewWorktree {
+    /// `git worktree add` on the new work branch; returns the start commit.
+    pub async fn add(self, git: &GitRunner, main_path: &Path) -> Result<String, WorkspaceGitError> {
+        add(
+            git,
+            main_path,
+            &self.path,
+            &self.work_branch,
+            Some(&self.base_commit),
+        )
+        .await?;
+        Ok(self.base_commit)
+    }
+}
+
+/// Check that a worktree can be created on a new `work_branch` from `start`.
+/// Nothing but the parent directory is created. Existing paths and branches
+/// are left intact: neither belongs to a prepare that did not create it.
+pub async fn begin_create(
+    git: &GitRunner,
+    main_path: &Path,
+    worktree_path: &Path,
+    work_branch: &str,
+    start: StartPoint<'_>,
+) -> Result<NewWorktree, WorkspaceGitError> {
     validate_branch(work_branch)?;
     validate_branch(start.branch())?;
-    let path = utf8(worktree_path)?;
-    let _lock = repo_lock::lock(&repository::common_dir(main_path)).await;
+    let path = utf8(worktree_path)?.to_string();
+    let lock = repo_lock::lock(&repository::common_dir(main_path)).await;
 
     let start_ref = start.reference();
     let resolved = git
@@ -123,11 +166,38 @@ pub async fn create(
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
+    // A branch with this name that no registration owns, for example one an
+    // older host-core left behind, is not this prepare's to take or delete.
+    let branch = format!("refs/heads/{work_branch}");
+    let existing = git
+        .output(
+            main_path,
+            &["show-ref", "--verify", "--quiet", "--", &branch],
+        )
+        .await
+        .map_err(git_failed("show-ref"))?;
+    match existing.status {
+        1 => {}
+        0 => {
+            return Err(WorkspaceGitError::failed(
+                "a work branch for this session already exists on the host",
+            ))
+        }
+        _ => {
+            return Err(WorkspaceGitError::failed(
+                "could not inspect the local work branch",
+            ))
+        }
+    }
     if let Some(parent) = worktree_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    add(git, main_path, path, work_branch, Some(&base_commit)).await?;
-    Ok(base_commit)
+    Ok(NewWorktree {
+        _lock: lock,
+        path,
+        work_branch: work_branch.to_string(),
+        base_commit,
+    })
 }
 
 async fn add(

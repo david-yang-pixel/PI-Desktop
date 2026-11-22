@@ -34,6 +34,7 @@ use crate::workspace_git::layout::{
 use crate::workspace_git::reclaim::{self, Refusal, RegisteredPaths};
 use crate::workspace_git::registry::{self, SetupStatus, Variable, WorktreeRecord};
 use crate::workspace_git::repository::{self, NetworkContext, Phase};
+use crate::workspace_git::rollback;
 use crate::workspace_git::setup::{self, SetupRun};
 use crate::workspace_git::worktree::{self, StartPoint};
 use crate::workspace_git::WorkspaceGitError;
@@ -506,6 +507,12 @@ async fn restore_for_setup(
     mut record: WorktreeRecord,
 ) -> Result<WorktreeRecord, WorkspaceGitError> {
     let paths = RegisteredPaths::verify(&request.layout, &record)?;
+    if record.recovery.checkout_creation_pending {
+        // An earlier restore stopped after `git worktree add` started. Its
+        // partial checkout is removed and the restore starts over.
+        rollback::roll_back(&context.git, &record).await?;
+        record.recovery.checkout_creation_pending = false;
+    }
     let _repository = crate::session_worktrees::repo_lock::lock(&paths.common).await;
     let present = match std::fs::symlink_metadata(&paths.checkout) {
         Ok(metadata) if metadata.is_dir() && !record.recovery.checkout_creation_pending => true,
@@ -660,14 +667,21 @@ async fn run_setup(
     }
 }
 
-/// Undo a cancelled prepare: the record, the worktree, and its branch.
-async fn discard(state: &SharedState, context: &WorkspaceGitContext, request: &PrepareRequest) {
-    {
-        let st = state.lock().await;
-        if let Err(error) = registry::remove(&st.db, &request.installation_id, &request.session_id)
-        {
-            tracing::warn!(%error, "could not remove a cancelled worktree record");
-        }
+/// Undo a prepare cancelled during its setup script: the worktree, its
+/// branch, and the record. The record is marked unfinished first and removed
+/// last, so a removal that fails or is interrupted is finished by the next
+/// prepare or remove instead of leaving a branch no record owns.
+async fn discard(
+    state: &SharedState,
+    context: &WorkspaceGitContext,
+    request: &PrepareRequest,
+    mut record: WorktreeRecord,
+) {
+    record.recovery.checkout_creation_pending = true;
+    record.recovery.branch_creation_pending = true;
+    if let Err(error) = registry::persist_recovery(&state.lock().await.db, &record) {
+        tracing::warn!(%error, "could not mark a cancelled worktree for removal");
+        return;
     }
     if let Err(error) = worktree::remove(
         &context.git,
@@ -678,6 +692,11 @@ async fn discard(state: &SharedState, context: &WorkspaceGitContext, request: &P
     .await
     {
         tracing::warn!(%error, "could not remove a cancelled worktree");
+        return;
+    }
+    let st = state.lock().await;
+    if let Err(error) = registry::remove(&st.db, &request.installation_id, &request.session_id) {
+        tracing::warn!(%error, "could not remove a cancelled worktree record");
     }
 }
 
@@ -788,6 +807,7 @@ async fn status(
             ));
         }
         let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
+            .filter(|record| !record.recovery.branch_creation_pending)
             .ok_or_else(not_found)?;
         (record, access)
     };
@@ -829,16 +849,29 @@ async fn remove(
     params: &RemoveParams,
 ) -> Result<Value, WorkspaceGitError> {
     session_key(&params.installation_id, &params.session_id)?;
-    let (record, _access) = {
+    let (mut record, _access) = {
         let st = state.lock().await;
         let access = exclusive_access(&st, &params.installation_id, &params.session_id)?;
         let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
             .ok_or_else(not_found)?;
-        if record.recovery.reclaim_intent.is_some() || record.recovery.checkout_creation_pending {
+        // An interrupted reclaim's checkout may sit in its quarantine, where
+        // its work cannot be counted. Only a forced remove discards it.
+        if record.recovery.reclaim_intent.is_some() && !params.force {
             return Err(reclaim::interrupted());
         }
         (record, access)
     };
+    if record.recovery.checkout_creation_pending {
+        match prepare::roll_back_unfinished(state, context, record.clone()).await {
+            Ok(None) => {
+                return Ok(json!({ "removed": true, "uncommittedFiles": 0, "unpushedCommits": 0 }))
+            }
+            Ok(Some(remaining)) => record = remaining,
+            // Kept because its branch gained commits: the checks below
+            // count them, and only `force` discards them.
+            Err(error) => tracing::info!(%error, "removing an unfinished worktree with checks"),
+        }
+    }
     let (removed, uncommitted_files, unpushed_commits) = worktree::remove_checked(
         &context.git,
         Path::new(&record.main_path),
@@ -848,6 +881,14 @@ async fn remove(
     )
     .await?;
     if removed {
+        if let Some(intent) = &record.recovery.reclaim_intent {
+            // Forced (checked above): the quarantined checkout goes too. Only
+            // the directory reclaim created is removed, never a link.
+            let quarantine = reclaim::quarantine_path(Path::new(&record.path), intent)?;
+            if is_real_dir(&quarantine) {
+                std::fs::remove_dir_all(&quarantine)?;
+            }
+        }
         let st = state.lock().await;
         registry::remove(&st.db, &params.installation_id, &params.session_id)?;
     }
@@ -870,6 +911,7 @@ async fn start_reclaim(
             return Ok(reclaim::refused(Refusal::Busy));
         };
         let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
+            .filter(|record| !record.recovery.branch_creation_pending)
             .ok_or_else(not_found)?;
         (record, access)
     };

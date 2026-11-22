@@ -10,8 +10,11 @@ pub(super) async fn start_prepare(
         let access = exclusive_access(&st, &request.installation_id, &request.session_id)?;
         let jobs = st.workspace_git_jobs.clone();
         let mut table = lock(&jobs);
-        if let Some(record) = registry::get(&st.db, &request.installation_id, &request.session_id)?
-        {
+        // An unfinished creation is not a registration yet: the job rolls it
+        // back first and then prepares the session afresh.
+        let registered = registry::get(&st.db, &request.installation_id, &request.session_id)?
+            .filter(|record| !record.recovery.branch_creation_pending);
+        if let Some(record) = registered {
             if record.repository != request.repository {
                 return Err(WorkspaceGitError::invalid(
                     "this session is already bound to another repository",
@@ -85,6 +88,14 @@ async fn run_prepare(
     mut cancel: watch::Receiver<bool>,
     access: tokio::sync::OwnedRwLockWriteGuard<()>,
 ) {
+    // A prepare of this session that stopped before its checkout was complete
+    // (a host-core restart, or a rollback that failed) is undone first.
+    if let Err(error) = discard_unfinished(&state, &context, &request).await {
+        let mut table = lock(&jobs);
+        drop(access);
+        table.finish(&job_id, Outcome::Failed(error));
+        return;
+    }
     // Dropping the git future kills its process (`kill_on_drop`) and removes
     // a half-written clone directory.
     let may_discard = match record_of(&state, &request.installation_id, &request.session_id).await {
@@ -106,41 +117,44 @@ async fn run_prepare(
             run_setup(&state, &context, &jobs, &job_id, &request, record, cancel).await
         }
     };
-    if outcome == Outcome::Cancelled
-        && may_discard
-        && matches!(
-            record_of(&state, &request.installation_id, &request.session_id).await,
-            Ok(Some(_))
-        )
-    {
-        // A cancelled prepare leaves no worktree, record, or branch behind;
-        // the main checkout stays.
-        discard(&state, &context, &request).await;
-    } else if !may_discard
-        && (outcome == Outcome::Cancelled || matches!(outcome, Outcome::Failed(_)))
-    {
-        // Never leave an existing worktree stuck in `setup_status = Running`.
-        if let Ok(Some(mut record)) =
-            record_of(&state, &request.installation_id, &request.session_id).await
-        {
-            if record.setup_status == SetupStatus::Running {
-                let note = match &outcome {
-                    Outcome::Cancelled => "Setup was cancelled.".to_string(),
-                    Outcome::Failed(error) => error.message.clone(),
-                    _ => "Setup did not complete.".to_string(),
-                };
-                record.setup_status = SetupStatus::Failed;
-                record.setup_log_tail = Some(note);
-                let save = if record.recovery.blocks_access() {
-                    registry::persist_recovery
-                } else {
-                    registry::insert
-                };
-                if let Err(error) = save(&state.lock().await.db, &record) {
-                    tracing::warn!(%error, "could not recover setup status after failed rerun");
-                }
+    let stopped = outcome == Outcome::Cancelled || matches!(outcome, Outcome::Failed(_));
+    let record = if stopped {
+        record_of(&state, &request.installation_id, &request.session_id).await
+    } else {
+        Ok(None)
+    };
+    match record {
+        // A cancelled or failed prepare leaves no worktree, record, or branch
+        // behind; the main checkout stays. Only this job can have registered
+        // an unfinished creation: an earlier one was rolled back above.
+        Ok(Some(record)) if record.recovery.branch_creation_pending => {
+            if let Err(error) = roll_back_unfinished(&state, &context, record).await {
+                tracing::warn!(%error, "could not roll back an unfinished worktree");
             }
         }
+        // Cancelled while the setup script ran.
+        Ok(Some(record)) if may_discard && outcome == Outcome::Cancelled => {
+            discard(&state, &context, &request, record).await;
+        }
+        // Never leave an existing worktree stuck in `setup_status = Running`.
+        Ok(Some(mut record)) if !may_discard && record.setup_status == SetupStatus::Running => {
+            let note = match &outcome {
+                Outcome::Cancelled => "Setup was cancelled.".to_string(),
+                Outcome::Failed(error) => error.message.clone(),
+                _ => "Setup did not complete.".to_string(),
+            };
+            record.setup_status = SetupStatus::Failed;
+            record.setup_log_tail = Some(note);
+            let save = if record.recovery.blocks_access() {
+                registry::persist_recovery
+            } else {
+                registry::insert
+            };
+            if let Err(error) = save(&state.lock().await.db, &record) {
+                tracing::warn!(%error, "could not recover setup status after failed rerun");
+            }
+        }
+        _ => {}
     }
     let mut table = lock(&jobs);
     drop(access);
@@ -206,7 +220,9 @@ async fn create_worktree(
     // host, including commits the parent never pushed.
     let parent_branch = match &request.from_session_id {
         Some(from) => {
-            let parent = record_of(state, &request.installation_id, from).await?;
+            let parent = record_of(state, &request.installation_id, from)
+                .await?
+                .filter(|parent| !parent.recovery.branch_creation_pending);
             match parent {
                 Some(parent) if parent.repository == request.repository => Some(parent.work_branch),
                 _ => return Err(not_found()),
@@ -220,7 +236,7 @@ async fn create_worktree(
     };
 
     lock(jobs).set_phase(job_id, JobPhase::CreatingWorktree);
-    let base_commit = worktree::create(
+    let creation = worktree::begin_create(
         &context.git,
         &main_path,
         &worktree_path,
@@ -228,19 +244,32 @@ async fn create_worktree(
         start,
     )
     .await?;
-
-    register(state, request, &main_path, &worktree_path, base_commit).await
+    let mut record = new_record(request, &main_path, &worktree_path, &creation.base_commit)?;
+    // Registered before git creates the branch or the checkout, so anything
+    // that stops this prepare from here on leaves a registration owning what
+    // was created, which the next prepare or remove rolls back.
+    record.recovery.checkout_creation_pending = true;
+    record.recovery.branch_creation_pending = true;
+    registry::persist_recovery(&state.lock().await.db, &record)?;
+    creation.add(&context.git, &main_path).await?;
+    record.recovery.checkout_creation_pending = false;
+    record.recovery.branch_creation_pending = false;
+    registry::insert(&state.lock().await.db, &record)?;
+    Ok(record)
 }
 
-async fn register(
-    state: &SharedState,
+fn new_record(
     request: &PrepareRequest,
     main_path: &Path,
     worktree_path: &Path,
-    base_commit: String,
+    base_commit: &str,
 ) -> Result<WorktreeRecord, WorkspaceGitError> {
     // Tool roots are canonicalized before they are matched against records.
-    let path = crate::workspace::simple_canonicalize(worktree_path)?;
+    // The checkout does not exist yet; its parent does.
+    let path = match (worktree_path.parent(), worktree_path.file_name()) {
+        (Some(parent), Some(name)) => crate::workspace::simple_canonicalize(parent)?.join(name),
+        _ => return Err(WorkspaceGitError::invalid("invalid worktree path")),
+    };
     let text = |path: &Path| {
         path.to_str()
             .map(str::to_string)
@@ -254,7 +283,7 @@ async fn register(
         work_branch: request.work_branch(),
         path: text(&path)?,
         main_path: text(main_path)?,
-        base_commit,
+        base_commit: base_commit.to_string(),
         created_at: crate::db::ms_to_ts(crate::db::now_ms()),
         variables: request.variables.clone(),
         setup_script: request.setup_script.clone(),
@@ -269,7 +298,37 @@ async fn register(
             ..Default::default()
         },
     };
-    let st = state.lock().await;
-    registry::insert(&st.db, &record)?;
     Ok(record)
+}
+
+/// Roll back an unfinished creation and update its registration: a new
+/// session's is removed; a restored checkout's goes back to "no checkout".
+/// Returns the registration that remains, if any.
+pub(super) async fn roll_back_unfinished(
+    state: &SharedState,
+    context: &WorkspaceGitContext,
+    mut record: WorktreeRecord,
+) -> Result<Option<WorktreeRecord>, WorkspaceGitError> {
+    rollback::roll_back(&context.git, &record).await?;
+    let st = state.lock().await;
+    if record.recovery.branch_creation_pending {
+        registry::remove(&st.db, &record.installation_id, &record.session_id)?;
+        return Ok(None);
+    }
+    record.recovery.checkout_creation_pending = false;
+    registry::persist_recovery(&st.db, &record)?;
+    Ok(Some(record))
+}
+
+async fn discard_unfinished(
+    state: &SharedState,
+    context: &WorkspaceGitContext,
+    request: &PrepareRequest,
+) -> Result<(), WorkspaceGitError> {
+    match record_of(state, &request.installation_id, &request.session_id).await? {
+        Some(record) if record.recovery.branch_creation_pending => {
+            roll_back_unfinished(state, context, record).await.map(drop)
+        }
+        _ => Ok(()),
+    }
 }
