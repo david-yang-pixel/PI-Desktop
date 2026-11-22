@@ -105,6 +105,28 @@ test("failed setup renders Retry and Dismiss controls with log disclosure", () =
   assert.match(html, />Dismiss<\/button>/);
 });
 
+test("failed preparation names a known Host failure in the user's language, not the Host's text", () => {
+  const html = renderStatus({
+    ...baseWorkspace,
+    state: "failed",
+    error: { code: "WORKSPACE_GIT_AUTH_REQUIRED", message: "fatal: Authentication failed for 'https://github.com/octo/repo.git/'" },
+  });
+  const reason = catalogs.en.sessionTarget.errors.gitAuthRequired.replaceAll("'", "&#x27;");
+  assert.match(html, /role="alert"/);
+  assert.ok(html.includes(`Could not prepare the workspace: ${reason}`), html);
+  assert.doesNotMatch(html, /fatal: Authentication failed/);
+  assert.match(html, />Retry<\/button>/);
+});
+
+test("failed preparation keeps the Host's text for a code it does not map", () => {
+  const html = renderStatus({
+    ...baseWorkspace,
+    state: "failed",
+    error: { code: "INTERNAL", message: "disk quota exceeded" },
+  });
+  assert.match(html, /Could not prepare the workspace: disk quota exceeded/);
+});
+
 const interactionFixture = String.raw`
 import React from "react";
 import { flushSync } from "react-dom";

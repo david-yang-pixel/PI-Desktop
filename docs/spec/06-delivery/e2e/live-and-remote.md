@@ -826,6 +826,24 @@ its output through real tool relay. A second session without a binding
 receives `REMOTE_WORKSPACE_NOT_READY` before any tool is forwarded. A fork
 starts at the parent's unpushed commit.
 
+## E2E-REMOTE-composer-target-send-failure-explains-and-keeps-draft
+
+On New Task, choose a paired environment, type a prompt, and send while the
+start fails: the Host is offline, the Host runs another release, GitHub is
+disconnected for a repository target, or the environment was deleted. Verify
+Send restores the typed draft and shows one error toast. The toast is "Could
+not start the remote session:" plus a reason in the UI language instead of the
+English text main reported. Each of these failures happens before a session
+exists, so none is created or selected, and a second Send tries again.
+
+`apps/desktop/test/remote-target-send-failure.test.mjs` drives this path
+through the real queue slice, remote target materialization, renderer `api`
+wrapper, and composer draft-restore helper. Only main's IPC replies are faked.
+`apps/desktop/test/remote-target-error-message.test.mjs` pins the code to
+sentence mapping and the language switch.
+`apps/desktop/test/workspace-preparation-status.test.mjs` pins the localized
+reason in a failed preparation banner.
+
 ## E2E-REMOTE-cloud-session-topbar
 
 In `pnpm test:e2e:remote-mvp-ui`, open a cloud repository session with a

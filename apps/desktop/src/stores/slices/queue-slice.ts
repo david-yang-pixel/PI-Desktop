@@ -1,5 +1,5 @@
 import { useSessionTargetStore } from "../../features/chat/session-target/session-target-store";
-import { materializeRemoteTargetSession } from "../runtime/remote-target-session";
+import { startRemoteTargetSession } from "../runtime/remote-target-session";
 import type { PersistSessionOptions } from "../runtime/session-coordination";
 import i18n from "i18next";
 import { formatFileInsert } from "@pi-desktop/shared";
@@ -411,7 +411,7 @@ export function createQueueSlice({
         }
         if (!sessionId || chooseRemote) {
           const createdId = chooseRemote
-            ? await materializeRemoteTargetSession({ get, set }, runtime, persistSessionAndSelect)
+            ? await startRemoteTargetSession({ get, set }, runtime, persistSessionAndSelect)
             : await materializeDraftSession();
           if (!createdId) return false;
           sessionId = createdId;

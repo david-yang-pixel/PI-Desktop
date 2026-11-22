@@ -154,6 +154,39 @@ test("every GitHub connector error code has a message in every shipped catalog",
   }
 });
 
+test("every remote session target failure has a localized message in every shipped catalog", () => {
+  // Main and the paired Host report these as codes with English text; the
+  // composer and workspace status show the catalog's sentence instead.
+  const keys = [
+    "sessionTarget.startFailed",
+    "sessionTarget.errors.hostOffline",
+    "sessionTarget.errors.hostOutdated",
+    "sessionTarget.errors.workspaceNotReady",
+    "sessionTarget.errors.gitUnavailable",
+    "sessionTarget.errors.gitAuthRequired",
+    "sessionTarget.errors.branchNotFound",
+    "sessionTarget.errors.worktreeMissing",
+    "sessionTarget.errors.gitBusy",
+    "sessionTarget.errors.gitFailed",
+    "sessionTarget.errors.setupRequired",
+    "sessionTarget.errors.transportRefused",
+  ];
+  assert.deepEqual(
+    Object.keys(english).filter((key) => key.startsWith("sessionTarget.errors.")).sort(),
+    keys.filter((key) => key.startsWith("sessionTarget.errors.")).sort(),
+  );
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    const flat = flattenCatalog(catalog);
+    for (const key of keys) {
+      assert.equal(typeof flat[key], "string", `${locale} ${key}`);
+      assert.ok(flat[key].trim(), `${locale} ${key} must not be blank`);
+      if (locale !== "en") {
+        assert.notEqual(flat[key], english[key], `${locale} ${key} is still English`);
+      }
+    }
+  }
+});
+
 test("Live Voice preparation and call recovery copy is localized in every shipped catalog", () => {
   const keys = [
     "prepareCall", "details", "workOptions", "allowWork", "noWorkSession",
