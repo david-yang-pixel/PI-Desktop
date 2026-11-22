@@ -34,6 +34,7 @@ test("every remote target and workspace code main reports maps to a catalog sent
     REMOTE_TARGET_UNSUPPORTED: en.sessionTarget.errors.hostOutdated,
     REMOTE_ENVIRONMENT_NOT_FOUND: en.sessionTarget.environmentUnavailable,
     REMOTE_WORKSPACE_NOT_READY: en.sessionTarget.errors.workspaceNotReady,
+    REMOTE_WORKSPACE_CANCELLED: en.sessionTarget.preparationControl.cancelled,
     WORKSPACE_GIT_UNAVAILABLE: en.sessionTarget.errors.gitUnavailable,
     WORKSPACE_GIT_AUTH_REQUIRED: en.sessionTarget.errors.gitAuthRequired,
     WORKSPACE_GIT_REPOSITORY_NOT_FOUND: en.errors.GITHUB_NOT_FOUND,

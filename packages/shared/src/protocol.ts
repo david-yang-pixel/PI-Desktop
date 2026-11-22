@@ -328,6 +328,8 @@ export const IPC = {
     remoteSessionTargetResolve: "pi-desktop/remoteSession/target/resolve",
     remoteSessionWorkspaceStart: "pi-desktop/remoteSession/workspace/start",
     remoteSessionWorkspaceRetry: "pi-desktop/remoteSession/workspace/retry",
+    /** Stop a preparing repository workspace; the binding becomes `failed` and retryable. */
+    remoteSessionWorkspaceCancel: "pi-desktop/remoteSession/workspace/cancel",
     remoteSessionDeletePreflight: "pi-desktop/remoteSession/deletePreflight",
     remoteLeftoverWorktreesList: "pi-desktop/remoteHost/leftoverWorktrees/list",
     remoteLeftoverWorktreesRemove: "pi-desktop/remoteHost/leftoverWorktrees/remove",

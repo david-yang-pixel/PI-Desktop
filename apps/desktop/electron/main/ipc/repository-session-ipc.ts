@@ -144,6 +144,7 @@ export function registerRemoteRepositorySessions(deps: {
     return { remoteRepository: await workspaces.start({ ...selection, baseBranch: branch, sessionId: string(data.sessionId) }) };
   });
   handle(IPC.invoke.remoteSessionWorkspaceRetry, async (id) => ({ remoteRepository: await workspaces.retry(string(id)) }));
+  handle(IPC.invoke.remoteSessionWorkspaceCancel, async (id) => ({ remoteRepository: await workspaces.cancelPreparation(string(id)) }));
   handle(IPC.invoke.remoteSessionDeletePreflight, async (id) => git.preflight(string(id)));
   handle(IPC.invoke.remoteLeftoverWorktreesList, async (hostKey) => ({ worktrees: await git.leftovers(string(hostKey)) }));
   handle(IPC.invoke.remoteLeftoverWorktreesRemove, async (hostKey, id) => ({ ok: await git.removeLeftover(string(hostKey), string(id)) }));

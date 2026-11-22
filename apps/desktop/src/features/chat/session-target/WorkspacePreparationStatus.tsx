@@ -55,7 +55,10 @@ function PreparationStatus({ sessionId, workspace }: StatusProps) {
           : "";
     return <div className="composer-status" role="status">
       {t(`sessionTarget.preparation.${phase}`, { repository: `${workspace.repository.owner}/${workspace.repository.name}`, branch: workspace.workBranch ?? workspace.baseBranch })}
-      {progressSuffix}
+      {progressSuffix}{" "}
+      <Button variant="secondary" disabled={busy} onClick={() => void run(() => api.cancelRemoteSessionWorkspace(sessionId))}>
+        {t("sessionTarget.preparationControl.cancel")}
+      </Button>
       {phase === "runningSetup" && workspace.setup?.logTail && (
         <details open><summary>{t("sessionTarget.preparation.showLog")}</summary><pre>{workspace.setup.logTail}</pre></details>
       )}

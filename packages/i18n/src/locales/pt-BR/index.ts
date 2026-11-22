@@ -89,6 +89,10 @@ export const ptBR = {
       setupFailed: "O script de configuração falhou. A área de trabalho está pronta.",
       showLog: "Mostrar log",
     },
+    preparationControl: {
+      cancel: "Cancelar",
+      cancelled: "Você cancelou a preparação. Selecione Tentar novamente para reiniciá-la.",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

@@ -89,6 +89,10 @@ export const de = {
       setupFailed: "Das Einrichtungsskript ist fehlgeschlagen. Der Arbeitsbereich ist bereit.",
       showLog: "Protokoll anzeigen",
     },
+    preparationControl: {
+      cancel: "Abbrechen",
+      cancelled: "Du hast die Vorbereitung abgebrochen. Wähle „Erneut versuchen“, um sie neu zu starten.",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

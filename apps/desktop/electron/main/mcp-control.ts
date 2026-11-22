@@ -481,6 +481,7 @@ export const MCP_CONTROL_BLOCKED_CHANNEL_KEYS = [
   "remoteSessionTargetResolve",
   "remoteSessionWorkspaceStart",
   "remoteSessionWorkspaceRetry",
+  "remoteSessionWorkspaceCancel",
   "remoteSessionDeletePreflight",
   "remoteLeftoverWorktreesList",
   "remoteLeftoverWorktreesRemove",

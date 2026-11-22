@@ -80,6 +80,22 @@ test("preparing phase renders git progress detail and percent", () => {
   assert.match(html, /Receiving objects 42%/);
 });
 
+test("a preparing workspace offers Cancel", () => {
+  const html = renderStatus({ ...baseWorkspace, state: "preparing", phase: "fetching" });
+  assert.match(html, />Cancel<\/button>/);
+});
+
+test("a cancelled preparation explains itself and offers Retry", () => {
+  const html = renderStatus({
+    ...baseWorkspace,
+    state: "failed",
+    error: { code: "REMOTE_WORKSPACE_CANCELLED", message: "Workspace preparation was cancelled" },
+  });
+  assert.ok(html.includes(catalogs.en.sessionTarget.preparationControl.cancelled), html);
+  assert.match(html, />Retry<\/button>/);
+  assert.doesNotMatch(html, />Cancel<\/button>/);
+});
+
 test("runningSetup phase renders live setup logTail in an open details disclosure", () => {
   const html = renderStatus({
     ...baseWorkspace,
@@ -203,6 +219,21 @@ globalThis.workspacePrepProbe = async () => {
   }
   if (calls.length !== 1 || calls[0].channel !== IPC.invoke.remoteSessionWorkspaceRetry || calls[0].input !== "session-1") {
     throw new Error("expected Retry button to invoke remoteSessionWorkspaceRetry: " + JSON.stringify(calls));
+  }
+
+  // Cancel while preparing stops this session's job.
+  flushSync(() => setWorkspace({ ...failed, state: "preparing", phase: "cloning", setup: undefined }));
+  const enabledDeadline = performance.now() + 2_000;
+  while (button("Cancel")?.disabled !== false && performance.now() < enabledDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  button("Cancel").click();
+  const cancelDeadline = performance.now() + 2_000;
+  while (calls.length === 1 && performance.now() < cancelDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  if (calls.length !== 2 || calls[1].channel !== IPC.invoke.remoteSessionWorkspaceCancel || calls[1].input !== "session-1") {
+    throw new Error("expected Cancel button to invoke remoteSessionWorkspaceCancel: " + JSON.stringify(calls));
   }
   return true;
 };

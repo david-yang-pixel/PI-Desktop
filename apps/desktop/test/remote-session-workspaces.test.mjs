@@ -43,6 +43,7 @@ function createFixture(options = {}) {
     },
     async cancelJob() {},
     async list() { return []; },
+    ...options.workspaceGit,
   };
 
   const workspaces = createSessionWorkspaces({
@@ -258,4 +259,90 @@ test("the repository session reports Git percentages and clears its push progres
     { sessionId: "s", active: true, phase: "pushing", progress: { percent: 67 } },
     { sessionId: "s", active: false, phase: "done" },
   ]);
+});
+
+test("Cancel stops a preparing workspace's Host job and leaves it failed and retryable", { timeout: 10_000 }, async () => {
+  const cancelled = [];
+  let stopped = false;
+  const f = createFixture({
+    bindings: {
+      "s-3": { sessionId: "s-3", environmentId: "env-1", hostKey: "h1", repository, baseBranch: "main", state: "preparing" },
+    },
+    workspaceGit: {
+      async job(_hostKey, jobId) {
+        return stopped
+          ? { jobId, kind: "prepare", state: "cancelled", phase: "cloning" }
+          : { jobId, kind: "prepare", state: "running", phase: "cloning", progress: { percent: 40 } };
+      },
+      async cancelJob(hostKey, jobId) {
+        cancelled.push({ hostKey, jobId });
+        stopped = true;
+      },
+    },
+  });
+  const workspaceEvents = () => f.events
+    .filter((entry) => entry.channel === IPC.event.remoteSessionWorkspaceChanged)
+    .map((entry) => entry.payload.remoteRepository);
+  try {
+    await f.workspaces.resume();
+    const deadline = Date.now() + 5_000;
+    while (!workspaceEvents().some((item) => item.phase === "cloning") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(f.bindings.get("s-3").jobId, "job-1");
+
+    const [first, second] = await Promise.all([
+      f.workspaces.cancelPreparation("s-3"),
+      f.workspaces.cancelPreparation("s-3"),
+    ]);
+
+    assert.deepEqual(cancelled, [{ hostKey: "h1", jobId: "job-1" }], "a second Cancel joins the first");
+    assert.equal(first, second);
+    assert.equal(first.state, "failed");
+    assert.equal(first.error.code, ErrorCodes.REMOTE_WORKSPACE_CANCELLED);
+    assert.equal(first.phase, undefined);
+    const stored = f.bindings.get("s-3");
+    assert.equal(stored.state, "failed");
+    assert.equal(stored.jobId, null);
+    assert.equal(workspaceEvents().at(-1).state, "failed");
+    await assert.rejects(f.workspaces.cancelPreparation("s-3"), (error) => error.errorCode === ErrorCodes.CONFLICT);
+
+    // Retry prepares again with a new Host job.
+    stopped = false;
+    const retried = await f.workspaces.retry("s-3");
+    assert.equal(retried.state, "preparing");
+    const retryDeadline = Date.now() + 5_000;
+    while (f.prepareCalls.length < 2 && Date.now() < retryDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(f.prepareCalls.length, 2);
+  } finally {
+    f.workspaces.dispose();
+  }
+});
+
+test("Cancel keeps a workspace whose Host job finished before the cancel reached it", { timeout: 10_000 }, async () => {
+  const worktree = {
+    sessionId: "s-4", repository, baseBranch: "main", workBranch: "pi-desktop/s4", path: "/w/worktrees/s4",
+    mainPath: "/w/repos/octo/repo", baseCommit: "c".repeat(40), createdAt: "2026-11-20T00:00:00.000Z",
+    setup: { status: "ok" },
+  };
+  const f = createFixture({
+    bindings: {
+      "s-4": { sessionId: "s-4", environmentId: "env-1", hostKey: "h1", repository, baseBranch: "main", state: "preparing", jobId: "job-9" },
+    },
+    workspaceGit: {
+      async job(_hostKey, jobId) {
+        return { jobId, kind: "prepare", state: "succeeded", phase: "done", worktree };
+      },
+    },
+  });
+  try {
+    const result = await f.workspaces.cancelPreparation("s-4");
+    assert.equal(result.state, "ready");
+    assert.equal(result.workBranch, "pi-desktop/s4");
+    assert.equal(f.bindings.get("s-4").path, "/w/worktrees/s4");
+  } finally {
+    f.workspaces.dispose();
+  }
 });

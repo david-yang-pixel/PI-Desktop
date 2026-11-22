@@ -68,6 +68,7 @@ export function createSessionWorkspaces(deps: {
   const recovering = new Set<string>();
   const reclaiming = new Map<string, Promise<WorkspaceGitReclaimResult>>();
   const rerunSetups = new Set<string>();
+  const cancelling = new Map<string, Promise<SessionRemoteRepository | null>>();
   let disposed = false;
   /** Ends waits that nothing else owns, such as a delete's job stop. */
   const disposal = new AbortController();
@@ -241,7 +242,9 @@ export function createSessionWorkspaces(deps: {
     }
   }
   function watch(sessionId: string) {
-    if (disposed || jobs.has(sessionId)) return;
+    // A cancel in flight decides the binding's state; a reconnect must not
+    // start polling the job it is stopping.
+    if (disposed || jobs.has(sessionId) || cancelling.has(sessionId)) return;
     const controller = new AbortController();
     const done = monitor(sessionId, controller.signal).catch((error) => log("Could not monitor repository workspace", error))
       .finally(() => jobs.delete(sessionId));
@@ -321,6 +324,41 @@ export function createSessionWorkspaces(deps: {
       }
     } finally {
       recovering.delete(sessionId);
+    }
+  }
+
+  async function cancelPreparation(sessionId: string): Promise<SessionRemoteRepository | null> {
+    const current = await binding(sessionId);
+    if (current?.state !== "preparing") {
+      throw remoteError(ErrorCodes.CONFLICT, "Only a preparing workspace can be cancelled");
+    }
+    rerunSetups.delete(sessionId);
+    const monitorTask = jobs.get(sessionId);
+    monitorTask?.controller.abort();
+    await monitorTask?.done;
+    const stopped = await binding(sessionId);
+    if (stopped?.state !== "preparing") return stopped ? publicBinding(stopped) : null;
+    let finished: WorkspaceGitJob | undefined;
+    if (stopped.jobId) {
+      await stopJob(stopped.hostKey, stopped.jobId);
+      finished = await git().job(stopped.hostKey, stopped.jobId).catch((error: unknown) => {
+        if (remoteCode(error) === ErrorCodes.WORKSPACE_GIT_JOB_NOT_FOUND || offlineError(error)) return undefined;
+        throw error;
+      });
+    }
+    const patch = finished?.kind === "prepare" && finished.state === "succeeded" && finished.worktree
+      && !stopped.requireSetupOnRetry
+      ? readyPatch(finished.worktree)
+      : { state: "failed", jobId: null, error: {
+        code: ErrorCodes.REMOTE_WORKSPACE_CANCELLED, message: "Workspace preparation was cancelled",
+      } };
+    try {
+      return announce(await update(sessionId, patch, "preparing"));
+    } catch (error) {
+      // Deleted or settled while the job was stopping.
+      const latest = await binding(sessionId);
+      if (latest?.state === "preparing") throw error;
+      return latest ? publicBinding(latest) : null;
     }
   }
 
@@ -475,6 +513,18 @@ export function createSessionWorkspaces(deps: {
       await monitorTask?.done;
       const current = await binding(sessionId);
       if (current?.jobId) await stopJob(current.hostKey, current.jobId);
+    },
+    /**
+     * The user's Cancel while preparing: stop the Host job, then leave the
+     * binding `failed` with a cancelled reason so Retry prepares it again.
+     * A job that finished before the cancel reached it keeps its result.
+     */
+    cancelPreparation(sessionId: string): Promise<SessionRemoteRepository | null> {
+      const existing = cancelling.get(sessionId);
+      if (existing) return existing;
+      const task = cancelPreparation(sessionId).finally(() => cancelling.delete(sessionId));
+      cancelling.set(sessionId, task);
+      return task;
     },
     async resume(hostKey?: string) {
       const bindings = (await listBindings(["preparing", "ready", "reclaiming", "reclaimed", "failed"]))

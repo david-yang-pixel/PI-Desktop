@@ -89,6 +89,10 @@ export const ko = {
       setupFailed: "설정 스크립트가 실패했습니다. 작업 공간은 준비되었습니다.",
       showLog: "로그 보기",
     },
+    preparationControl: {
+      cancel: "취소",
+      cancelled: "준비를 취소했습니다. 다시 시작하려면 다시 시도를 선택하세요.",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

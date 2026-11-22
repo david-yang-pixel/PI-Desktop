@@ -89,6 +89,10 @@ export const zhCN = {
       setupFailed: "初始化脚本运行失败。工作区已就绪。",
       showLog: "显示日志",
     },
+    preparationControl: {
+      cancel: "取消",
+      cancelled: "你已取消准备。选择“重试”可重新开始。",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

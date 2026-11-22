@@ -326,6 +326,7 @@ codes surface through the same error object as any other call.
 | `PAIRING_TOKEN_EXPIRED` | no | the single-use pairing token expired before pairing completed |
 | `CAPABILITY_UNAVAILABLE` | no | an operation was requested for a capability the host advertised as unavailable (e.g. attachments, tool relay) |
 | `REMOTE_WORKSPACE_NOT_READY` | yes | a repository session has no ready worktree binding |
+| `REMOTE_WORKSPACE_CANCELLED` | yes | the user cancelled a repository workspace's preparation; the binding is `failed` and Retry prepares it again |
 | `REMOTE_ENVIRONMENT_NOT_FOUND` | no | the selected environment or its paired host no longer exists |
 | `REMOTE_TARGET_UNSUPPORTED` | no | the selected host lacks Git workspaces and needs an update |
 | `REMOTE_TARGET_HOST_OFFLINE` | yes | the selected paired host is unreachable |

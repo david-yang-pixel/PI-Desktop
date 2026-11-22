@@ -89,6 +89,10 @@ export const es = {
       setupFailed: "El script de configuración falló. El espacio de trabajo está listo.",
       showLog: "Mostrar registro",
     },
+    preparationControl: {
+      cancel: "Cancelar",
+      cancelled: "Cancelaste la preparación. Selecciona Reintentar para iniciarla de nuevo.",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

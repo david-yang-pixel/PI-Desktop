@@ -89,6 +89,10 @@ export const fr = {
       setupFailed: "Le script d’initialisation a échoué. L’espace de travail est prêt.",
       showLog: "Afficher le journal",
     },
+    preparationControl: {
+      cancel: "Annuler",
+      cancelled: "Vous avez annulé la préparation. Sélectionnez Réessayer pour la relancer.",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

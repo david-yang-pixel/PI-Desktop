@@ -28,6 +28,7 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   [ErrorCodes.REMOTE_TARGET_UNSUPPORTED, HOST_OUTDATED],
   [ErrorCodes.REMOTE_ENVIRONMENT_NOT_FOUND, "sessionTarget.environmentUnavailable"],
   [ErrorCodes.REMOTE_WORKSPACE_NOT_READY, "sessionTarget.errors.workspaceNotReady"],
+  [ErrorCodes.REMOTE_WORKSPACE_CANCELLED, "sessionTarget.preparationControl.cancelled"],
   [ErrorCodes.WORKSPACE_GIT_UNAVAILABLE, "sessionTarget.errors.gitUnavailable"],
   [ErrorCodes.WORKSPACE_GIT_AUTH_REQUIRED, "sessionTarget.errors.gitAuthRequired"],
   [ErrorCodes.WORKSPACE_GIT_REPOSITORY_NOT_FOUND, "errors.GITHUB_NOT_FOUND"],
