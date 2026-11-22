@@ -59,6 +59,8 @@ export type UserMcpRuntimeOptions = {
    * servers.
    */
   createClient: (config: UserMcpClientConfig) => UserMcpClient;
+  /** In-memory client factory for the marked built-in GitHub record only. */
+  createBuiltinGitHubClient?: (config: UserMcpClientConfig, token: string) => UserMcpClient;
   oauth?: UserMcpOAuthHandler;
   audit?: (entry: Record<string, unknown>) => void;
   log?: (level: "info" | "warn" | "error", message: string, data?: unknown) => void;
@@ -486,12 +488,15 @@ export class UserMcpRuntime {
     // Token refresh can run while Test connection or another session arrives.
     // Let existing calls/handshakes finish; rotate the transport when idle.
     if (
-      existing && record.transport === "http" && existing.oauthToken !== oauthToken &&
-      !existing.connecting && existing.activeCalls === 0
+      existing && record.transport === "http" && existing.oauthToken !== oauthToken
     ) {
-      existing.client.close();
-      this.entries.delete(key);
-      existing = undefined;
+      if (!existing.connecting && existing.activeCalls === 0) {
+        existing.client.close();
+        this.entries.delete(key);
+        existing = undefined;
+      } else if (isBuiltinGitHub(record)) {
+        return { tools: [] };
+      }
     }
 
     if (!existing && !this.makeRoom()) {
@@ -589,7 +594,7 @@ export class UserMcpRuntime {
       typeof record.timeoutSeconds === "number" && record.timeoutSeconds > 0
         ? record.timeoutSeconds * 1000
         : undefined;
-    const client = this.options.createClient({
+    const config: UserMcpClientConfig = {
       // Stdio servers inherit the session workspace as their cwd. HTTP
       // transports do not spawn a child and keep the existing home default.
       rootPath: record.transport === "stdio" ? workspacePath(projectPath) : homedir(),
@@ -610,7 +615,10 @@ export class UserMcpRuntime {
       connectTimeoutMs: customTimeoutMs ?? this.options.connectTimeoutMs,
       callTimeoutMs: customTimeoutMs ? Math.max(customTimeoutMs, this.options.callTimeoutMs ?? 0) : this.options.callTimeoutMs,
       discoveryTimeoutMs: customTimeoutMs ? Math.max(customTimeoutMs, this.options.discoveryTimeoutMs ?? 0) : this.options.discoveryTimeoutMs,
-    });
+    };
+    const client = isBuiltinGitHub(record) && oauthToken && this.options.createBuiltinGitHubClient
+      ? this.options.createBuiltinGitHubClient(config, oauthToken)
+      : this.options.createClient(config);
     const entry: Entry = {
       key,
       workspace: record.transport === "stdio" ? workspaceIdentity(projectPath) : null,

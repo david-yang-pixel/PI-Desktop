@@ -274,19 +274,22 @@ export function AppShell() {
                 </div>
               )}
 
-              <Suspense fallback={<RoutePending />}>
-                {page === "scheduled" ? (
-                  <div className="route-surface route-page">
-                    <ScheduledPage />
-                  </div>
-                ) : page === "plugins" ? (
-                  <div className="route-surface route-page">
-                    <PluginsPage />
-                  </div>
-                ) : (
-                  <ChatSurface visible={page === "chat"} />
-                )}
-              </Suspense>
+              <div className="conversation-content-row">
+                <Suspense fallback={<RoutePending />}>
+                  {page === "scheduled" ? (
+                    <div className="route-surface route-page">
+                      <ScheduledPage />
+                    </div>
+                  ) : page === "plugins" ? (
+                    <div className="route-surface route-page">
+                      <PluginsPage />
+                    </div>
+                  ) : (
+                    <ChatSurface visible={page === "chat"} />
+                  )}
+                </Suspense>
+                {page === "chat" && <div id="conversation-details-dock" />}
+              </div>
             </section>
           )}
 

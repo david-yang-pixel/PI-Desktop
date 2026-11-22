@@ -647,6 +647,7 @@ async function handle(method: string, params: any): Promise<unknown> {
       const runtime = runtimes.get(sessionId);
       return {
         status: runtime?.getStatus() ?? {
+          loadedExternalToolNames: [],
           sessionId,
           isRunning: false,
           pendingToolConfirmations: 0,

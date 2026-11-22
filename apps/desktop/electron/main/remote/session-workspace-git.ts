@@ -74,13 +74,14 @@ export function createSessionWorkspaceGit(deps: {
       while (true) {
         const job = await workspaces.git().job(binding.hostKey, jobId);
         if (job.kind !== "push") throw remoteError(ErrorCodes.WORKSPACE_GIT_BUSY, "Another Git operation is running");
-        emit(IPC.event.remoteSessionPushProgress, { sessionId, phase: job.phase, progress: job.progress });
         if (job.state === "succeeded") return readStatus(binding);
         if (job.state !== "running") throw remoteError(job.error?.code ?? ErrorCodes.WORKSPACE_GIT_FAILED, job.error?.message ?? "Could not push the work branch");
+        emit(IPC.event.remoteSessionPushProgress, { sessionId, active: true, phase: job.phase, progress: job.progress });
         await sleep(Date.now() - started < 30_000 ? 1_000 : 2_000, null, { ref: false });
       }
     } finally {
       pushJobs.delete(sessionId);
+      emit(IPC.event.remoteSessionPushProgress, { sessionId, active: false, phase: "done" });
     }
   }
   async function lookupOpenPullRequest(sessionId: string) {

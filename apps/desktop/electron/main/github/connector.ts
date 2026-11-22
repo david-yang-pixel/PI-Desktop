@@ -4,8 +4,8 @@
  * One main-process service owns the user's GitHub credential and everything
  * that can change it: a device login running in the background, a pasted
  * token, and disconnect. The renderer sees an account, its scopes, and a
- * connection state; the token leaves this module only through `token()`,
- * which is for main-process callers and is never wired to IPC.
+ * connection state. Only main-process callers can access the token or
+ * spend it on a connector-owned operation.
  *
  * Three rules shape the code:
  *
@@ -55,6 +55,8 @@ export type GitHubConnector = {
   status(): Promise<GitHubConnectorStatus>;
   /** The stored token. Main-process callers only; never returned over IPC. */
   token(): Promise<string | null>;
+  /** Run REST fallback with the same still-current Device Flow credential. Main only. */
+  withAgentToolsDeviceToken<T>(expectedToken: string, work: (token: string) => Promise<T>): Promise<T | null>;
   onChange(listener: (status: GitHubConnectorStatus) => void): () => void;
   startDeviceLogin(input: { allowWorkflowScope: boolean }): Promise<{ loginId: string }>;
   cancelLogin(loginId: string): Promise<boolean>;
@@ -429,6 +431,14 @@ export function createGitHubConnector(deps: GitHubConnectorDeps): GitHubConnecto
     async token() {
       const credential = await deps.store.read();
       return credential && credential.token !== rejectedToken ? credential.token : null;
+    },
+
+    async withAgentToolsDeviceToken(expectedToken, work) {
+      const credential = await deps.store.read();
+      if (disposed || credential?.kind !== "oauth" || credential.token !== expectedToken || credential.token === rejectedToken) {
+        return null;
+      }
+      return spend(credential, work);
     },
 
     cancelPendingLogin: abandonLogin,

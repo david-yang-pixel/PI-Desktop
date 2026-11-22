@@ -123,8 +123,12 @@ globalThis.workspacePrepProbe = async () => {
     interpolation: { escapeValue: false },
   });
   const calls = [];
+  const listeners = new Map();
   window.piDesktop = {
-    on() { return () => {}; },
+    on(channel, listener) {
+      listeners.set(channel, listener);
+      return () => listeners.delete(channel);
+    },
     async invoke(channel, input) {
       calls.push({ channel, input });
       return { ok: true, data: {} };
@@ -150,6 +154,15 @@ globalThis.workspacePrepProbe = async () => {
   flushSync(() => view.render(<Surface />));
   const button = (label) => [...rootEl.querySelectorAll("button")].find((el) => el.textContent.trim() === label);
 
+  const notify = (sessionId, active, percent) => flushSync(() =>
+    listeners.get(IPC.event.remoteSessionPushProgress)?.({ sessionId, active, progress: { percent } }));
+  notify("another", true, 33);
+  if (rootEl.textContent.includes("33%")) throw new Error("displayed another session's push");
+  notify("session-1", true, 67);
+  if (!rootEl.textContent.includes("67%")) throw new Error("missing active session push percentage");
+  notify("session-1", false);
+  if (rootEl.textContent.includes("67%")) throw new Error("completed push still visible");
+
   // Dismiss hides the banner, then a retry transition + second failure resets dismissed.
   button("Dismiss").click();
   flushSync(() => {});
@@ -173,7 +186,7 @@ globalThis.workspacePrepProbe = async () => {
 };
 `;
 
-test("failed setup Retry button invokes retryRemoteSessionWorkspace and dismiss resets on retry", {
+test("the composer scopes and clears push progress and retries failed setup", {
   timeout: 75_000,
   skip: process.platform === "linux" && !process.env.DISPLAY && "Isolated Electron UI test requires a display",
 }, async () => {

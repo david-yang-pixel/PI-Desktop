@@ -568,6 +568,7 @@ export function createPluginServices({
   userMcp = new UserMcpRuntime({
     createClient: (config) => new McpServerClient(config),
     oauth: githubMcp.oauth(mcpOAuth),
+    createBuiltinGitHubClient: githubMcp.createClient,
     connectTimeoutMs: MCP_CONNECT_TIMEOUT_MS,
     callTimeoutMs: MCP_CALL_TIMEOUT_MS,
     discoveryTimeoutMs: MCP_TOOL_DISCOVERY_TIMEOUT_MS,

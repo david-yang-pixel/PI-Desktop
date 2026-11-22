@@ -774,6 +774,8 @@ function normalizePlansChangedEvent(value: unknown): PlanningStateEvent {
   };
 }
 
+type RemoteSessionPushProgress = { sessionId: string; active: boolean; progress?: { percent?: number } };
+
 export const api = {
   getVersion: () => invoke<AppVersionInfo>(IPC.invoke.appGetVersion),
   health: () => invoke<HostHealth>(IPC.invoke.appHealth),
@@ -1134,9 +1136,9 @@ export const api = {
   onRemoteSessionWorkspaceChanged: (callback: (event: { sessionId: string; remoteRepository: SessionRemoteRepository | null }) => void) =>
     window.piDesktop?.on?.(IPC.event.remoteSessionWorkspaceChanged, (value) =>
       callback(value as { sessionId: string; remoteRepository: SessionRemoteRepository | null })) ?? (() => undefined),
-  onRemoteSessionPushProgress: (callback: (event: { sessionId: string; progress?: { percent?: number } }) => void) =>
+  onRemoteSessionPushProgress: (callback: (event: RemoteSessionPushProgress) => void) =>
     window.piDesktop?.on?.(IPC.event.remoteSessionPushProgress, (value) =>
-      callback(value as { sessionId: string; progress?: { percent?: number } })) ?? (() => undefined),
+      callback(value as RemoteSessionPushProgress)) ?? (() => undefined),
   onEnvironmentsChanged: (callback: () => void) =>
     window.piDesktop?.on?.(IPC.event.environmentsChanged, callback) ?? (() => undefined),
   getProject: () =>

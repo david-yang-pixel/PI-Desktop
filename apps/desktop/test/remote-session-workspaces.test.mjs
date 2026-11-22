@@ -10,6 +10,8 @@ register(pathToFileURL(join(here, "helpers/ts-import-hooks.mjs")));
 const { ErrorCodes, IPC } = await import("@pi-desktop/shared");
 const { createSessionWorkspaces } = await import("../electron/main/remote/session-workspaces.ts");
 
+const { createSessionWorkspaceGit } = await import("../electron/main/remote/session-workspace-git.ts");
+
 const repository = { owner: "octo", name: "repo" };
 
 function createFixture(options = {}) {
@@ -220,4 +222,40 @@ test("retry on failed setup falls back to omitting environment when deleted and 
   } finally {
     f.workspaces.dispose();
   }
+});
+
+
+test("the repository session reports Git percentages and clears its push progress on a lost Host connection", { timeout: 5_000 }, async () => {
+  const events = [];
+  const offline = new Error("Host disconnected");
+  let polls = 0;
+  const git = {
+    status: async () => ({ worktree: {}, unpushedCommits: 1 }),
+    push: async () => ({ jobId: "job-1" }),
+    async job() {
+      if (polls++) throw offline;
+      return { kind: "push", state: "running", phase: "pushing", progress: { percent: 67 } };
+    },
+  };
+  const service = createSessionWorkspaceGit({
+    workspaces: {
+      binding: async () => ({ sessionId: "s", state: "ready", hostKey: "h", workBranch: "work", baseBranch: "main" }),
+      git: () => git,
+    },
+    emit(channel, payload) {
+      assert.equal(channel, IPC.event.remoteSessionPushProgress);
+      events.push(payload);
+    },
+  });
+  // The production poll timer is unreferenced so it cannot hold Electron open.
+  const keepAlive = setInterval(() => {}, 5_000);
+  try {
+    await assert.rejects(service.push("s"), (error) => error === offline);
+  } finally {
+    clearInterval(keepAlive);
+  }
+  assert.deepEqual(events, [
+    { sessionId: "s", active: true, phase: "pushing", progress: { percent: 67 } },
+    { sessionId: "s", active: false, phase: "done" },
+  ]);
 });

@@ -156,8 +156,6 @@ export function SessionTargetRow() {
         {t(status?.needsReauthentication ? "sessionTarget.reconnectGitHub" : "sessionTarget.connectGitHub")}
       </Button>}
     </Picker>}
-    {environment && !repository && (environment.setupScript || environment.variables.length > 0) &&
-      <span className="session-target-note">{t("sessionTarget.repositorySetupOnly")}</span>}
     {environment && connected && repository && <Picker label={target.baseBranch ?? t("sessionTarget.chooseBranch")} title={t("sessionTarget.chooseBranch")}
       open={menu === "branch"} toggle={() => open("branch")} close={close} search>
       {search(t("sessionTarget.searchBranches"))}{errorRow}

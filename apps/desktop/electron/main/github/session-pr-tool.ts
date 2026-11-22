@@ -4,6 +4,7 @@ import type { createSessionWorkspaceGit } from "../remote/session-workspace-git"
 import { remoteError, type SessionWorkspaces } from "../remote/session-workspaces";
 
 export const githubSessionPullRequestTool = {
+  externalToolSource: "connector" as const,
   name: "plugin_pi_github_CreateSessionPullRequest",
   description: "Use PI-Desktop's built-in GitHub connector to open or return a pull request for this cloud session's repository and base branch. Use this tool for the current workspace when the user requests a PR. Commit the intended changes first. The tool pushes the session branch if needed and returns the PR URL.",
   risk: "high" as const,

@@ -34,7 +34,7 @@ const { createGitHubSessionPullRequestTool, githubSessionPullRequestTool } = awa
 const { createHostRuntime } = await import("../apps/desktop/electron/main/runtime/host.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
 const { saveComposerPasteFiles } = await import("../apps/desktop/electron/main/composer-paste.ts");
-const { formatFileInsert } = await import("../packages/shared/dist/index.js");
+const { formatFileInsert, IPC } = await import("../packages/shared/dist/index.js");
 const { startGitHttpFixture } = await import("./e2e/git-http-fixture.mjs");
 
 assert.ok(process.env.PI_HOST_CORE_BINARY, "PI_HOST_CORE_BINARY must name the current candidate Rust binary");
@@ -505,6 +505,8 @@ try {
       isPullRequestTurnActive = true;
       const published = await publishByAgent({ title: "Fixture PR", draft: true });
       assert.equal(published.ok, true, JSON.stringify(published));
+      const pushEvents = events.filter(({ channel, payload }) => channel === IPC.event.remoteSessionPushProgress && payload.sessionId === session.id);
+      assert.equal(pushEvents.at(-1)?.payload.active, false, "the composer must clear progress when publication finishes");
       const pr = published.content;
       assert.equal(pr.number, 1);
       assert.equal(pr.draft, true);

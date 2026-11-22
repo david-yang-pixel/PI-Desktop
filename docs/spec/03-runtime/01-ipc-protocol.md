@@ -1525,6 +1525,14 @@ sends one only in `setToken` and must not keep it afterwards. Finding and
 creating pull requests are main-process methods of the same service and have
 no renderer channel in this version.
 
+### Remote repository push progress
+
+`pi-desktop/remoteSession/event/pushProgress` carries `sessionId`, `active`,
+`phase`, and optional Git progress. While `active` is true, the composer for
+that session shows the push status with `progress.percent` when available.
+When polling ends, main emits `active: false` so the renderer clears the
+status after success, failure, cancellation, or loss of the Host connection.
+
 ## 9. Project API
 
 - `project/open()`: system directory picker

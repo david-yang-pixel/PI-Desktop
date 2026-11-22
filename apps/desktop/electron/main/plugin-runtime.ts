@@ -163,6 +163,7 @@ export type RegisteredCommand = {
 };
 
 export type RegisteredPluginTool = {
+  externalToolSource?: "mcp";
   fullName: string;
   pluginId: string;
   name: string;
@@ -4184,6 +4185,7 @@ export class PluginRuntime {
         const name = pluginMcpToolKey(server.id, tool.name);
         const fullName = pluginToolName(pluginId, name);
         this.tools.set(fullName, {
+          externalToolSource: "mcp",
           fullName,
           pluginId,
           name,

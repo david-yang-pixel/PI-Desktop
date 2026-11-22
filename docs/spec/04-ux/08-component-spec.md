@@ -325,7 +325,7 @@ reached from the command palette / application menu, not the top bar.)
 ### 2.2 Anatomy
 
 ```text
-[☰ Sidebar] [Folder · Project / Task title]       [Conversation details] [More] [Work panel]
+[☰ Sidebar] [Folder · Project / Task title]       [Conversation details] [Work panel]
 ```
 
 The sidebar toggle appears only while the sidebar is collapsed. The expanded
@@ -340,25 +340,24 @@ project crumb. Before the first prompt, the active workspace names the draft.
 The title follows the crumb after a `/` separator. The native tooltip retains
 the full `Project · Task title` text.
 
-More opens the same session actions as the sidebar row, including rename,
-pin, archive, copy, Git and deletion where the session supports them. The
-menu stays reachable while the sidebar is collapsed.
+The sidebar row menu provides session actions such as rename, pin, archive,
+copy, Git and deletion where the session supports them.
 
 For cloud sessions, the left side displays the session title as read-only text.
 This includes Host-owned sessions and Desktop-owned sessions bound to a remote
 workspace. Workspace preparation and recovery feedback appear beside the
 composer. Users can open published pull requests from links in the conversation.
 
-Conversation details opens a right-aligned, read-only sheet for the active
+Conversation details toggles a non-modal sidebar beside the chat for the active
 session. It shows the saved execution location and available workspace,
 repository, and branch metadata. Context occupancy follows the composer readout.
-Tools are grouped by name from the loaded conversation. Changes lists recorded
+Loaded tools lists only connector and MCP names from the session runtime catalog, including tools that have never been invoked. Changing modes can change this list. Older Hosts without an inventory show an unavailable state. Changes lists recorded
 file operations from the loaded transcript, newest first, with expandable,
 read-only diffs. A saved GitHub pull request is linked when available.
-Open in Review closes the sheet and reveals the recorded changes in the
+Open in Review closes the sidebar and reveals the recorded changes in the
 session's Review tab when that work panel surface is available.
-Closing the sheet returns focus to its button. Changing sessions closes
-the sheet.
+Closing the sidebar returns focus to its button. Changing sessions closes
+the sidebar.
 
 The Composer owns the Agent/Plan/Goal control and the combined model × reasoning
 selection (§11).

@@ -1,8 +1,7 @@
 /**
  * The GitHub REST client behind the connector (ADR github-connector).
  *
- * This is the only code that spends the user's GitHub token, so it is narrow
- * on purpose:
+ * The shared request transport for the connector and its agent REST tools:
  *
  * - Every request goes to `https://api.github.com`. The host is a constant;
  *   no caller supplies a URL, and a redirect is never followed, so the
@@ -107,7 +106,7 @@ function invalid(what: string): GitHubApiError {
 }
 
 /** `/repos/{owner}/{repo}` with both segments validated and encoded. */
-function repositoryPath(repository: GitHubRepositoryRef): string {
+export function repositoryPath(repository: { owner: unknown; name: unknown }): string {
   if (!repository || typeof repository !== "object") throw invalid("repository");
   if (!isGitHubOwner(repository.owner)) throw invalid("owner name");
   if (!isGitHubRepositoryName(repository.name)) throw invalid("repository name");
@@ -337,18 +336,20 @@ function createdAt(raw: unknown): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
+export function createGitHubRequester(options: GitHubApiOptions = {}) {
   const timeoutMs = options.timeoutMs ?? GITHUB_API_TIMEOUT_MS;
   const now = options.now ?? Date.now;
 
   /** One request to the fixed API host. Resolves the response and its parsed JSON body. */
-  async function request(
+  return async function request(
     token: string,
     method: "GET" | "POST",
     path: string,
     query?: Record<string, string>,
     body?: unknown,
+    signal?: AbortSignal,
   ): Promise<{ response: Response; json: unknown }> {
+    signal?.throwIfAborted();
     // A stored record is shape-checked on read; this keeps any other caller
     // from putting a newline into the Authorization header.
     if (!isGitHubTokenShape(token)) {
@@ -364,11 +365,12 @@ export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
       Authorization: `Bearer ${token}`,
       "User-Agent": USER_AGENT,
     };
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
     const init: RequestInit = {
       method,
       headers,
       redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
     };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -380,6 +382,7 @@ export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
     try {
       response = await doFetch(url.toString(), init);
     } catch (error) {
+      signal?.throwIfAborted();
       if (isRefusedRedirect(error)) throw redirectFailure(path);
       const name = (error as { name?: unknown } | null)?.name;
       if (name === "TimeoutError" || name === "AbortError") {
@@ -403,9 +406,14 @@ export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
     try {
       return { response, json: (await response.json()) as unknown };
     } catch {
+      signal?.throwIfAborted();
       throw unreadable(response.status);
     }
-  }
+  };
+}
+
+export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
+  const request = createGitHubRequester(options);
 
   /**
    * Read a paged list to its end or to `pageLimit` pages. `truncated` is true
