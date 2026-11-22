@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace_git::locks::Wait;
 
 pub(super) async fn start_prepare(
     state: &SharedState,
@@ -128,7 +129,7 @@ async fn run_prepare(
         // behind; the main checkout stays. Only this job can have registered
         // an unfinished creation: an earlier one was rolled back above.
         Ok(Some(record)) if record.recovery.branch_creation_pending => {
-            if let Err(error) = roll_back_unfinished(&state, &context, record).await {
+            if let Err(error) = roll_back_unfinished(&state, &context, record, Wait::Block).await {
                 tracing::warn!(%error, "could not roll back an unfinished worktree");
             }
         }
@@ -309,8 +310,9 @@ pub(super) async fn roll_back_unfinished(
     state: &SharedState,
     context: &WorkspaceGitContext,
     mut record: WorktreeRecord,
+    wait: Wait,
 ) -> Result<Option<WorktreeRecord>, WorkspaceGitError> {
-    rollback::roll_back(&context.git, &record).await?;
+    rollback::roll_back(&context.git, &record, wait).await?;
     let st = state.lock().await;
     if record.recovery.branch_creation_pending {
         registry::remove(&st.db, &record.installation_id, &record.session_id)?;
@@ -328,7 +330,9 @@ async fn discard_unfinished(
 ) -> Result<(), WorkspaceGitError> {
     match record_of(state, &request.installation_id, &request.session_id).await? {
         Some(record) if record.recovery.branch_creation_pending => {
-            roll_back_unfinished(state, context, record).await.map(drop)
+            roll_back_unfinished(state, context, record, Wait::Block)
+                .await
+                .map(drop)
         }
         _ => Ok(()),
     }

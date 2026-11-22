@@ -478,7 +478,9 @@ pub async fn remove_checked(
     last_pushed: Option<&str>,
 ) -> Result<(bool, u32, u32), WorkspaceGitError> {
     let common_dir = repository::common_dir(main_path);
-    let _lock = repo_lock::lock(&common_dir).await;
+    // Answered inline: a busy repository is reported, never waited out past
+    // the request's budget.
+    let _lock = super::locks::repository(&common_dir, super::locks::Wait::Bounded).await?;
     let counts = if crate::session_worktrees::remove::is_real_dir(path) {
         let actual = git
             .run(

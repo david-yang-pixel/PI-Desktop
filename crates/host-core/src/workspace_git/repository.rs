@@ -13,7 +13,6 @@ use std::time::Duration;
 use super::jobs::JobProgress;
 use super::WorkspaceGitError;
 use crate::session_worktrees::git::{parse_version, GitError, GitOutput, GitRunner};
-use crate::session_worktrees::repo_lock;
 
 /// `GIT_CONFIG_COUNT`, which carries the proxy rewrite to host-run git and to
 /// the agent's own git, was added in git 2.31.0. An older git would ignore it
@@ -132,7 +131,11 @@ pub async fn ensure(
     };
     fs::create_dir_all(parent)?;
     check_git(ctx.git, parent).await?;
-    let _lock = repo_lock::lock(&common_dir(main_path)).await;
+    // Clone and fetch of one repository take turns under the transfer lock.
+    // They do not hold the repository lock: worktree steps of other sessions
+    // (creation, removal) go on while the network is slow, and git's own
+    // ref locking keeps a fetch and those steps apart.
+    let _transfer = super::locks::transfer(&common_dir(main_path)).await;
     remove_leftover_clones(parent, name)?;
     match fs::symlink_metadata(main_path) {
         Ok(metadata) if metadata.is_dir() => {

@@ -19,10 +19,9 @@ use std::{fs, io};
 
 use super::layout::{short_id, validate_branch, work_branch};
 use super::registry::WorktreeRecord;
-use super::{reclaim, repository, WorkspaceGitError};
+use super::{locks, reclaim, repository, WorkspaceGitError};
 use crate::session_worktrees::git::GitRunner;
 use crate::session_worktrees::remove::{clear_contents, drop_admin_entry};
-use crate::session_worktrees::repo_lock;
 use crate::workspace::simple_canonicalize;
 
 /// What `.git` and git's `gitdir` back-link can be: a line holding a path.
@@ -51,7 +50,11 @@ fn moved() -> WorkspaceGitError {
 /// is left in place: the registration is dropped and no longer claims it.
 /// For a checkout restored on a retained branch, it stops the rollback,
 /// because clearing the flag would make that entry the session's checkout.
-pub async fn roll_back(git: &GitRunner, record: &WorktreeRecord) -> Result<(), WorkspaceGitError> {
+pub async fn roll_back(
+    git: &GitRunner,
+    record: &WorktreeRecord,
+    wait: locks::Wait,
+) -> Result<(), WorkspaceGitError> {
     validate_branch(&record.work_branch)?;
     let path = Path::new(&record.path);
     if record.work_branch != work_branch(&record.installation_id, &record.session_id)
@@ -62,7 +65,7 @@ pub async fn roll_back(git: &GitRunner, record: &WorktreeRecord) -> Result<(), W
     }
     let main = Path::new(&record.main_path);
     let common = repository::common_dir(main);
-    let _lock = repo_lock::lock(&common).await;
+    let _lock = locks::repository(&common, wait).await?;
 
     let created_branch = if record.recovery.branch_creation_pending {
         let head = local_branch(git, main, &record.work_branch).await?;

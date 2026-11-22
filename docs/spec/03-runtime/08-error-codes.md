@@ -338,7 +338,7 @@ codes surface through the same error object as any other call.
 | `WORKSPACE_GIT_REPOSITORY_NOT_FOUND` | no | the repository does not exist on GitHub or is not visible to the credential |
 | `WORKSPACE_GIT_BRANCH_NOT_FOUND` | no | the requested base branch does not exist on the remote |
 | `WORKSPACE_GIT_NOT_FOUND` | no | the host has no worktree for this installation and session |
-| `WORKSPACE_GIT_BUSY` | no | a prepare or push job for the same session is still running. Details include its job id |
+| `WORKSPACE_GIT_BUSY` | no | a prepare or push job for the same session is still running (details include its job id), or a removal found the repository busy with another session's step for more than a few seconds (no job id; retry) |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | the job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | a git step failed for another reason; the message carries the tail of git's output |
 | `WORKSPACE_GIT_PUSH_REJECTED` | no | GitHub did not take a push of the work branch: it is not a fast-forward (`non-fast-forward`, `fetch first`), a force-with-lease found the remote branch moved (`stale info`), or a server hook or branch rule declined it; the message carries git's status lines |

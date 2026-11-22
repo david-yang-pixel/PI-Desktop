@@ -857,7 +857,13 @@ Status, removal without `force`, and reclaim apply the same rule. A push the
 Agent makes from Bash is not recorded this way. `workspace/gitRemove` removes the worktree and its local work
 branch. Without `force`, uncommitted files or unpushed commits make it answer
 `{ removed: false, uncommittedFiles, unpushedCommits }` and change nothing.
-The remote branch is never deleted. A restore that stopped while recreating a
+The remote branch is never deleted. Removal is answered inline: if another
+step of the same repository (another session's worktree creation, removal,
+or reclaim) holds the repository for more than a few seconds, it answers
+`WORKSPACE_GIT_BUSY` without a `jobId` and changes nothing, and the caller
+retries. Clone and fetch take turns per repository under their own lock and
+never hold the repository lock across the network, and a push holds neither.
+A restore that stopped while recreating a
 checkout is rolled back first, and removal continues as for a missing
 checkout. A reclamation that stopped part way is removed only with `force`,
 which also discards its quarantined checkout; without `force` the Host
@@ -1493,7 +1499,7 @@ Initial RACP codes are:
 | `WORKSPACE_GIT_REPOSITORY_NOT_FOUND` | no | The repository does not exist or is not visible to the credential |
 | `WORKSPACE_GIT_BRANCH_NOT_FOUND` | no | The base branch does not exist on the remote |
 | `WORKSPACE_GIT_NOT_FOUND` | no | The Host has no worktree for the installation and session |
-| `WORKSPACE_GIT_BUSY` | no | A job for the same session is still running |
+| `WORKSPACE_GIT_BUSY` | no | A job for the same session is still running (details carry its `jobId`), or a removal found the repository busy with another session's step |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | The job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | A git step failed for another reason; the message carries the tail of git's output |
 | `WORKSPACE_GIT_PUSH_REJECTED` | no | GitHub did not take the push: not a fast-forward, a force-with-lease whose remote branch moved, or a hook or branch rule declined it |

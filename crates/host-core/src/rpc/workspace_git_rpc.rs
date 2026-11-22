@@ -32,6 +32,7 @@ use crate::workspace_git::layout::{
     short_id, validate_branch, validate_installation_id, validate_session_id, work_branch, Layout,
     Repository,
 };
+use crate::workspace_git::locks::Wait;
 use crate::workspace_git::reclaim::{self, Refusal, RegisteredPaths};
 use crate::workspace_git::registry::{self, SetupStatus, Variable, WorktreeRecord};
 use crate::workspace_git::repository::{self, NetworkContext, Phase};
@@ -507,7 +508,7 @@ async fn restore_for_setup(
     if record.recovery.checkout_creation_pending {
         // An earlier restore stopped after `git worktree add` started. Its
         // partial checkout is removed and the restore starts over.
-        rollback::roll_back(&context.git, &record).await?;
+        rollback::roll_back(&context.git, &record, Wait::Block).await?;
         record.recovery.checkout_creation_pending = false;
     }
     let _repository = crate::session_worktrees::repo_lock::lock(&paths.common).await;
@@ -797,11 +798,13 @@ async fn remove(
         (record, access)
     };
     if record.recovery.checkout_creation_pending {
-        match prepare::roll_back_unfinished(state, context, record.clone()).await {
+        // Answered inline: a busy repository is reported, not waited out.
+        match prepare::roll_back_unfinished(state, context, record.clone(), Wait::Bounded).await {
             Ok(None) => {
                 return Ok(json!({ "removed": true, "uncommittedFiles": 0, "unpushedCommits": 0 }))
             }
             Ok(Some(remaining)) => record = remaining,
+            Err(error) if error.code == "WORKSPACE_GIT_BUSY" => return Err(error),
             // Kept because its branch gained commits: the checks below
             // count them, and only `force` discards them.
             Err(error) => tracing::info!(%error, "removing an unfinished worktree with checks"),
