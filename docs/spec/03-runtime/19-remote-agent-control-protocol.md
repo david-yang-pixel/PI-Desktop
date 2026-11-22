@@ -805,6 +805,10 @@ type WorkspaceGitJob = {
   `WORKSPACE_GIT_BUSY`.
 - A failing setup script does not fail the job. The worktree reports
   `setup: { status: "failed", logTail }` with the last 16 KiB of output.
+  The live `setupLogTail`, the stored log, and the output of tools in a
+  registered worktree show the GitHub URL wherever the credential proxy's
+  address (and its handle) would appear. Output a tool streams while it
+  runs is not rewritten.
 - A failed or cancelled job keeps the phase it stopped in. The Host keeps at
   most 64 finished jobs for 10 minutes; afterwards, and after a Host restart,
   the id is `WORKSPACE_GIT_JOB_NOT_FOUND` and `workspace/gitList` is the

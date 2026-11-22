@@ -213,3 +213,68 @@ async fn prepare_and_push_report_git_progress_on_running_jobs() {
     assert_eq!(pushed["state"], "succeeded", "{pushed}");
     assert!(pushed.get("progress").is_none());
 }
+
+/// The proxy address carries a handle that is not for the desktop or the
+/// registry: setup output that prints it is stored and reported with the
+/// GitHub URL it stands for, live and at the end.
+#[cfg(unix)]
+#[tokio::test]
+async fn setup_output_never_carries_the_proxy_handle() {
+    let f = Fixture::new();
+    let handle = "ab".repeat(32);
+    let gate = f.dir.path().join("setup-redact.gate");
+    let mut params = f.prepare_params("session-redact", "main");
+    params["environment"] = json!({
+        "variables": [],
+        "setupScript": format!(
+            "echo \"key=$GIT_CONFIG_KEY_0\"; while [ ! -f '{}' ]; do sleep 0.02; done; echo \"again=$GIT_CONFIG_KEY_0\"",
+            gate.display()
+        ),
+    });
+    let job_id = f.start_prepare(params).await;
+    let mut live = None;
+    for _ in 0..1000 {
+        let job = f
+            .call("workspaceGit.job", json!({ "jobId": job_id }))
+            .await
+            .unwrap();
+        if let Some(tail) = job["setupLogTail"]
+            .as_str()
+            .filter(|tail| tail.contains("key="))
+        {
+            live = Some(tail.to_string());
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let live = live.expect("live setup output");
+    assert!(!live.contains(&handle), "{live}");
+    assert!(
+        live.contains("key=url.https://github.com/octo/repo.git.insteadOf"),
+        "{live}"
+    );
+    std::fs::write(&gate, "").unwrap();
+    let (job, _phases) = f.wait(&job_id).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    let tail = job["worktree"]["setup"]["logTail"].as_str().unwrap();
+    assert!(tail.contains("again=url.https://github.com/"), "{tail}");
+    // Not in the job, the listing, or the registry row on disk.
+    let listed = f
+        .call(
+            "workspaceGit.list",
+            json!({ "installationId": INSTALLATION }),
+        )
+        .await
+        .unwrap();
+    for text in [job.to_string(), listed.to_string()] {
+        assert!(!text.contains(&handle), "{text}");
+        assert!(!text.contains("127.0.0.1:4321"), "{text}");
+    }
+    let stored = {
+        let state = f.state.lock().await;
+        crate::workspace_git::registry::get(&state.db, INSTALLATION, "session-redact")
+            .unwrap()
+            .unwrap()
+    };
+    assert!(!stored.setup_log_tail.unwrap().contains(&handle));
+}

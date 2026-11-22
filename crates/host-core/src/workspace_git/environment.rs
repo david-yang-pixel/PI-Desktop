@@ -44,6 +44,40 @@ pub fn proxy_rewrites(proxy_url: &str, repository: &Repository) -> Vec<(String, 
     .collect()
 }
 
+/// `text` with every address of the session's proxy scope replaced by the
+/// GitHub URL it stands for. The handle in the address is usable by any
+/// process of the host user, so it stays out of what is stored in the
+/// registry or sent to the desktop: setup logs and tool output.
+pub fn redact_proxy(proxy_url: &str, repository: &Repository, text: &str) -> String {
+    if !text.contains(proxy_url) {
+        return text.to_string();
+    }
+    let rewrites = proxy_rewrites(proxy_url, repository);
+    let pairs: Vec<(&str, &str)> = rewrites
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    super::repository::redact(&pairs, text)
+}
+
+/// `redact_proxy` applied to every string inside a JSON value.
+pub fn redact_proxy_json(proxy_url: &str, repository: &Repository, value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            if text.contains(proxy_url) {
+                *text = redact_proxy(proxy_url, repository, text);
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| redact_proxy_json(proxy_url, repository, item)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|field| redact_proxy_json(proxy_url, repository, field)),
+        _ => {}
+    }
+}
+
 /// The git configuration for traffic to GitHub from this host, as key and
 /// value pairs for `GIT_CONFIG_COUNT`. host-run git and the Agent's Bash get
 /// the same pairs:
@@ -377,6 +411,30 @@ mod tests {
                 "{url}: {stderr}"
             );
         }
+    }
+
+    #[test]
+    fn redaction_replaces_every_proxy_address_with_the_github_url() {
+        let proxy = proxy();
+        let handle = "ab".repeat(32);
+        let repository = Repository::parse("octo", "repo.js").unwrap();
+        let text = format!(
+            "fatal: unable to access '{proxy}octo/repo.js.git/': boom\nGIT_CONFIG_KEY_0=url.{proxy}octo/repo.js.git.insteadOf\nhttp.{proxy}.proxy\n{proxy}other/x.git"
+        );
+        let redacted = redact_proxy(&proxy, &repository, &text);
+        assert!(!redacted.contains(&handle), "{redacted}");
+        assert!(redacted.contains("unable to access 'https://github.com/octo/repo.js.git/'"));
+        assert!(redacted.contains("url.https://github.com/octo/repo.js.git.insteadOf"));
+        assert!(redacted.contains("https://github.com/other/x.git"));
+        let mut value = serde_json::json!({
+            "stdout": text,
+            "nested": [{ "stderr": format!("see {proxy}") }, 7, null],
+            "plain": "untouched",
+        });
+        redact_proxy_json(&proxy, &repository, &mut value);
+        assert!(!value.to_string().contains(&handle), "{value}");
+        assert_eq!(value["plain"], "untouched");
+        assert_eq!(value["nested"][1], 7);
     }
 
     #[test]

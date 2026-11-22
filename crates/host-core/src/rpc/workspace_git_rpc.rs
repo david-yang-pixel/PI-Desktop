@@ -577,7 +577,10 @@ async fn run_setup(
         };
         let jobs_for_output = jobs.clone();
         let job_id_for_output = job_id.to_owned();
-        let on_output = Arc::new(move |tail| {
+        let proxy_for_output = request.proxy_url.clone();
+        let repository_for_output = record.repository.clone();
+        let on_output = Arc::new(move |tail: String| {
+            let tail = environment::redact_proxy(&proxy_for_output, &repository_for_output, &tail);
             lock(&jobs_for_output).set_setup_log_tail(&job_id_for_output, Some(tail));
         });
         let (status, log) = match shell_id {
@@ -600,7 +603,12 @@ async fn run_setup(
             ),
         };
         record.setup_status = status;
-        record.setup_log_tail = Some(log);
+        // Stored in the registry and sent to the desktop: no proxy handle.
+        record.setup_log_tail = Some(environment::redact_proxy(
+            &request.proxy_url,
+            &record.repository,
+            &log,
+        ));
     }
     if strict && record.setup_status != SetupStatus::Failed {
         let verified = async {

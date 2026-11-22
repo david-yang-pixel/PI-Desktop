@@ -282,7 +282,7 @@ pub(super) fn classify(
 
 /// Replace every proxy address named by a `url.<proxy>.insteadOf` pair with
 /// the URL it rewrites.
-fn redact(config: &[(&str, &str)], text: &str) -> String {
+pub(crate) fn redact(config: &[(&str, &str)], text: &str) -> String {
     let mut text = text.to_string();
     for (key, value) in config {
         let Some(proxy) = key

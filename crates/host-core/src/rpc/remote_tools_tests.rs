@@ -625,13 +625,17 @@ mod worktree_environment {
 
         let proxy = proxy();
         let proxied = probe(&state, &tx, &root.join("nested"), "proxied", Some(&proxy)).await;
+        // The tool sees the proxy address (`for_tool`'s tests pin it), but
+        // its output reports the GitHub URL it stands for: the handle is not
+        // for the desktop or the transcript.
         assert_eq!(
             proxied,
             format!(
-                "from-record|{root_text}|/w/repos/github.com/octo/repo|8|url.{proxy}octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "from-record|{root_text}|/w/repos/github.com/octo/repo|8|url.https://github.com/octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
+        assert!(!proxied.contains("ab".repeat(32).as_str()));
         // The host user's credential helpers, askpass program, and HTTP proxy
         // are out of the picture for the session's git.
         let hardening = run(
@@ -645,7 +649,7 @@ mod worktree_environment {
         .await;
         assert_eq!(
             hardening,
-            format!("url.{proxy}octo/repo.git.insteadOf=[git@github.com:octo/repo.git]|url.{proxy}octo/repo.git.insteadOf=[ssh://git@github.com/octo/repo.git]|credential.helper=[]|core.askPass=[]|http.lowSpeedLimit=[1]|http.lowSpeedTime=[300]|http.{proxy}.proxy=[]|0")
+            "url.https://github.com/octo/repo.git.insteadOf=[git@github.com:octo/repo.git]|url.https://github.com/octo/repo.git.insteadOf=[ssh://git@github.com/octo/repo.git]|credential.helper=[]|core.askPass=[]|http.lowSpeedLimit=[1]|http.lowSpeedTime=[300]|http.https://github.com/.proxy=[]|0"
         );
     }
 
