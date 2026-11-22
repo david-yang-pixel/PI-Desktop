@@ -137,33 +137,49 @@ test("an empty chat names the active workspace and stays read-only", async () =>
   });
 });
 
-test("a remote session shows its remote workspace label and keeps the title read-only", async () => {
+test("cloud sessions leave the conversation topbar clear in both sidebar states", async () => {
   await withTopbar(async ({ render }) => {
-    const html = render({
-      activeSessionId: "remote:42",
-      sessions: [
-        {
-          id: "remote:42",
-          source: "remote",
-          title: "Remote build",
-          /* A remote summary's path is display data, never a local project. */
-          projectPath: "/local-ignored",
-          remoteWorkspaceLabel: "Remote workspace",
-          remoteHostLabel: "builder",
+    const cloud = { id: "cloud", source: "desktop", title: "Remote build" };
+    const projectPath = "remote-project:cloud-fixture";
+    const local = { id: "local", title: "Local task", projectPath: "/local" };
+    const variants = [
+      {
+        ...cloud,
+        projectPath,
+        remoteRepository: {
+          hostKey: "builder",
+          repository: { owner: "octo", name: "repo" },
+          baseBranch: "main",
+          workBranch: "pi-desktop/fixture",
+          state: "ready",
+          pullRequest: { number: 7, url: "https://github.com/octo/repo/pull/7" },
         },
-      ],
-      projectMeta: { "/local-ignored": { name: "Local project" } },
-    });
+      },
+      { ...cloud, projectPath },
+      { ...cloud, remoteWorkspace: { hostKey: "builder", path: "/srv/remote" } },
+      {
+        ...cloud,
+        id: "remote:builder:42",
+        source: "remote",
+        remoteWorkspaceLabel: "Remote workspace",
+        remoteHostLabel: "builder",
+      },
+    ];
 
-    assert.ok(
-      html.includes('class="ct-project-name">Remote workspace</span>'),
-      "the remote label replaces the local project name",
-    );
-    assert.ok(!html.includes("Local project"));
-    assert.ok(!html.includes("ct-title-trigger"), "host-owned titles are not editable here");
-    assert.match(html, /<h1 class="ct-title">Remote build<\/h1>/);
-    assert.ok(html.includes("Remote · builder"));
-    assert.ok(html.includes('title="Remote workspace · Remote build"'));
+    for (const sidebarCollapsed of [false, true]) {
+      for (const session of variants) {
+        const state = { activeSessionId: session.id, sessions: [session, local] };
+        const html = render(state, sidebarCollapsed);
+
+        assert.doesNotMatch(html, /remote-project:|Remote build|Remote workspace|builder|octo\/repo|pi-desktop\/fixture|View PR|ct-title-wrap/);
+        assert.ok(html.includes(`aria-label="${catalogs.en.nav.newTask}"`));
+        assert.ok(html.includes(`aria-label="${catalogs.en.nav.search}"`));
+        assert.match(html, new RegExp(`class="ct-lead" aria-hidden="${!sidebarCollapsed}"`));
+
+        const reopened = render({ ...state, activeSessionId: local.id }, sidebarCollapsed);
+        assert.match(reopened, /class="ct-title-trigger"[^>]*>Local task<\/button>/);
+      }
+    }
   });
 });
 

@@ -340,23 +340,29 @@ platform-formatted shortcut. A custom binding replaces the default; an
 explicitly unbound shortcut is omitted. The accessible name remains the
 localized action label.
 
-The conversation top bar renders for the chat route only; Scheduled, Plugins,
-and Settings keep the frameless drag band. It owns the project breadcrumb, the
-task title, and window actions only. The crumb resolves from the active
-session's project — a remote session's workspace label, a local session's
-project path and naming preference — and is omitted for a temporary chat with
-no project. Before the first prompt there is no session yet, so the active
-workspace names the draft. The title follows the crumb after a `/` separator.
-Its full text remains in the native tooltip as `Project · Task title`. The
-Composer owns the Agent/Plan/Goal control and the combined model × reasoning
+The conversation top bar renders for the chat route only. Scheduled, Plugins,
+and Settings keep the frameless drag band. Local chats resolve the breadcrumb
+from the session's project path and naming preference. Temporary chats have no
+project crumb. Before the first prompt, the active workspace names the draft.
+The title follows the crumb after a `/` separator. The native tooltip retains
+the full `Project · Task title` text.
+
+For cloud sessions, the 46px band leaves the content area empty and draggable
+with the sidebar open or closed. This includes Host-owned sessions and
+Desktop-owned sessions bound to a remote workspace. The sidebar identifies the
+project and task. Workspace preparation and recovery feedback appear beside the
+composer. The window actions stay in their existing positions, and users can
+open published pull requests from links returned in the conversation.
+
+The Composer owns the Agent/Plan/Goal control and the combined model × reasoning
 selection (§11).
 
 The local task title is a rename trigger. Activating it swaps the heading for a
 boxless inline editor seeded with the stored title; Enter or blur commits the
 trimmed value through the existing session-rename path, Escape cancels, and an
 in-flight IME composition owns both keys. Empty and unchanged drafts are
-no-ops. Remote and scheduled-run transcripts render a plain title because their
-titles are host-owned. The editor closes if the active session changes.
+no-ops. Scheduled-run transcripts render a plain title. The editor closes if
+the active session changes.
 
 ### 2.3 Layout
 

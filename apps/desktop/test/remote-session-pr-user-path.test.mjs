@@ -11,7 +11,6 @@ import { repositoryRoot, resolveElectronBinary } from "../../../scripts/e2e/boot
 const root = repositoryRoot();
 const { build } = createRequire(join(root, "packages/agent-runtime/package.json"))("esbuild");
 const fixture = String.raw`
-import React from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import i18n from "i18next";
@@ -19,30 +18,22 @@ import { initReactI18next } from "react-i18next";
 import { IPC } from "@pi-desktop/shared";
 import { catalogs } from "@pi-desktop/i18n";
 import { EnvironmentEditor } from "./src/features/chat/session-target/EnvironmentEditor";
-import { RemoteSessionActions } from "./src/features/chat/session-target/RemoteSessionActions";
 import { WorkspacePreparationStatus } from "./src/features/chat/session-target/WorkspacePreparationStatus";
 
-globalThis.remotePullRequestProbe = async () => {
+globalThis.remoteWorkspaceProbe = async () => {
   await i18n.use(initReactI18next).init({ lng: "en",
     resources: { en: { translation: catalogs.en } },
     interpolation: { escapeValue: false },
   });
-  const old = { number: 7, url: "https://github.com/octo/repo/pull/7" };
-  const replacement = { number: 8, url: "https://github.com/octo/repo/pull/8" };
-  const opened = [];
   const invoked = [];
   const savedEnvironments = [];
   let savedEnvironment;
-  let setPullRequest;
-  let setWorkspaceState;
   window.piDesktop = {
     on() { return () => {}; },
     async invoke(channel, input) {
       invoked.push(channel);
       let data;
       switch (channel) {
-        case IPC.invoke.remoteHostList: data = { hosts: [] }; break;
-        case IPC.invoke.browserOpenExternal: opened.push(input.url); break;
         case IPC.invoke.remoteSessionWorkspaceRetry: data = {}; break;
         case IPC.invoke.environmentsUpsert:
           savedEnvironments.push(input);
@@ -53,18 +44,7 @@ globalThis.remotePullRequestProbe = async () => {
       return { ok: true, data };
     },
   };
-  function Surface() {
-    const [pullRequest, update] = React.useState(null);
-    setPullRequest = update;
-    const [state, updateState] = React.useState("ready");
-    setWorkspaceState = updateState;
-    return <RemoteSessionActions workspace={{
-      hostKey: "host", repository: { owner: "octo", name: "repo" },
-      baseBranch: "main", workBranch: "pi-desktop/abc", state, pullRequest,
-    }} />;
-  }
   const view = createRoot(document.querySelector("#root"));
-  flushSync(() => view.render(<Surface />));
   const button = (label, container = document) => [...container.querySelectorAll("button")]
     .find((element) => element.textContent.trim() === label);
   async function until(read, description) {
@@ -76,30 +56,6 @@ globalThis.remotePullRequestProbe = async () => {
     }
     throw new Error(description);
   }
-  function checkNoPublishControls() {
-    if (button("Push branch") || button("Create pull request") ||
-        document.querySelector('[role="dialog"]') || document.body.textContent.includes("Ahead")) {
-      throw new Error("workspace top bar exposed publish controls or commit counts");
-    }
-  }
-  checkNoPublishControls();
-  flushSync(() => setPullRequest(old));
-  button("View PR #7").click();
-  await until(() => opened[0] === old.url, "could not open the recorded PR");
-
-  const beforeReclaim = invoked.length;
-  flushSync(() => {
-    setPullRequest(replacement);
-    setWorkspaceState("reclaimed");
-  });
-  window.dispatchEvent(new Event("focus"));
-  checkNoPublishControls();
-  button("View PR #8").click();
-  await until(() => opened[1] === replacement.url, "cached PR link did not open");
-  if (JSON.stringify(invoked.slice(beforeReclaim)) !== JSON.stringify([IPC.invoke.browserOpenExternal])) {
-    throw new Error("reclaimed PR issued an unexpected workspace RPC");
-  }
-
   flushSync(() => view.render(<WorkspacePreparationStatus sessionId="session" workspace={{
     state: "failed", error: { message: "Setup failed" }, setup: { status: "failed", logTail: "Build failed" },
   }} />));
@@ -156,7 +112,7 @@ globalThis.remotePullRequestProbe = async () => {
 };
 `;
 
-test("remote workspace shows Agent-created PR links, rebuild retry, and environment settings", {
+test("remote workspace exposes rebuild retry and saves environment settings", {
   timeout: 75_000,
   skip: process.platform === "linux" && !process.env.DISPLAY && "Isolated Electron UI test requires a display",
 }, async () => {
@@ -182,10 +138,10 @@ app.whenReady().then(async () => {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
   window.webContents.on("console-message", (event) => console.error(event.message));
   await window.loadFile(join(__dirname, "index.html"));
-  if (await window.webContents.executeJavaScript("globalThis.remotePullRequestProbe()") !== true) {
-    throw new Error("Remote pull request probe did not complete");
+  if (await window.webContents.executeJavaScript("globalThis.remoteWorkspaceProbe()") !== true) {
+    throw new Error("Remote workspace probe did not complete");
   }
-  console.log("REMOTE_PULL_REQUEST_PROBE passed");
+  console.log("REMOTE_WORKSPACE_PROBE passed");
   app.exit(0);
 }).catch((error) => { console.error(error.stack ?? error); app.exit(1); });
 `);
@@ -203,7 +159,7 @@ app.whenReady().then(async () => {
     try {
       const [code] = await once(child, "close");
       assert.equal(code, 0, output);
-      assert.match(output, /^REMOTE_PULL_REQUEST_PROBE passed$/m, output);
+      assert.match(output, /^REMOTE_WORKSPACE_PROBE passed$/m, output);
     } finally {
       clearTimeout(timer);
     }

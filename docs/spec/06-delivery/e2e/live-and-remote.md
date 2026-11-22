@@ -826,6 +826,15 @@ its output through real tool relay. A second session without a binding
 receives `REMOTE_WORKSPACE_NOT_READY` before any tool is forwarded. A fork
 starts at the parent's unpushed commit.
 
+## E2E-REMOTE-cloud-session-topbar
+
+In `pnpm test:e2e:remote-mvp-ui`, open a cloud repository session with a
+recorded PR. Verify the sidebar identifies the project and task, and the chat
+topbar provides a blank, full-height drag area. At narrow widths and with the
+sidebar collapsed, the topbar still provides New task and Search and exposes the
+sidebar toggle while collapsed. Switch to a local session and verify its title
+returns. The window-control suite covers the native caption and window buttons.
+
 ## E2E-REMOTE-no-repository-environment
 
 Choose a paired environment containing a setup script and a variable. Leave
@@ -843,10 +852,11 @@ and RACP tests cover the failure log, reserved variables and capability checks.
 
 ## E2E-REMOTE-repo-session-pushes-and-opens-pull-request
 
-The same fixture pushes the prepared work branch into a real Git server
-before the PR service sees it. The connector fixture returns one open PR
-for repeated requests. The test verifies uncommitted work survives an ordinary
-delete and that confirmed deletion preserves the pushed branch.
+The remote workspace Git fixture pushes the prepared work branch into a real
+Git server before the PR service sees it. The connector fixture returns one
+open PR for repeated requests. The publishing tool returns the PR URL to the
+conversation. The test verifies uncommitted work survives an ordinary delete
+and that confirmed deletion preserves the pushed branch.
 
 ## E2E-REMOTE-idle-reclaim-restores-the-original-commit
 

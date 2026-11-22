@@ -15,7 +15,6 @@ const workspace = {
 const i18n = createInstance();
 let server;
 let EnvironmentEditor;
-let RemoteSessionActions;
 let WorkspacePreparationStatus;
 
 before(async () => {
@@ -29,7 +28,6 @@ before(async () => {
   });
   const feature = "/src/features/chat/session-target";
   ({ EnvironmentEditor } = await server.ssrLoadModule(`${feature}/EnvironmentEditor.tsx`));
-  ({ RemoteSessionActions } = await server.ssrLoadModule(`${feature}/RemoteSessionActions.tsx`));
   ({ WorkspacePreparationStatus } = await server.ssrLoadModule(`${feature}/WorkspacePreparationStatus.tsx`));
   await i18n.init({ lng: "en", resources: { en: { translation: catalogs.en } }, interpolation: { escapeValue: false } });
 });
@@ -55,9 +53,12 @@ test("the environment editor defaults to 72 hours and preserves a saved off sett
 
 test("reclaimed and reclaiming workspaces show status and a rebuild failure exposes its log", () => {
   const status = (props) => render(WorkspacePreparationStatus, { sessionId: "session", workspace: { ...workspace, ...props } });
-  const reclaimed = status({ state: "reclaimed" });
+  const reclaimed = status({
+    state: "reclaimed",
+    pullRequest: { number: 7, url: "https://github.com/octo/repo/pull/7" },
+  });
   assert.match(reclaimed, /role="status".*Workspace reclaimed.*Send a message to restore…/);
-  assert.doesNotMatch(reclaimed, /<button/);
+  assert.doesNotMatch(reclaimed, /<button|View PR/);
   assert.match(status({ state: "reclaiming" }), /role="status".*Reclaiming workspace…/);
 
   const failed = status({ state: "failed", error: { message: "Setup failed" }, setup: { status: "failed", logTail: "install <failed>" } });
@@ -65,13 +66,4 @@ test("reclaimed and reclaiming workspaces show status and a rebuild failure expo
   assert.match(failed, /<button[^>]*>Retry<\/button>/);
   assert.match(failed, /<details><summary>Show log<\/summary><pre[^>]*>install &lt;failed&gt;<\/pre><\/details>/);
   assert.doesNotMatch(status({ state: "failed", error: { message: "Checkout failed" } }), /Show log/);
-});
-
-test("reclaimed workspace actions show a recorded PR without publish controls", () => {
-  const pullRequest = { number: 7, url: "https://github.com/octo/repo/pull/7" };
-  const actions = (props) => render(RemoteSessionActions, { workspace: { ...workspace, ...props } });
-  const reclaimed = actions({ state: "reclaimed", pullRequest });
-  assert.match(reclaimed, /<button[^>]*>View PR #7<\/button>/);
-  assert.doesNotMatch(reclaimed, /Push branch|Create pull request/);
-  assert.doesNotMatch(actions({ state: "reclaimed" }), /<button/);
 });

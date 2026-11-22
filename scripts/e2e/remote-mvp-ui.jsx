@@ -9,6 +9,7 @@ import { RemoteHostSessions } from "../../apps/desktop/src/components/settings/R
 import { RemoteHostsPage } from "../../apps/desktop/src/components/settings/RemoteHostsPage";
 import { Sidebar } from "../../apps/desktop/src/components/Sidebar";
 import { ChatSurface } from "../../apps/desktop/src/components/ChatSurface";
+import { ConversationTopbar } from "../../apps/desktop/src/components/ConversationTopbar";
 import { catalogs } from "@pi-desktop/i18n";
 import { api } from "../../apps/desktop/src/lib/api";
 import { subscribeRemoteInteractions } from "../../apps/desktop/src/lib/remote-interactions";
@@ -174,6 +175,22 @@ function Fixture() {
   const active = useAppStore(state => state.activeSessionId);
   const current = useAppStore(state => state.sessions.find(item => item.id === active));
   return current ? <ChatSurface /> : <RemoteHostSessions host={host} onClose={() => {}} />;
+}
+
+function ProjectFixture({ onOpenSearch }) {
+  const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const toggleSidebar = () => setSidebarCollapsed((collapsed) => !collapsed);
+  const openTaskDraft = () => void useAppStore.getState().openTaskDraft();
+  const ignore = () => {};
+  return <div style={{ display: "flex", height: "100vh" }}>
+    {!sidebarCollapsed && <Sidebar onNewTask={openTaskDraft} onToggleSidebar={toggleSidebar}
+      sidebarToggleShortcut="" sidebarWidth={260} onWidthChange={ignore} onWidthCommit={ignore} onResizeCollapse={ignore} />}
+    <div style={{ flex: 1, minWidth: 0, anchorName: "--main-pane" }}>
+      <ConversationTopbar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}
+        onNewTask={openTaskDraft} onOpenSearch={onOpenSearch} />
+      <ChatSurface />
+    </div>
+  </div>;
 }
 
 globalThis.remoteMvpProbe = async () => {
@@ -429,19 +446,17 @@ globalThis.remoteMvpProbe = async () => {
   projectFlow = true;
   const beforeProjectFlow = calls.length;
   useAppStore.setState({
-    sessions: [cloudSession, localSession], activeSessionId: cloudSession.id,
+    sessions: [{ ...cloudSession, remoteRepository: { ...cloudSession.remoteRepository,
+      pullRequest: { number: 7, url: "https://github.com/example/repo/pull/7" },
+    } }, localSession], activeSessionId: cloudSession.id,
     workspace: cloudWorkspace, activeProjectPath: cloudWorkspace.path,
     openProjectPaths: [cloudWorkspace.path, localWorkspace.path],
     openProjects: [cloudWorkspace, localWorkspace], settings: { defaultMode: "agent" },
     selectingSessionId: undefined, messages: [], retainedSessionIds: [], retainedTranscripts: {},
   });
   const projectRoot = createRoot(mount);
-  const ignore = () => {};
-  projectRoot.render(<div style={{ display: "flex", height: "100vh" }}>
-    <Sidebar onNewTask={() => void useAppStore.getState().openTaskDraft()} onToggleSidebar={ignore}
-      sidebarToggleShortcut="" sidebarWidth={260} onWidthChange={ignore} onWidthCommit={ignore} onResizeCollapse={ignore} />
-    <div style={{ flex: 1, minWidth: 0 }}><ChatSurface /></div>
-  </div>);
+  let searchOpened = false;
+  projectRoot.render(<ProjectFixture onOpenSearch={() => { searchOpened = true; }} />);
   const group = (id) => document.getElementById(id)?.closest("section") ?? document.querySelector(`section[aria-labelledby="${id}"]`);
   const rowIn = (id, sessionId) => group(id)?.querySelector(`[data-sidebar-session-row="${sessionId}"]`);
   const addTask = (workspace) => [...document.querySelectorAll("[data-sidebar-project-group]")]
@@ -458,7 +473,50 @@ globalThis.remoteMvpProbe = async () => {
   assert(!document.querySelector(".sidebar-body").textContent.includes(catalogs.en.nav.recentSessions), "Recent sessions still renders");
   assert(document.querySelectorAll(`[data-sidebar-session-row="${cloudSession.id}"]`).length === 1, "cloud session renders more than once");
 
-  newTask().click();
+  const topbar = () => document.querySelector(".conversation-topbar");
+  const topbarAction = (label) => [...topbar().querySelectorAll("button")]
+    .find((element) => element.getAttribute("aria-label") === label);
+  const region = (element) => getComputedStyle(element).getPropertyValue("-webkit-app-region").trim();
+  function checkCloudCaption(sidebarCollapsed) {
+    const caption = topbar();
+    const blank = caption.querySelector(".ct-left");
+    const band = caption.getBoundingClientRect();
+    const space = blank.getBoundingClientRect();
+    assert(!caption.textContent.trim(), "the cloud caption displays session or repository text");
+    assert(region(blank) === "drag" && space.height === band.height && space.width > 0,
+      "the cloud caption has no full-height drag space");
+    assert(document.elementFromPoint(space.left + space.width / 2, space.top + space.height / 2) === blank,
+      "the cloud caption is covered by another element");
+    for (const label of [catalogs.en.nav.newTask, catalogs.en.nav.search]) {
+      const action = topbarAction(label);
+      assert(action && region(action.closest(".ct-right")) === "no-drag"
+        && action.getBoundingClientRect().right <= band.right, `caption action is obscured: ${label}`);
+    }
+    const toggle = topbarAction(catalogs.en.nav.toggleSidebar);
+    assert(toggle.closest(".ct-lead").getAttribute("aria-hidden") === String(!sidebarCollapsed),
+      "the caption sidebar toggle does not follow sidebar visibility");
+  }
+
+  checkCloudCaption(false);
+  mount.style.width = "600px";
+  checkCloudCaption(false);
+  document.querySelector('.sidebar [data-nav="toggle-sidebar"]').click();
+  await until(() => !document.querySelector(".sidebar"), "the sidebar did not collapse");
+  checkCloudCaption(true);
+  topbarAction(catalogs.en.nav.search).click();
+  assert(searchOpened, "the cloud caption search could not be activated");
+  topbarAction(catalogs.en.nav.toggleSidebar).click();
+  await until(() => rowIn("sidebar-cloud-projects", cloudSession.id), "the caption could not reopen the sidebar");
+  checkCloudCaption(false);
+  mount.style.removeProperty("width");
+
+  useAppStore.setState({ activeSessionId: localSession.id });
+  await until(() => topbar().querySelector(".ct-title-trigger")?.textContent === localSession.title,
+    "switching to a local session did not restore its title");
+  useAppStore.setState({ activeSessionId: cloudSession.id });
+  await until(() => !topbar().querySelector(".ct-title-wrap"), "the local title persisted into the cloud session");
+
+  topbarAction(catalogs.en.nav.newTask).click();
   await until(() => picker(labels.environmentHost)?.textContent.trim() === labels.thisComputer, "global task inherited cloud environment");
   assert(!useAppStore.getState().activeSessionId && !useAppStore.getState().workspace, "global draft inherited project or session");
 
@@ -548,5 +606,5 @@ globalThis.remoteMvpProbe = async () => {
   assert(localStarts()[1].input.projectPath === undefined, "the temporary chat inherited the selected folder");
   projectRoot.unmount();
 
-  return { ok: true, scenarios: ["history without model transfer", "open", "send", "approve", "peer resolution", "reconnect without replay", "local isolation", "Add actions precede inventory", "SSH and Pair dialog flows", "success and cancel clear drafts", "Escape and backdrop dismissal", "focus restoration", "leftover refresh on mount, reconnect, reconciliation, and removal", "leftover removal confirmation", "home location row and narrow layout", "environment, repository, and branch selection", "project-first sidebar and editable task drafts", "first prompt starts a cloud session without a repository on the selected host", "local folder selection, cancellation, and temporary drafts", "cleanup"] };
+  return { ok: true, scenarios: ["history without model transfer", "open", "send", "approve", "peer resolution", "reconnect without replay", "local isolation", "Add actions precede inventory", "SSH and Pair dialog flows", "success and cancel clear drafts", "Escape and backdrop dismissal", "focus restoration", "leftover refresh on mount, reconnect, reconciliation, and removal", "leftover removal confirmation", "home location row and narrow layout", "environment, repository, and branch selection", "cloud session drag area and controls at narrow widths", "project-first sidebar and editable task drafts", "first prompt starts a cloud session without a repository on the selected host", "local folder selection, cancellation, and temporary drafts", "cleanup"] };
 };
