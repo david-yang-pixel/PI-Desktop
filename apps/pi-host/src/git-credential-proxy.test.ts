@@ -352,7 +352,7 @@ describe("git credential proxy", () => {
     }
   });
 
-  it("setting a credential invalidates the installation's handles", async () => {
+  it("a new token replaces the installation's handles and the same token keeps them", async () => {
     const up = await upstream();
     const proxy = await proxyFor(up.url);
     proxy.setToken(INSTALLATION, TOKEN);
@@ -363,8 +363,14 @@ describe("git credential proxy", () => {
     const path = "octo/repo.git/info/refs?service=git-upload-pack";
     expect((await send(`${first}${path}`)).status).toBe(200);
 
-    // The same token again still rotates: every credential set does.
+    // The same token again changes nothing: an address git or a tool already
+    // holds keeps working.
     proxy.setToken(INSTALLATION, TOKEN);
+    expect(proxy.register(scope)).toBe(first);
+    expect((await send(`${first}${path}`)).status).toBe(200);
+
+    // A different token rotates every handle of the installation.
+    proxy.setToken(INSTALLATION, "rotated-fixture-token");
     expect((await send(`${first}${path}`)).status).toBe(404);
     const second = proxy.register(scope);
     expect(second).not.toBe(first);
@@ -377,7 +383,12 @@ describe("git credential proxy", () => {
     proxy.setToken(INSTALLATION, null);
     expect(proxy.register(scope)).toBe(second);
     expect((await send(`${second}${path}`)).status).toBe(401);
-    expect(up.seen).toHaveLength(3);
+    // A token set after a drop is a new credential set, even if it is the
+    // value from before: the dropped one is not remembered.
+    proxy.setToken(INSTALLATION, "rotated-fixture-token");
+    expect((await send(`${second}${path}`)).status).toBe(404);
+    expect(proxy.register(scope)).not.toBe(second);
+    expect(up.seen).toHaveLength(4);
   });
 
   it("stops answering after close", async () => {

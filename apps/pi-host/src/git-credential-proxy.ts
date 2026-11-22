@@ -16,7 +16,7 @@
  *   same user as `pi-host` (Linux; see `loopback-peer.ts`);
  * - a handle works only for the repository of the session it was issued for,
  *   and for a push only to that session's work branch;
- * - every credential set replaces the installation's handles.
+ * - a credential set with a new token replaces the installation's handles.
  *
  * When the owning desktop disconnects the token is dropped and the proxy
  * answers 401.
@@ -39,11 +39,13 @@ export type GitCredentialProxy = {
   start(): Promise<void>;
   close(): Promise<void>;
   /**
-   * Setting a token invalidates every handle of that installation; the next
-   * `register` mints new ones. Dropping it (`null`) keeps them: they answer 401.
+   * Setting a token that differs from the one held invalidates every handle
+   * of that installation; the next `register` mints new ones. Setting the
+   * same token again keeps them. Dropping it (`null`) keeps them too: they
+   * answer 401, and the next token set after a drop rotates them.
    */
   setToken(installationId: string, token: string | null): void;
-  /** Returns `http://127.0.0.1:<port>/<handle>/`; the same scope keeps its handle until the next credential set. */
+  /** Returns `http://127.0.0.1:<port>/<handle>/`; the same scope keeps its handle until the token changes. */
   register(scope: GitProxyScope): string;
   unregister(installationId: string, sessionId: string): void;
   /** An unauthenticated connection gets a URL that only answers 401. */
@@ -349,9 +351,13 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
     },
     setToken(installationId, token) {
       if (!token) return void tokens.delete(installationId);
+      const previous = tokens.get(installationId);
       tokens.set(installationId, token);
+      // A reconnect delivers the same token again. Rotating then would strand
+      // every address git and the tools already hold, for nothing.
+      if (previous === token) return;
       // A handle is readable by other local users (see the module comment),
-      // so it does not outlive the credential set it was issued under.
+      // so it does not outlive the credential it was issued under.
       for (const [handleId, scope] of scopes) {
         if (scope.installationId !== installationId) continue;
         scopes.delete(handleId);
