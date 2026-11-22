@@ -66,12 +66,15 @@ describe("isGitBranchName", () => {
 });
 
 describe("isEnvironmentVariableName", () => {
-  it.each(["my_var", "A", "_x", "NODE_ENV", "A".repeat(128)])("accepts %j", (value) => {
+  it.each(["my_var", "A", "_x", "NODE_ENV", "A".repeat(128), "PS1", "PYTHONUNBUFFERED", "XDG_CACHE_HOME"])("accepts %j", (value) => {
     expect(isEnvironmentVariableName(value)).toBe(true);
   });
   it.each([
     "PATH", "GIT_DIR", "PI_PORT", "LD_PRELOAD", "1A", "A-B", "", "A".repeat(129), "HOME", "SHELL", "USER", "LOGNAME", "PWD", "OLDPWD",
     "IFS", "ENV", "BASH_ENV", "PROMPT_COMMAND", "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE", "DYLD_INSERT_LIBRARIES", "BASH_FUNC_x", "A=B", "A\n",
+    // The same table as host-core's `workspace_git::layout` tests.
+    "XDG_CONFIG_HOME", "SHELLOPTS", "BASHOPTS", "PS4", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "NODE_PATH",
+    "PERL5LIB", "PERL5OPT", "PERLLIB", "RUBYOPT", "RUBYLIB", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
   ])("rejects %j", (value) => {
     expect(isEnvironmentVariableName(value)).toBe(false);
   });

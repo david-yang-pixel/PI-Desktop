@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use tokio::sync::{watch, Mutex};
 
 use super::{command_shell_catalog, rpc_err, JsonRpcError};
+use crate::remote_sessions::environments::validate_variables;
 use crate::session_worktrees::git::GitRunner;
 use crate::session_worktrees::remove::is_real_dir;
 use crate::state::AppState;
@@ -28,8 +29,8 @@ use crate::workspace_git::jobs::{
     self, JobKind, JobPhase, JobProgress, JobState, Outcome, Pushed, SharedJobs,
 };
 use crate::workspace_git::layout::{
-    short_id, validate_branch, validate_installation_id, validate_session_id,
-    validate_variable_name, work_branch, Layout, Repository,
+    short_id, validate_branch, validate_installation_id, validate_session_id, work_branch, Layout,
+    Repository,
 };
 use crate::workspace_git::reclaim::{self, Refusal, RegisteredPaths};
 use crate::workspace_git::registry::{self, SetupStatus, Variable, WorktreeRecord};
@@ -48,9 +49,8 @@ type SharedState = Arc<Mutex<AppState>>;
 /// carries the specific reason.
 const WORKSPACE_GIT_RPC_CODE: i64 = 1027;
 
-/// Limits of the shared contract (`racp-workspace-git.ts`).
-const MAX_VARIABLES: usize = 64;
-const MAX_VARIABLE_VALUE_CHARS: usize = 8192;
+/// Limits of the shared contract (`racp-workspace-git.ts`). Variables are
+/// checked by `validate_variables`, which applies the same limits.
 const MAX_SETUP_SCRIPT_CHARS: usize = 65_536;
 
 /// How long `workspaceGit.jobCancel` waits for the job to stop and clean up.
@@ -278,26 +278,18 @@ impl PrepareRequest {
             variables: Vec::new(),
             setup_script: None,
         });
-        if environment.variables.len() > MAX_VARIABLES {
-            return Err(WorkspaceGitError::invalid(
-                "environment has too many variables",
-            ));
-        }
-        let mut variables = Vec::with_capacity(environment.variables.len());
-        for variable in environment.variables {
-            validate_variable_name(&variable.name)?;
-            if variable.value.chars().count() > MAX_VARIABLE_VALUE_CHARS
-                || variable.value.contains('\0')
-            {
-                return Err(WorkspaceGitError::invalid(
-                    "environment variable value is not allowed",
-                ));
-            }
-            variables.push(Variable {
+        let variables: Vec<Variable> = environment
+            .variables
+            .into_iter()
+            .map(|variable| Variable {
                 name: variable.name,
                 value: variable.value,
-            });
-        }
+            })
+            .collect();
+        // The same rules as a saved environment: count, names, duplicates,
+        // and value limits.
+        validate_variables(&variables)
+            .map_err(|error| WorkspaceGitError::invalid(error.to_string()))?;
         if environment
             .setup_script
             .as_ref()

@@ -2512,7 +2512,7 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "pattern": "^(?!(?:PATH|HOME|SHELL|USER|LOGNAME|PWD|OLDPWD|IFS|ENV|BASH_ENV|PROMPT_COMMAND|NODE_OPTIONS|ELECTRON_RUN_AS_NODE)$)(?!GIT_|PI_|LD_|DYLD_|BASH_FUNC_)[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  "pattern": "^(?!(?:PATH|HOME|SHELL|USER|LOGNAME|PWD|OLDPWD|IFS|ENV|BASH_ENV|PROMPT_COMMAND|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|XDG_CONFIG_HOME|SHELLOPTS|BASHOPTS|PS4|PYTHONPATH|PYTHONSTARTUP|PYTHONHOME|NODE_PATH|PERL5LIB|PERL5OPT|PERLLIB|RUBYOPT|RUBYLIB)$)(?!GIT_|PI_|LD_|DYLD_|BASH_FUNC_)[A-Za-z_][A-Za-z0-9_]{0,127}$"
                 },
                 "value": {
                   "type": "string",
@@ -2651,7 +2651,7 @@
               "properties": {
                 "name": {
                   "type": "string",
-                  "pattern": "^(?!(?:PATH|HOME|SHELL|USER|LOGNAME|PWD|OLDPWD|IFS|ENV|BASH_ENV|PROMPT_COMMAND|NODE_OPTIONS|ELECTRON_RUN_AS_NODE)$)(?!GIT_|PI_|LD_|DYLD_|BASH_FUNC_)[A-Za-z_][A-Za-z0-9_]{0,127}$"
+                  "pattern": "^(?!(?:PATH|HOME|SHELL|USER|LOGNAME|PWD|OLDPWD|IFS|ENV|BASH_ENV|PROMPT_COMMAND|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|XDG_CONFIG_HOME|SHELLOPTS|BASHOPTS|PS4|PYTHONPATH|PYTHONSTARTUP|PYTHONHOME|NODE_PATH|PERL5LIB|PERL5OPT|PERLLIB|RUBYOPT|RUBYLIB)$)(?!GIT_|PI_|LD_|DYLD_|BASH_FUNC_)[A-Za-z_][A-Za-z0-9_]{0,127}$"
                 },
                 "value": {
                   "type": "string",

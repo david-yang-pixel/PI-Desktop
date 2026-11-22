@@ -38,6 +38,21 @@ const FORBIDDEN_VARIABLE_NAMES: &[&str] = &[
     "PROMPT_COMMAND",
     "NODE_OPTIONS",
     "ELECTRON_RUN_AS_NODE",
+    // git's and the shell's own configuration and tracing.
+    "XDG_CONFIG_HOME",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "PS4",
+    // Interpreter search paths and startup options.
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PYTHONHOME",
+    "NODE_PATH",
+    "PERL5LIB",
+    "PERL5OPT",
+    "PERLLIB",
+    "RUBYOPT",
+    "RUBYLIB",
 ];
 const FORBIDDEN_VARIABLE_PREFIXES: &[&str] = &["GIT_", "PI_", "LD_", "DYLD_", "BASH_FUNC_"];
 
@@ -125,7 +140,8 @@ pub fn validate_branch(name: &str) -> Result<(), WorkspaceGitError> {
 }
 
 /// `[A-Za-z_][A-Za-z0-9_]{0,127}`, minus the names and prefixes that would
-/// redirect git, the shell loader, the dynamic linker, or the tool runner.
+/// redirect git, the shell loader, the dynamic linker, an interpreter's
+/// module search or startup code, or the tool runner.
 pub fn validate_variable_name(name: &str) -> Result<(), WorkspaceGitError> {
     let mut bytes = name.bytes();
     let ok = (1..=128).contains(&name.len())
@@ -409,7 +425,16 @@ mod tests {
 
     #[test]
     fn variable_names_follow_the_shared_contract_tables() {
-        for name in ["my_var", "A", "_x", "NODE_ENV", &"A".repeat(128)] {
+        for name in [
+            "my_var",
+            "A",
+            "_x",
+            "NODE_ENV",
+            &"A".repeat(128),
+            "PS1",
+            "PYTHONUNBUFFERED",
+            "XDG_CACHE_HOME",
+        ] {
             assert!(validate_variable_name(name).is_ok(), "{name:?}");
         }
         for name in [
@@ -437,6 +462,23 @@ mod tests {
             "BASH_FUNC_x",
             "A=B",
             "A\n",
+            // git's and the shell's own configuration and tracing.
+            "XDG_CONFIG_HOME",
+            "SHELLOPTS",
+            "BASHOPTS",
+            "PS4",
+            // Interpreter search paths and startup options.
+            "PYTHONPATH",
+            "PYTHONSTARTUP",
+            "PYTHONHOME",
+            "NODE_PATH",
+            "PERL5LIB",
+            "PERL5OPT",
+            "PERLLIB",
+            "RUBYOPT",
+            "RUBYLIB",
+            "LD_LIBRARY_PATH",
+            "DYLD_LIBRARY_PATH",
         ] {
             let error = validate_variable_name(name).unwrap_err();
             assert_eq!(error.code, "INVALID_ARGUMENT", "{name:?}");

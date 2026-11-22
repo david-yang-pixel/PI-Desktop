@@ -750,9 +750,15 @@ from the same module. Field rules:
   64 variables, values up to 8192 characters, a script up to 65536
   characters. A variable name matches `[A-Za-z_][A-Za-z0-9_]{0,127}` and is
   not `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `OLDPWD`, `IFS`,
-  `ENV`, `BASH_ENV`, `PROMPT_COMMAND`, `NODE_OPTIONS`, or
-  `ELECTRON_RUN_AS_NODE`, and does not start with `GIT_`, `PI_`, `LD_`,
-  `DYLD_`, or `BASH_FUNC_`.
+  `ENV`, `BASH_ENV`, `PROMPT_COMMAND`, `NODE_OPTIONS`,
+  `ELECTRON_RUN_AS_NODE`, `XDG_CONFIG_HOME`, `SHELLOPTS`, `BASHOPTS`, `PS4`,
+  `PYTHONPATH`, `PYTHONSTARTUP`, `PYTHONHOME`, `NODE_PATH`, `PERL5LIB`,
+  `PERL5OPT`, `PERLLIB`, `RUBYOPT`, or `RUBYLIB`, and does not start with
+  `GIT_`, `PI_`, `LD_`, `DYLD_`, or `BASH_FUNC_`. No name appears twice.
+  `isEnvironmentVariableName` in the shared module applies the same table,
+  so Desktop can check a name before it sends anything. A worktree that an
+  older Host stored with a name refused today does not pass that variable
+  to its tools.
 - `token` is 1 to 4096 characters with no control character. `jobId` is 1 to
   64 characters.
 
