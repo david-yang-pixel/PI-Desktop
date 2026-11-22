@@ -475,6 +475,7 @@ section mirrors only marketplace/catalog items still blocking nothing.
 | D693 | Agent-owned publication for repository sessions | **Amend D690: Desktop has no manual push or pull request controls; the Agent pushes the work branch and opens its pull request through two high-risk connector tools that are offered whenever the GitHub connector is signed in, independent of the GitHub Agent tools switch, and are refused in Plan and Goal.** | [ADR](../../adr/remote-session-push-and-pull-requests.md#amendment-agent-owned-publication) |
 | D692 | Environment setup | Setup scripts and variables apply before the first prompt in a new worktree. Script failures leave an inspectable workspace. | [ADR](../../adr/remote-environment-setup.md) |
 | D695 | Repository session reliability | **Amend D687 / D690 / D693: a session's pull request link keeps the request's state (open, draft, closed, merged) and the pull request tool opens a new request only when the last one is not open; a Host connection receives the GitHub token only when an operation there first needs it, and a prepare or push fails with `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE` instead of running without a token that could not be delivered; connect-time recovery phases and items fail independently and also run once host-core is ready; a connected Host on an older release than the desktop is realigned once per run while nothing runs on it; a running turn cannot publish after a connector sign-out.** | [ADR](../../adr/remote-session-push-and-pull-requests.md#amendment-merged-and-closed-pull-requests-stay-linked), [remote-git-workspaces](../../adr/remote-git-workspaces.md), [ADR 0327](../../adr/0327-remote-host-version-realignment.md#amendment-older-patch-releases) |
+| D696 | Repository session controls and GitHub visibility | **A preparing workspace can be cancelled into a retryable failure; main keeps its last preparation progress for renderer reloads; New task keeps the remembered environment, repository, and branch; the first send reconnects an offline Host; the pickers look up an exact repository or branch beyond the capped lists; and conversation details link a pushed work branch's compare page and show its pull request checks. New renderer channels take session ids or exact names, keep the token in main, and are blocked on the MCP control plane.** | See the 2026-11-22 entry below. |
 
 ## R. Decision rules going forward
 
@@ -5486,3 +5487,28 @@ See ADR 0344.
 - Settings gains a sixteenth destination, Connectors, in the Agent cluster
   after MCP. Until the OAuth App's client id is set in the build, sign-in is
   by pasted token only.
+
+## 2026-11-22 — Repository session controls and GitHub visibility (D696)
+
+- Cloud repository sessions left users waiting without control or feedback:
+  no Cancel while preparing, generic status after a reload, no sidebar mark,
+  no progress during a slow delete, and no view of pushed work or CI.
+- `remoteSession/workspace/cancel` stops the Host prepare job through the
+  existing cancel path and marks the binding `failed` with
+  `REMOTE_WORKSPACE_CANCELLED`; Retry prepares again. A job that already
+  succeeded keeps its ready worktree.
+- Main remembers each preparing session's last phase, progress, and setup log
+  tail and adds them to session list and session reads. Nothing is persisted;
+  host-core and Rust are unchanged.
+- The primary New task keeps the persisted target selection instead of
+  resetting to This computer, as the remote sessions design intended; it never
+  inherits the open session or its project. This amends the UI IA statement
+  that New task always starts on This computer.
+- The first send reconnects an offline Host (`workspaceGit.supported` for a
+  repository target, `ensureReady` before creating a session without one), so
+  the composer marks the Host offline but does not block Send.
+- `github/repository` and `github/branch` look up one exact name beyond the
+  1000-repository and 500-branch caps. `remoteSession/github/activity` reads
+  whether the session's work branch exists on GitHub and, with a pull request,
+  the CI state of its head commit by sha. All three spend the connector token
+  in main and are blocked on the MCP control plane.

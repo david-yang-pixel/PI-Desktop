@@ -874,6 +874,98 @@ sentence mapping and the language switch.
 `apps/desktop/test/workspace-preparation-status.test.mjs` pins the localized
 reason in a failed preparation banner.
 
+## E2E-REMOTE-local-send-failure-explains-and-keeps-draft
+
+On This computer, type a prompt in a new draft and send while the draft
+session cannot be created, for example because the local service is down.
+Verify Send restores the draft and shows exactly one error toast: "Could not
+send the message:" plus the catalog sentence for the failure's code, or the
+failure's own message when no sentence exists. A remote target failure still
+shows only its own "Could not start the remote session" toast.
+`apps/desktop/test/remote-target-send-failure.test.mjs` covers both through
+the real queue slice.
+
+## E2E-REMOTE-preparing-workspace-can-be-cancelled-and-retried
+
+Start a repository session and, while it clones, choose Cancel in the
+composer's preparing status. Verify main cancels the Host prepare job, waits
+for it to stop, and the status turns into the failed banner with "You
+cancelled the preparation" and Retry and Delete session. Cancel twice quickly
+and verify one Host cancel. Retry prepares again with a new job. A job that
+finished before the cancel arrived leaves the workspace ready.
+`apps/desktop/test/remote-session-workspaces.test.mjs` drives main's cancel,
+`apps/desktop/test/workspace-preparation-status.test.mjs` the Cancel button in
+Electron, and `apps/desktop/test/mcp-control-wiring.test.mjs` keeps
+`remoteSessionWorkspaceCancel` off the MCP control plane.
+
+## E2E-REMOTE-preparation-progress-survives-renderer-reload
+
+While a repository workspace clones at a reported percentage, reload the
+renderer. Verify the composer and session list still show the phase and
+progress ("Cloning octo/repo… — Receiving objects 42%") instead of the generic
+preparing text, and that nothing stale remains once the workspace is ready or
+cancelled. `apps/desktop/test/remote-workspace-progress-reload.test.mjs` pins
+main's memory and its use by the session list and session reads.
+
+## E2E-REMOTE-sidebar-marks-preparing-failed-and-deleting-sessions
+
+With one repository session preparing and another failed, verify their
+sidebar rows show `Preparing` with a spinner and `Failed` with the localized
+reason as a tooltip, and ready sessions show neither. Delete the preparing
+session while its Host job is slow to stop: the row shows `Deleting…` and the
+composer shows "Deleting this session…" until the delete settles, a second
+Delete sends nothing, and the row disappears when it completes.
+`apps/desktop/test/remote-session-badge.test.mjs` and
+`apps/desktop/test/session-deletion-progress-user-path.test.mjs` cover this.
+
+## E2E-REMOTE-environment-editor-checks-variables-and-confirms-removal
+
+Open the environment editor. Verify it says variables are stored in plain text
+and are not for secrets, that changes apply to sessions created afterwards,
+and where the setup script runs. Add a variable with a value but no name, then
+names such as `1BAD`, `PATH`, and `GIT_DIR`, then the same name twice: each
+keeps Save disabled, marks the input invalid, and explains the rule. A row
+left blank is not saved. In Remote Hosts settings, Remove on an environment
+asks for confirmation, Cancel keeps it, and a refusal from main is shown in
+the UI language. `apps/desktop/test/remote-session-pr-user-path.test.mjs` and
+`apps/desktop/test/remote-environment-removal-user-path.test.mjs` drive both.
+
+## E2E-REMOTE-offline-host-is-marked-and-reconnected-on-send
+
+With a paired Host offline, open the environment picker: its environments
+carry a Host offline badge and stay selectable. Select one and verify the
+location row notes that sending reconnects the Host, with Send enabled. Send:
+a repository target reconnects through the workspace capability check and a
+session without a repository reconnects before it is created; only a Host that
+still cannot be reached is reported offline.
+`apps/desktop/test/session-target-row-user-path.test.mjs` and
+`apps/desktop/test/remote-offline-host-send.test.mjs` cover the picker and
+main's reconnect.
+
+## E2E-REMOTE-target-pickers-find-unlisted-repositories-and-branches
+
+With more repositories or branches than the connector lists, verify the
+truncated lists say how to find more. Type an exact `owner/name` that the list
+lacks: after a short pause the picker looks it up on GitHub and offers it, or
+says GitHub has no such repository for this account. Selecting it uses its
+default branch. Type an exact branch name the branch list lacks and verify it
+is offered the same way. A listed name triggers no lookup.
+`apps/desktop/test/session-target-row-user-path.test.mjs` drives the pickers;
+`github-api`, `github-connector`, and `github-connector-ipc` tests pin
+`githubRepository` and `githubBranch`, which stay off the MCP control plane.
+
+## E2E-REMOTE-details-link-pushed-branch-and-show-pr-checks
+
+Open conversation details for a repository session. Before the agent pushes,
+no GitHub row is shown. After the push, an "On GitHub" row links "View changes
+on GitHub" to the compare page of the base and work branch. With a recorded
+pull request the row shows the checks state of the branch head, refreshing
+while checks are pending. With GitHub disconnected the row is hidden; other
+GitHub failures are explained. `pnpm test:e2e:remote-mvp-ui` verifies the
+compare link and passing checks in the details sheet, and
+`apps/desktop/test/session-github-activity.test.mjs` covers main's activity
+read and the row's updates.
+
 ## E2E-REMOTE-cloud-session-topbar
 
 In `pnpm test:e2e:remote-mvp-ui`, open a cloud repository session with a

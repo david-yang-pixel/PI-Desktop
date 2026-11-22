@@ -603,13 +603,25 @@ account, or a Git failure on the Host. A failed workspace preparation uses the
 same reasons, and repository or branch list errors use the GitHub connector's
 localized messages. A failure code without a localized reason shows the
 message the Host or main process reported.
-The composer shows preparation and setup status. The session top bar shows
+The environment picker marks each environment whose Host is offline with a
+Host offline badge, and the location row then notes under the composer that
+sending reconnects the Host first. Send stays enabled: the first send
+reconnects an offline Host and reports it offline only when it still cannot
+be reached. The repository and branch pickers list at most 1000 repositories
+and 500 branches; a search that names an exact `owner/name` or branch the
+loaded list lacks is looked up on GitHub and offered, and a truncated list
+says how to find more.
+The composer shows preparation and setup status, with Cancel while preparing.
+Sidebar rows mark repository sessions that are preparing, failed, or being
+deleted. The session top bar shows
 the Host, repository, work branch, and a link to a recorded pull request.
 The link names the request's state, for example "View PR #12 · Merged"
 (Open, Draft, Closed, or Merged). A merged or closed request stays linked;
 the state is refreshed from GitHub when the session is used, at most every
 five minutes, and a link recorded before states were stored shows no state
 until then.
+Conversation details link a pushed work branch's changes on GitHub and show
+the pull request's checks.
 There are no manual push or pull request controls: ask the agent to push or to
 open a pull request. While the GitHub connector is signed in, the agent can
 push the session's committed work branch and open the PR against the
@@ -623,3 +635,11 @@ worktree management when a Host is paired. Each connected Host shows the
 release it reported, for example "Host version 0.23.0", followed by
 "· update pending" while it is older than the desktop and waiting to be
 updated.
+worktree management when a Host is paired. The environment editor checks
+variable names with the Host's rule, including reserved names, and flags a
+name used twice before Save. It says that variables are stored in plain text
+and are not for secrets, that changes apply to sessions created afterwards,
+and that the setup script runs before the first prompt in the new worktree,
+or without a repository in the selected folder or the session's scratch
+folder. Removing an environment asks for confirmation first, and a refusal is
+reported in the UI language.

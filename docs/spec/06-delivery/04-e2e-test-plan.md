@@ -291,6 +291,7 @@ identify the platform validation still needed.
 | Post-MVP remote control (repository session delete and an unreachable Host) | E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree, E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect, E2E-REMOTE-repo-session-offline-delete-records-pending-removal |
 | Post-MVP remote control (No repository Environment setup and variables) | E2E-REMOTE-no-repository-environment |
 | Post-MVP remote control (failed remote start keeps the draft and explains why) | E2E-REMOTE-composer-target-send-failure-explains-and-keeps-draft |
+| Post-MVP remote control (repository session controls and GitHub visibility, D696) | E2E-REMOTE-local-send-failure-explains-and-keeps-draft, E2E-REMOTE-preparing-workspace-can-be-cancelled-and-retried, E2E-REMOTE-preparation-progress-survives-renderer-reload, E2E-REMOTE-sidebar-marks-preparing-failed-and-deleting-sessions, E2E-REMOTE-environment-editor-checks-variables-and-confirms-removal, E2E-REMOTE-offline-host-is-marked-and-reconnected-on-send, E2E-REMOTE-target-pickers-find-unlisted-repositories-and-branches, E2E-REMOTE-details-link-pushed-branch-and-show-pr-checks |
 | Post-MVP remote control (idle repository checkout reclamation and recovery) | E2E-REMOTE-idle-reclaim-restores-the-original-commit |
 | Security (git credential proxy on a paired Host) | E2E-REMOTE-git-proxy-rejects-foreign-ref |
 | E — Tools & permissions (capability level move) | E2E-CAPABILITY-move-across-levels |
