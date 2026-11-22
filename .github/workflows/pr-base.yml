@@ -1,7 +1,7 @@
 name: PR base
 
 # Every pull request must contain the current target branch tip (`main`).
-# ci.yml ignores docs, so this gate lives on its own and runs for every PR.
+# This lightweight check reports a stale base independently of the full CI.
 
 on:
   pull_request:

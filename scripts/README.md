@@ -110,35 +110,26 @@ the candidate/base and Host binary hash; uncommitted task changes are explicit.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs two jobs on pushes to `main`, on pull requests,
-and on manual dispatch, skipping both when a change touches only `docs/**` or
-`**/*.md`:
+`.github/workflows/ci.yml` runs on every pull request and on manual dispatch.
+The four CI jobs are required before merging to `main`:
 
 - **JS build / typecheck / lint / test** — `pnpm install --frozen-lockfile`,
   `pnpm build:js`, `pnpm --filter @pi-desktop/desktop typecheck`, `pnpm lint`,
   `pnpm -r --if-present test`
-- **Rust host-core test** — `cargo test -p host-core --locked`
+- **Rust host-core format / lint / test** — formatting, Clippy, and the host tests
+- **Rust host-core Windows / transcript cache E2E** — Windows Host checks
+- **Trusted extensions Electron E2E** — Desktop integration tests
 
-`.github/workflows/docs-check.yml` covers the paths `ci.yml` ignores: it runs
-`pnpm docs:check` (the docs locale pair check) when `docs/**`, the READMEs, the
-shared changelog sources, or the check scripts change. `check:release-docs` is
+`.github/workflows/docs-check.yml` adds documentation checks to pull requests
+that touch documentation, shared changelog sources, or check scripts.
+`check:release-docs` is
 deliberately not in CI because release branches must pass it with the stable
 version explicitly supplied for a prerelease preview.
 
-`.github/workflows/release.yml` builds on a `v*.*.*` tag. A `verify` job first
-repeats the `ci.yml` checks (a tag push does not trigger `ci.yml`), and the
-build matrix waits for it. Each platform runner then
-validates the tag against `apps/desktop/package.json` before packaging, then
-runs the native `dist:mac`, `dist:win`, or `dist:linux` command. The Linux
-job uses Ubuntu 22.04 so host-core stays on glibc 2.35, then
-`scripts/check-linux-host-glibc.mjs` refuses a binary that needs a newer
-glibc. Each Linux runner (native x64 and arm64) also exports the exact
-app.asar from its own unpacked tree as a versioned release asset; the macOS
-matrix covers arm64 and Intel x64 and
-the publish job assembles the GitHub Release. Tag builds Developer ID-sign,
-notarize, and staple macOS artifacts; `workflow_dispatch` may set
-`sign_macos: false` only for unsigned debug artifacts. See the [release
-runbook](../docs/spec/06-delivery/06-release-runbook.md).
+`.github/workflows/release.yml` packages merged PRs from `main` and
+`v*.*.*` tags. It validates the macOS ZIP and DMG and the Linux `pi-host`
+bundles before publishing. Tag and manual runs also run the full release
+verification job. See the [release runbook](../docs/spec/06-delivery/06-release-runbook.md).
 
 ### Packaged startup regression
 
