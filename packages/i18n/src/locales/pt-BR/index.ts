@@ -93,6 +93,10 @@ export const ptBR = {
       cancel: "Cancelar",
       cancelled: "Você cancelou a preparação. Selecione Tentar novamente para reiniciá-la.",
     },
+    sessionBadge: {
+      preparing: "Preparando",
+      failed: "Falhou",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

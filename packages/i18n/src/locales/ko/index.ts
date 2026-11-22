@@ -93,6 +93,10 @@ export const ko = {
       cancel: "취소",
       cancelled: "준비를 취소했습니다. 다시 시작하려면 다시 시도를 선택하세요.",
     },
+    sessionBadge: {
+      preparing: "준비 중",
+      failed: "실패",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

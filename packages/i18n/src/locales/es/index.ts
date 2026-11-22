@@ -93,6 +93,10 @@ export const es = {
       cancel: "Cancelar",
       cancelled: "Cancelaste la preparación. Selecciona Reintentar para iniciarla de nuevo.",
     },
+    sessionBadge: {
+      preparing: "Preparando",
+      failed: "Error",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

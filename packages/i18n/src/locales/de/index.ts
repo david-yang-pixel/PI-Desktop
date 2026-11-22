@@ -93,6 +93,10 @@ export const de = {
       cancel: "Abbrechen",
       cancelled: "Du hast die Vorbereitung abgebrochen. Wähle „Erneut versuchen“, um sie neu zu starten.",
     },
+    sessionBadge: {
+      preparing: "Wird vorbereitet",
+      failed: "Fehlgeschlagen",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

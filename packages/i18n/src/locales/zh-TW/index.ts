@@ -93,6 +93,10 @@ export const zhTW = {
       cancel: "取消",
       cancelled: "你已取消準備。選擇「重試」可重新開始。",
     },
+    sessionBadge: {
+      preparing: "準備中",
+      failed: "失敗",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

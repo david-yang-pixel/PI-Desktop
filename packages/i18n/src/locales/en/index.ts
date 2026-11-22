@@ -91,6 +91,10 @@ export const en = {
       cancel: "Cancel",
       cancelled: "You cancelled the preparation. Select Retry to start it again.",
     },
+    sessionBadge: {
+      preparing: "Preparing",
+      failed: "Failed",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

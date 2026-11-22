@@ -78,3 +78,28 @@
   color: var(--ds-text-secondary);
   font-size: var(--text-sm);
 }
+
+/* Sidebar mark for a repository workspace that is preparing or failed. */
+.remote-session-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  margin-inline-end: 4px;
+}
+
+.remote-session-badge-spinner {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-round);
+  border: 1.5px solid var(--ds-border-default);
+  border-top-color: var(--ds-text-secondary);
+  animation: spin 0.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-session-badge-spinner {
+    animation: none;
+  }
+}
