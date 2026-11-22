@@ -102,6 +102,11 @@ export const en = {
       variableNameInvalid: "Variable names start with a letter or underscore and use only letters, digits, and underscores. Some names, such as PATH, HOME, or names starting with GIT_ or PI_, are reserved.",
       variableNameDuplicate: "Each variable name can be used only once.",
     },
+    environmentRemoval: {
+      title: "Remove environment",
+      detail: "Sessions that already have a workspace keep it. New sessions can no longer choose this environment, and its setup script and variables are deleted from this computer.",
+      failed: "Could not remove the environment: {{message}}",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

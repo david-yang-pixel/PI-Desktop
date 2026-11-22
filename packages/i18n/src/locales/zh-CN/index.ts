@@ -104,6 +104,11 @@ export const zhCN = {
       variableNameInvalid: "变量名须以字母或下划线开头，且只能包含字母、数字和下划线。部分名称已保留，例如 PATH、HOME，以及以 GIT_ 或 PI_ 开头的名称。",
       variableNameDuplicate: "每个变量名只能使用一次。",
     },
+    environmentRemoval: {
+      title: "移除环境",
+      detail: "已有工作区的会话会保留其工作区。新会话将无法再选择此环境，其初始化脚本和变量也会从本机删除。",
+      failed: "无法移除环境：{{message}}",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

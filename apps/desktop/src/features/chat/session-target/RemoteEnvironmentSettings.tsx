@@ -7,6 +7,7 @@ import { useAppStore } from "../../../stores/app-store";
 import { SettingsCard, SettingsRow } from "../../settings/primitives";
 import { WorktreeDialogFrame } from "../../worktree/WorktreeDialogFrame";
 import { EnvironmentEditor } from "./EnvironmentEditor";
+import { remoteTargetErrorText } from "./remote-target-error-message";
 import { useEnvironments } from "./use-environments";
 
 function LeftoverWorktrees({ host, hostRevision }: { host: RemoteHostSummary; hostRevision: number }) {
@@ -95,9 +96,24 @@ export function RemoteEnvironmentSettings() {
   const { t } = useTranslation();
   const { hosts, hostRevision, environments, error } = useEnvironments();
   const [editor, setEditor] = useState<RemoteEnvironment | "new" | null>(null);
+  const [removal, setRemoval] = useState<RemoteEnvironment | null>(null);
+  const [removing, setRemoving] = useState(false);
   const close = useCallback(() => setEditor(null), []);
+  const closeRemoval = useCallback(() => setRemoval(null), []);
   const toast = useAppStore((state) => state.showToast);
   if (!hosts.length && !error) return null;
+
+  async function remove(environment: RemoteEnvironment) {
+    setRemoving(true);
+    try {
+      await api.removeEnvironment(environment.id);
+      setRemoval(null);
+    } catch (cause) {
+      toast(t("sessionTarget.environmentRemoval.failed", { message: remoteTargetErrorText(t, cause) }), { variant: "error" });
+    } finally {
+      setRemoving(false);
+    }
+  }
 
   return <>
     <SettingsCard title={t("sessionTarget.environments")}>
@@ -106,8 +122,8 @@ export function RemoteEnvironmentSettings() {
         detail={hosts.find((host) => host.hostKey === environment.hostKey)?.label}>
         <div className="session-target-row">
           <Button variant="secondary" onClick={() => setEditor(environment)}>{t("sessionTarget.editEnvironment")}</Button>
-          {!environment.isDefault && <Button variant="secondary" onClick={() => void api.removeEnvironment(environment.id)
-            .catch((cause) => toast(String(cause), { variant: "error" }))}>{t("sessionTarget.remove")}</Button>}
+          {!environment.isDefault && <Button variant="secondary" aria-haspopup="dialog"
+            onClick={() => setRemoval(environment)}>{t("sessionTarget.remove")}</Button>}
         </div>
       </SettingsRow>)}
       <Button variant="secondary" disabled={!hosts.length} onClick={() => setEditor("new")}>{t("sessionTarget.newEnvironment")}</Button>
@@ -116,5 +132,12 @@ export function RemoteEnvironmentSettings() {
       {hosts.map((host) => <LeftoverWorktrees key={host.hostKey} host={host} hostRevision={hostRevision} />)}
     </SettingsCard>}
     {editor && <EnvironmentEditor hosts={hosts} environment={editor === "new" ? undefined : editor} onSaved={close} onClose={close} />}
+    {removal && <WorktreeDialogFrame id="remote-environment-remove" title={t("sessionTarget.environmentRemoval.title")}
+      subtitle={removal.name} busy={removing} onClose={closeRemoval} actions={<>
+        <Button variant="secondary" disabled={removing} onClick={closeRemoval}>{t("common.cancel")}</Button>
+        <Button variant="primary" disabled={removing} onClick={() => void remove(removal)}>{t("sessionTarget.remove")}</Button>
+      </>}>
+      <p>{t("sessionTarget.environmentRemoval.detail")}</p>
+    </WorktreeDialogFrame>}
   </>;
 }

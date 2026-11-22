@@ -104,6 +104,11 @@ export const fr = {
       variableNameInvalid: "Les noms de variable commencent par une lettre ou un trait de soulignement et ne contiennent que des lettres, des chiffres et des traits de soulignement. Certains noms, comme PATH, HOME ou ceux qui commencent par GIT_ ou PI_, sont réservés.",
       variableNameDuplicate: "Chaque nom de variable ne peut être utilisé qu’une fois.",
     },
+    environmentRemoval: {
+      title: "Supprimer l’environnement",
+      detail: "Les sessions qui ont déjà un espace de travail le conservent. Les nouvelles sessions ne pourront plus choisir cet environnement, et son script d’initialisation et ses variables seront supprimés de cet ordinateur.",
+      failed: "Impossible de supprimer l’environnement : {{message}}",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

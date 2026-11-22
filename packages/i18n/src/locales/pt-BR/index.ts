@@ -104,6 +104,11 @@ export const ptBR = {
       variableNameInvalid: "Nomes de variável começam com uma letra ou sublinhado e usam apenas letras, dígitos e sublinhados. Alguns nomes, como PATH, HOME ou os que começam com GIT_ ou PI_, são reservados.",
       variableNameDuplicate: "Cada nome de variável só pode ser usado uma vez.",
     },
+    environmentRemoval: {
+      title: "Remover ambiente",
+      detail: "As sessões que já têm uma área de trabalho a mantêm. Novas sessões não poderão mais escolher este ambiente, e o script de configuração e as variáveis dele serão excluídos deste computador.",
+      failed: "Não foi possível remover o ambiente: {{message}}",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

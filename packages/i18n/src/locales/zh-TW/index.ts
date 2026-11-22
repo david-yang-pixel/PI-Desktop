@@ -104,6 +104,11 @@ export const zhTW = {
       variableNameInvalid: "變數名稱須以字母或底線開頭，且只能包含字母、數字和底線。部分名稱已保留，例如 PATH、HOME，以及以 GIT_ 或 PI_ 開頭的名稱。",
       variableNameDuplicate: "每個變數名稱只能使用一次。",
     },
+    environmentRemoval: {
+      title: "移除環境",
+      detail: "已有工作區的工作階段會保留其工作區。新工作階段將無法再選擇此環境，其初始化指令碼和變數也會從本機刪除。",
+      failed: "無法移除環境：{{message}}",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

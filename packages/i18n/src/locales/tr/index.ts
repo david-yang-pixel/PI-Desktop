@@ -104,6 +104,11 @@ export const tr = {
       variableNameInvalid: "Değişken adları bir harf veya alt çizgiyle başlar ve yalnızca harf, rakam ve alt çizgi içerir. PATH, HOME veya GIT_ ya da PI_ ile başlayan adlar gibi bazı adlar ayrılmıştır.",
       variableNameDuplicate: "Her değişken adı yalnızca bir kez kullanılabilir.",
     },
+    environmentRemoval: {
+      title: "Ortamı kaldır",
+      detail: "Zaten bir çalışma alanı olan oturumlar onu korur. Yeni oturumlar bu ortamı artık seçemez ve ortamın kurulum betiği ile değişkenleri bu bilgisayardan silinir.",
+      failed: "Ortam kaldırılamadı: {{message}}",
+    },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",
       hostOutdated: "Uzak ana bilgisayar bu uygulamanın farklı bir sürümünü çalıştırıyor. Ana bilgisayarı güncelleyin, ardından tekrar deneyin.",

@@ -104,6 +104,11 @@ export const es = {
       variableNameInvalid: "Los nombres de variable empiezan por una letra o un guion bajo y solo usan letras, dígitos y guiones bajos. Algunos nombres, como PATH, HOME o los que empiezan por GIT_ o PI_, están reservados.",
       variableNameDuplicate: "Cada nombre de variable solo se puede usar una vez.",
     },
+    environmentRemoval: {
+      title: "Quitar entorno",
+      detail: "Las sesiones que ya tienen un espacio de trabajo lo conservan. Las sesiones nuevas ya no podrán elegir este entorno, y su script de configuración y sus variables se eliminarán de este equipo.",
+      failed: "No se pudo quitar el entorno: {{message}}",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

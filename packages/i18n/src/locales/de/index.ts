@@ -104,6 +104,11 @@ export const de = {
       variableNameInvalid: "Variablennamen beginnen mit einem Buchstaben oder Unterstrich und enthalten nur Buchstaben, Ziffern und Unterstriche. Einige Namen wie PATH, HOME oder Namen, die mit GIT_ oder PI_ beginnen, sind reserviert.",
       variableNameDuplicate: "Jeder Variablenname darf nur einmal vorkommen.",
     },
+    environmentRemoval: {
+      title: "Umgebung entfernen",
+      detail: "Sitzungen, die bereits einen Arbeitsbereich haben, behalten ihn. Neue Sitzungen können diese Umgebung nicht mehr wählen, und ihr Einrichtungsskript und ihre Variablen werden von diesem Computer gelöscht.",
+      failed: "Umgebung konnte nicht entfernt werden: {{message}}",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

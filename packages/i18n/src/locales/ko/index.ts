@@ -104,6 +104,11 @@ export const ko = {
       variableNameInvalid: "변수 이름은 문자나 밑줄로 시작하고 문자, 숫자, 밑줄만 사용할 수 있습니다. PATH, HOME이나 GIT_ 또는 PI_로 시작하는 이름 등 일부 이름은 예약되어 있습니다.",
       variableNameDuplicate: "각 변수 이름은 한 번만 사용할 수 있습니다.",
     },
+    environmentRemoval: {
+      title: "환경 제거",
+      detail: "이미 작업 공간이 있는 세션은 그대로 유지됩니다. 새 세션은 더 이상 이 환경을 선택할 수 없으며, 설정 스크립트와 변수는 이 컴퓨터에서 삭제됩니다.",
+      failed: "환경을 제거하지 못했습니다: {{message}}",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",
