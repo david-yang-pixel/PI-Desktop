@@ -357,7 +357,7 @@ describe("catalog and roles", () => {
     expect(Value.Check(RacpInitializeResultSchema, { ...initializeResult, capabilities: { ...capabilities, workspaceGit: "yes" } })).toBe(false);
   });
 
-  it("registers the workspaceGit error codes as not retriable", () => {
+  it("registers the workspaceGit error codes, retriable only for a stall", () => {
     const codes: Record<string, unknown> = RACP_ERROR_CODES;
     for (const code of [
       "WORKSPACE_GIT_UNAVAILABLE", "WORKSPACE_GIT_AUTH_REQUIRED", "WORKSPACE_GIT_REPOSITORY_NOT_FOUND",
@@ -367,6 +367,9 @@ describe("catalog and roles", () => {
       expect(codes[code], code).toEqual({ retriable: false });
       expect(Object.values(ErrorCodes)).toContain(code);
     }
+    // A stalled transfer is transient.
+    expect(codes.WORKSPACE_GIT_STALLED).toEqual({ retriable: true });
+    expect(Object.values(ErrorCodes)).toContain("WORKSPACE_GIT_STALLED");
   });
 
   it("marks every operation with a profile", () => {

@@ -137,12 +137,19 @@ fn production_network_git_uses_the_proxy_rewrite_and_no_host_credentials() {
             format!("url.{proxy}octo/repo.git.insteadOf=ssh://git@github.com/octo/repo.git"),
             "credential.helper=".to_string(),
             "core.askPass=".to_string(),
+            "http.lowSpeedLimit=1".to_string(),
+            "http.lowSpeedTime=300".to_string(),
             format!("http.{proxy}.proxy="),
         ]
     );
     // A substituted remote has nothing to rewrite, and still asks nobody.
     assert_eq!(
         keys(&WorkspaceGitContext::with_remote_base("file:///tmp/x")),
-        ["credential.helper=", "core.askPass="]
+        [
+            "credential.helper=",
+            "core.askPass=",
+            "http.lowSpeedLimit=1",
+            "http.lowSpeedTime=300"
+        ]
     );
 }

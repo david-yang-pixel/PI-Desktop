@@ -305,6 +305,8 @@ export const ErrorCodes = {
   WORKSPACE_GIT_BUSY: "WORKSPACE_GIT_BUSY",
   WORKSPACE_GIT_JOB_NOT_FOUND: "WORKSPACE_GIT_JOB_NOT_FOUND",
   WORKSPACE_GIT_FAILED: "WORKSPACE_GIT_FAILED",
+  /** A clone, fetch, or push stopped moving data and was abandoned; retrying may succeed. */
+  WORKSPACE_GIT_STALLED: "WORKSPACE_GIT_STALLED",
   WORKSPACE_GIT_SETUP_FAILED: "WORKSPACE_GIT_SETUP_FAILED",
   /** The Host is not reached over SSH, `wss://`, or loopback; the credential was not sent. */
   WORKSPACE_GIT_TRANSPORT_REFUSED: "WORKSPACE_GIT_TRANSPORT_REFUSED",

@@ -1469,6 +1469,7 @@ Initial RACP codes are:
 | `WORKSPACE_GIT_BUSY` | no | A job for the same session is still running |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | The job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | A git step failed for another reason; the message carries the tail of git's output |
+| `WORKSPACE_GIT_STALLED` | yes | A clone, fetch, or push stopped moving data (below 1 byte/s for 300 s, or the credential proxy's idle limit for a GitHub connection) and was abandoned |
 | `WORKSPACE_GIT_TRANSPORT_REFUSED` | no | Desktop did not send the credential: the Host is not reached over SSH, `wss://`, or loopback |
 | `INTERNAL` | maybe | Unexpected failure with a trace id |
 

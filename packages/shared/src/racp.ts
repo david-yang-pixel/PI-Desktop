@@ -925,6 +925,8 @@ export const RACP_ERROR_CODES = {
   WORKSPACE_GIT_BUSY: { retriable: false },
   WORKSPACE_GIT_JOB_NOT_FOUND: { retriable: false },
   WORKSPACE_GIT_FAILED: { retriable: false },
+  /** A stall is transient: the same request may succeed later. */
+  WORKSPACE_GIT_STALLED: { retriable: true },
   WORKSPACE_GIT_SETUP_FAILED: { retriable: false },
   WORKSPACE_GIT_TRANSPORT_REFUSED: { retriable: false },
   FORBIDDEN: { retriable: false },

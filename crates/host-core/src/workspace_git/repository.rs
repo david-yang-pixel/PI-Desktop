@@ -267,6 +267,13 @@ pub(super) fn classify(
     ]) || (lower.contains("fatal: repository '") && lower.contains("' not found"))
     {
         "WORKSPACE_GIT_REPOSITORY_NOT_FOUND"
+    } else if contains_any(&[
+        // curl's low-speed abort (`http.lowSpeedLimit` / `http.lowSpeedTime`).
+        "operation too slow",
+        // The credential proxy gave up on an idle GitHub connection.
+        "returned error: 504",
+    ]) {
+        "WORKSPACE_GIT_STALLED"
     } else {
         "WORKSPACE_GIT_FAILED"
     };
@@ -578,6 +585,18 @@ mod tests {
             assert_eq!(
                 classify(none, "clone", &failed(stderr)).code,
                 "WORKSPACE_GIT_REPOSITORY_NOT_FOUND",
+                "{stderr}"
+            );
+        }
+        for stderr in [
+            "error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 300 seconds\nfatal: expected flush after ref listing",
+            "fatal: unable to access 'https://github.com/o/r.git/': Operation too slow. Less than 1 bytes/sec transferred the last 300 seconds",
+            // The credential proxy gave up on GitHub.
+            "error: RPC failed; HTTP 504 curl 22 The requested URL returned error: 504\nfatal: the remote end hung up unexpectedly",
+        ] {
+            assert_eq!(
+                classify(none, "fetch", &failed(stderr)).code,
+                "WORKSPACE_GIT_STALLED",
                 "{stderr}"
             );
         }

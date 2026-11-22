@@ -1,4 +1,5 @@
-import { request } from "node:http";
+import { createServer, request } from "node:http";
+import type { AddressInfo } from "node:net";
 import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -285,6 +286,54 @@ describe("git credential proxy", () => {
     expect(reply.body.toString()).not.toContain(handle);
     expect(lines.join("\n")).not.toContain(handle);
     expect(lines.join("\n")).not.toContain(TOKEN);
+  });
+
+  it("gives up on a GitHub that stops answering and says so with 504", async () => {
+    // Accepts the request and the body, then never answers.
+    const held: Array<() => void> = [];
+    const silent = createServer((req, res) => { req.resume(); held.push(() => res.destroy()); });
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => { for (const release of held) release(); silent.closeAllConnections(); silent.close(() => resolve()); }));
+    const lines: string[] = [];
+    const proxy = await proxyFor(`http://127.0.0.1:${(silent.address() as AddressInfo).port}`, {
+      upstreamIdleMs: 200,
+      log: (level, message, data) => lines.push(JSON.stringify({ level, message, data })),
+    });
+    proxy.setToken(INSTALLATION, TOKEN);
+    const base = proxy.register(scope);
+    const started = Date.now();
+    const reply = await send(`${base}octo/repo.git/info/refs?service=git-upload-pack`);
+    expect(reply.status).toBe(504);
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(reply.body.toString("utf8")).not.toContain(TOKEN);
+    expect(lines.join("\n")).toContain("stopped responding");
+    expect(lines.join("\n")).not.toContain(new URL(base).pathname.split("/")[1]!);
+  });
+
+  it("drops a response whose body stalls after the headers", async () => {
+    const held: Array<() => void> = [];
+    const stalling = createServer((req, res) => {
+      req.resume();
+      res.writeHead(200, { "content-type": "application/x-git-upload-pack-advertisement" });
+      res.write("001e# service=git-upload-pack\n");
+      held.push(() => res.destroy());
+    });
+    await new Promise<void>((resolve) => stalling.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => { for (const release of held) release(); stalling.closeAllConnections(); stalling.close(() => resolve()); }));
+    const proxy = await proxyFor(`http://127.0.0.1:${(stalling.address() as AddressInfo).port}`, { upstreamIdleMs: 200 });
+    proxy.setToken(INSTALLATION, TOKEN);
+    const base = proxy.register(scope);
+    // git must see a cut transfer, never a complete one.
+    const outcome = await new Promise<string>((resolve) => {
+      const req = request(`${base}octo/repo.git/info/refs?service=git-upload-pack`, (res) => {
+        res.resume();
+        res.on("error", () => resolve("cut"));
+        res.on("close", () => resolve(res.complete ? "complete" : "cut"));
+      });
+      req.on("error", () => resolve("cut"));
+      req.end();
+    });
+    expect(outcome).toBe("cut");
   });
 
   it("logs the session, never the token or the handle", async () => {

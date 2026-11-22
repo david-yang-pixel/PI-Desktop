@@ -75,6 +75,14 @@ const SAFE_PATH = /^(?:\/[A-Za-z0-9._~-]+)+\/?$/u;
 const SAFE_QUERY = /^[A-Za-z0-9._~=&-]*$/u;
 const REFUSED_DRAIN_MS = 30_000;
 const INSPECTION_IDLE_MS = 30_000;
+/**
+ * How long an upstream connection may carry no byte in either direction.
+ * host-core's git aborts a transfer below 1 byte/s for 300 s
+ * (`http.lowSpeedTime`) and reports it with a precise code; this is the
+ * backstop behind it, so it is a little longer. GitHub's keepalive and
+ * progress packets keep a slow but live transfer well above it.
+ */
+const UPSTREAM_IDLE_MS = 360_000;
 
 /** Never forwarded to GitHub: the client's own credentials, and hop-by-hop headers. */
 const DROPPED_REQUEST_HEADERS = new Set([
@@ -197,6 +205,8 @@ export type GitCredentialProxyOptions = {
   env?: NodeJS.ProcessEnv;
   /** Optional TLS overrides for upstream HTTPS connections (e.g. a test CA certificate). */
   upstreamTls?: UpstreamTlsOptions;
+  /** Idle limit of an upstream connection, for tests. */
+  upstreamIdleMs?: number;
 };
 
 export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}): GitCredentialProxy {
@@ -227,9 +237,11 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
     setTimeout(() => req.destroy(), REFUSED_DRAIN_MS).unref();
   };
 
+  const upstreamIdleMs = options.upstreamIdleMs ?? UPSTREAM_IDLE_MS;
   const forward = (req: IncomingMessage, res: ServerResponse, path: string, authorization: string | null, body: { buffered: Buffer[]; ended: boolean } | null, sessionId: string) => {
     const headers = forwardedHeaders(req.headers);
     if (authorization) headers.authorization = authorization;
+    let stalled = false;
     const outbound = sendUpstreamRequest({
       upstream,
       method: req.method,
@@ -239,6 +251,16 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
       upstreamTls: options.upstreamTls,
     }, {
       onReady(clientReq) {
+        // A GitHub that stops sending or reading mid-transfer would otherwise
+        // hold git, and this connection, until git's own limit.
+        clientReq.setTimeout(upstreamIdleMs, () => {
+          stalled = true;
+          log("warn", "git proxy upstream stopped responding", { sessionId });
+          outbound.destroy();
+          // 504 while nothing was answered yet; otherwise cut the response,
+          // so git sees a truncated transfer instead of a complete one.
+          reply(res, 504, "pi-host git proxy: GitHub stopped responding");
+        });
         for (const chunk of body?.buffered ?? []) clientReq.write(chunk);
         if (body?.ended || req.readableEnded) clientReq.end();
         else req.pipe(clientReq);
@@ -253,6 +275,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
         inbound.on("error", () => res.destroy());
       },
       onError(error) {
+        if (stalled) return;
         // The message of a socket error names a host or an errno, never a path or credential.
         log("warn", "git proxy upstream request failed", { sessionId, error: (error as NodeJS.ErrnoException).code ?? "ERROR" });
         reply(res, 502, "pi-host git proxy: GitHub could not be reached");
@@ -326,7 +349,8 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
           reply(res, 500, "pi-host git proxy: internal error");
         });
       });
-      // A clone or push may run for an hour; git's own limits apply, not ours.
+      // A clone or push may run for an hour; git's own limits apply on the
+      // loopback side. A stalled upstream is caught in `forward`.
       created.requestTimeout = 0;
       created.timeout = 0;
       // Before any request is read: only a process of this user may talk to

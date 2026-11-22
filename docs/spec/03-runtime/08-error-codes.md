@@ -341,6 +341,7 @@ codes surface through the same error object as any other call.
 | `WORKSPACE_GIT_BUSY` | no | a prepare or push job for the same session is still running. Details include its job id |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | the job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | a git step failed for another reason; the message carries the tail of git's output |
+| `WORKSPACE_GIT_STALLED` | yes | a clone, fetch, or push moved less than one byte per second for five minutes, or the host's credential proxy gave up on an idle GitHub connection; the transfer was abandoned |
 | `WORKSPACE_GIT_SETUP_FAILED` | no | the environment setup script must succeed before the restored checkout is ready |
 | `WORKSPACE_GIT_TRANSPORT_REFUSED` | no | the desktop refused to send the GitHub credential because the host is not reached over SSH, `wss://`, or loopback |
 | `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE` | no | desktop-only: the GitHub credential could not be delivered to the host's connection after one retry, so the prepare or push did not start; reconnect the host and try again |

@@ -10,6 +10,12 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::layout::{validate_variable_name, Layout, Repository};
+
+/// A network transfer slower than this many bytes per second ...
+const LOW_SPEED_LIMIT_BYTES: u32 = 1;
+/// ... for this many seconds is stalled. `pi-host`'s credential proxy gives
+/// up on an idle upstream connection a little later, as a backstop.
+const LOW_SPEED_TIME_SECS: u32 = 300;
 use super::{registry, WorkspaceGitError};
 use crate::db::Database;
 
@@ -46,17 +52,30 @@ pub fn proxy_rewrites(proxy_url: &str, repository: &Repository) -> Vec<(String, 
 /// - an empty `credential.helper` and `core.askPass`, so git neither asks the
 ///   host user's own helpers for a credential nor offers them one to store.
 ///   The only credential in play is the one the proxy adds;
+/// - `http.lowSpeedLimit` and `http.lowSpeedTime`, so an HTTP transfer that
+///   moves less than one byte per second for five minutes is abandoned
+///   (`WORKSPACE_GIT_STALLED`) instead of holding its job until the overall
+///   limit. GitHub's keepalive and progress packets keep a slow but live
+///   transfer above it;
 /// - an empty proxy for the credential proxy's own address, so loopback
 ///   traffic to it is never handed to a configured HTTP proxy.
 ///
-/// Without a proxy address only the two credential pairs apply.
+/// Without a proxy address only the credential and low-speed pairs apply.
 pub fn network_config(proxy_url: Option<&str>, repository: &Repository) -> Vec<(String, String)> {
-    let mut config = Vec::with_capacity(6);
+    let mut config = Vec::with_capacity(8);
     if let Some(proxy_url) = proxy_url {
         config.extend(proxy_rewrites(proxy_url, repository));
     }
     config.push(("credential.helper".to_string(), String::new()));
     config.push(("core.askPass".to_string(), String::new()));
+    config.push((
+        "http.lowSpeedLimit".to_string(),
+        LOW_SPEED_LIMIT_BYTES.to_string(),
+    ));
+    config.push((
+        "http.lowSpeedTime".to_string(),
+        LOW_SPEED_TIME_SECS.to_string(),
+    ));
     if let Some(proxy_url) = proxy_url {
         config.push((format!("http.{proxy_url}.proxy"), String::new()));
     }
@@ -202,10 +221,10 @@ mod tests {
         let env = for_tool(&db, Path::new(root), None);
         assert!(pairs(&env).starts_with(&expected));
         assert!(pairs(&env).contains(&(
-            "GIT_CONFIG_KEY_6",
+            "GIT_CONFIG_KEY_8",
             "protocol.pi-workspace-no-credential.allow"
         )));
-        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_6", "never")));
+        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_8", "never")));
         let nested = Path::new(root).join("packages/app");
         assert_eq!(for_tool(&db, &nested, None), env);
     }
@@ -227,7 +246,7 @@ mod tests {
                 ("PI_PROJECT_ROOT", "/w/repos/github.com/octo/repo.js"),
                 ("GIT_ASKPASS", ""),
                 ("GIT_TERMINAL_PROMPT", "0"),
-                ("GIT_CONFIG_COUNT", "6"),
+                ("GIT_CONFIG_COUNT", "8"),
                 ("GIT_CONFIG_KEY_0", key.as_str()),
                 ("GIT_CONFIG_VALUE_0", "https://github.com/octo/repo.js.git"),
                 ("GIT_CONFIG_KEY_1", key.as_str()),
@@ -241,8 +260,12 @@ mod tests {
                 ("GIT_CONFIG_VALUE_3", ""),
                 ("GIT_CONFIG_KEY_4", "core.askPass"),
                 ("GIT_CONFIG_VALUE_4", ""),
-                ("GIT_CONFIG_KEY_5", no_proxy.as_str()),
-                ("GIT_CONFIG_VALUE_5", ""),
+                ("GIT_CONFIG_KEY_5", "http.lowSpeedLimit"),
+                ("GIT_CONFIG_VALUE_5", "1"),
+                ("GIT_CONFIG_KEY_6", "http.lowSpeedTime"),
+                ("GIT_CONFIG_VALUE_6", "300"),
+                ("GIT_CONFIG_KEY_7", no_proxy.as_str()),
+                ("GIT_CONFIG_VALUE_7", ""),
             ]
         );
         assert_eq!(
@@ -278,6 +301,10 @@ mod tests {
             // asked for a credential, and none is offered a token to store.
             ("credential.helper".to_string(), String::new()),
             ("core.askPass".to_string(), String::new()),
+            // A transfer that stops moving is abandoned instead of holding
+            // the job until its overall limit.
+            ("http.lowSpeedLimit".to_string(), "1".to_string()),
+            ("http.lowSpeedTime".to_string(), "300".to_string()),
             // Loopback traffic to the credential proxy never goes through a
             // configured HTTP proxy.
             (format!("http.{proxy}.proxy"), String::new()),
@@ -289,6 +316,8 @@ mod tests {
             [
                 ("credential.helper".to_string(), String::new()),
                 ("core.askPass".to_string(), String::new()),
+                ("http.lowSpeedLimit".to_string(), "1".to_string()),
+                ("http.lowSpeedTime".to_string(), "300".to_string()),
             ]
         );
     }
