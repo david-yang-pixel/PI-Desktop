@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const zhCNEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "即使主机离线或工作区仍在准备中，也可以删除云端项目中的对话。",
+      "云端项目中的对话无法启动时（例如主机离线或 GitHub 未连接），桌面端现在会说明原因，而不是看起来毫无反应。",
+      "主机上被中断的 worktree 创建会被回滚，再次准备对话时不会再被创建了一半的检出或分支阻塞。",
+      "Agent 通过内置的 GitHub 连接器推送云端项目对话的分支并创建 PR；桌面端不再提供手动推送或创建 PR 的按钮。",
+      "GitHub 托管的 MCP 服务器拒绝验证码登录获得的令牌时，Agent 会改用一组精简的议题和 PR 工具，直接调用 GitHub API。",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [
