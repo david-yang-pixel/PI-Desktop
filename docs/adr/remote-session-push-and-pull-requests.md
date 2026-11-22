@@ -66,8 +66,12 @@ whose durable session mode is not Agent. Pushes still reach only the session's
 own work branch through the Host's credential proxy, and neither tool commits
 for the user.
 
-Consequence: a user who wants a push or a pull request asks the Agent. A user
-who signs out of the connector withdraws both tools at the next session launch.
+Consequence: a user who wants a push or a pull request asks the Agent. Every
+prompt launch re-reads the connector, so signing in offers both tools to the
+next prompt of every live repository session, and signing out or a rejected
+token withdraws them there. A turn that is already running keeps the tool list
+it started with; after a sign-out or a rejected token its calls are refused
+with `GITHUB_NOT_CONNECTED` before anything is pushed (D695).
 
 ## Amendment: merged and closed pull requests stay linked
 
@@ -117,4 +121,3 @@ host-core starts, so the resume it used to start always failed with a
 misleading warning, and a Host that connected before host-core answered
 missed its recovery. A phase that fails because host-core is not up yet is
 logged as deferred rather than as a failure.
-

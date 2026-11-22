@@ -67,6 +67,19 @@ function pullRequestInput(args: unknown) {
   return { title: title.trim(), body, draft };
 }
 
+const signedIn = (status: Awaited<ReturnType<GitHubConnector["status"]>>) => status.connected && !status.needsReauthentication;
+
+/**
+ * The tool list is fixed for the length of a turn, while each launch re-reads
+ * the connector. A turn launched before a sign-out, or before GitHub rejected
+ * the token, must not publish with the list it started with.
+ */
+async function assertSignedIn(sessions: RepositorySessions) {
+  if (!signedIn(await sessions.connector.status())) {
+    throw remoteError(ErrorCodes.GITHUB_NOT_CONNECTED, "Sign in to GitHub in Settings > Connectors to publish this session");
+  }
+}
+
 async function pushSessionBranch(sessions: RepositorySessions, sessionId: string, assertCurrent: () => void) {
   try {
     return { pushed: true, ...(await sessions.git.push(sessionId, assertCurrent)) };
@@ -88,12 +101,13 @@ export function createGitHubSessionTools(getSessions: () => RepositorySessions |
       if (!sessions) return false;
       const binding = await sessions.workspaces.binding(sessionId);
       if (binding?.state !== "ready" || !binding.workBranch) return false;
-      const status = await sessions.connector.status();
-      const signedIn = status.connected && !status.needsReauthentication;
+      // Read on every launch, so a sign-in, sign-out, or reauthentication
+      // reaches the next prompt of every live repository session.
+      const available = signedIn(await sessions.connector.status());
       // Each launch is a chance to learn that the recorded pull request was
       // merged or closed; it never delays the launch.
-      if (signedIn) void sessions.git.refreshPullRequest?.(sessionId);
-      return signedIn;
+      if (available) void sessions.git.refreshPullRequest?.(sessionId);
+      return available;
     },
     async execute(input: {
       sessionId?: string;
@@ -114,11 +128,13 @@ export function createGitHubSessionTools(getSessions: () => RepositorySessions |
       };
       if (input.toolName === githubSessionPushTool.name) {
         pushInput(input.args);
+        await assertSignedIn(sessions);
         assertCurrent();
         return pushSessionBranch(sessions, input.sessionId, assertCurrent);
       }
       if (input.toolName === githubSessionPullRequestTool.name) {
         const args = pullRequestInput(input.args);
+        await assertSignedIn(sessions);
         assertCurrent();
         return sessions.git.create(input.sessionId, args, assertCurrent);
       }

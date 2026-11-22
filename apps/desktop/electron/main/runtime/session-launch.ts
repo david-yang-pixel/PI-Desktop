@@ -561,6 +561,7 @@ export function createSessionLaunchRuntime({
     const userMcpTools = await userMcp.toolsForProject(projectPath ?? null);
     // Cloud sessions publish through the connector whenever it is signed in;
     // the GitHub Agent tools switch governs only the issues and PR MCP server.
+    // Read per launch, so a connector change reaches each session's next prompt.
     const canPublishSessionToGitHub = remoteWorkspace
       && await githubSessionTools?.available(sessionId).catch(() => false);
     // Skill catalog (D174): only id/name/description cross to the sidecar; the

@@ -965,7 +965,9 @@ ends cleared. A second call answers `pushed: false` with the current counts
 instead of failing. The pull request tool then opens the PR without another
 push. `apps/desktop/test/github-session-tools.test.mjs` covers the tools'
 availability (offered whenever the connector is signed in, regardless of the
-GitHub Agent tools switch), the Agent-turn requirement, argument validation and
+GitHub Agent tools switch, and following a sign-in or sign-out at the next
+launch), the refusal of a running turn's calls after a sign-out
+(`GITHUB_NOT_CONNECTED`), the Agent-turn requirement, argument validation and
 turn cancellation.
 
 ## E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree

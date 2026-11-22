@@ -156,3 +156,25 @@ test("offering the tools refreshes the recorded pull request state in the backgr
     assert.deepEqual(signedOut.calls, []);
   }
 });
+
+test("the tools follow the connector between launches, and a stale list cannot publish after a sign-out", async () => {
+  const connector = { connected: false };
+  const { tools, calls } = fixture({ connector });
+  // Signed out at the first launch: not offered.
+  assert.equal(await tools.available(SESSION), false);
+  // Signed in later: the next launch offers them, without restarting anything.
+  connector.connected = true;
+  assert.equal(await tools.available(SESSION), true);
+
+  // A turn launched while signed in keeps its tool list; after a sign-out or
+  // a rejected token its calls are refused before anything is pushed.
+  calls.length = 0;
+  for (const state of [{ connected: false }, { connected: true, needsReauthentication: true }]) {
+    Object.assign(connector, { connected: state.connected, needsReauthentication: state.needsReauthentication });
+    for (const toolName of [githubSessionPushTool.name, githubSessionPullRequestTool.name]) {
+      await assert.rejects(run(tools, toolName, { args: toolName === githubSessionPushTool.name ? {} : { title: "Fix" } }),
+        (error) => error.errorCode === ErrorCodes.GITHUB_NOT_CONNECTED);
+    }
+  }
+  assert.deepEqual(calls, []);
+});

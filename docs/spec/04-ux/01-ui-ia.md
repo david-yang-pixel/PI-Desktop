@@ -613,7 +613,9 @@ open a pull request. While the GitHub connector is signed in, the agent can
 push the session's committed work branch and open the PR against the
 workspace's base branch through the built-in connector, whether or not GitHub
 Agent tools are enabled. Both are high-risk tool calls that ask for approval
-outside Auto mode, and Plan and Goal turns cannot publish.
+outside Auto mode, and Plan and Goal turns cannot publish. Signing in or out
+of the connector applies from the session's next prompt; a turn already
+running cannot publish after a sign-out.
 Remote Hosts settings includes environment editing and leftover
 worktree management when a Host is paired. Each connected Host shows the
 release it reported, for example "Host version 0.23.0", followed by
