@@ -36,6 +36,7 @@ function fixture(respond: (method: string, params: Record<string, unknown>) => u
     },
   };
   const proxy: GitCredentialProxy = {
+    verifiesPeerUser: true,
     async start() {},
     async close() {},
     setToken(installationId, token) { events.push({ type: "setToken", installationId, token }); },

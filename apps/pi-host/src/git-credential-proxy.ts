@@ -13,7 +13,9 @@
  *
  * - the listener is loopback-only;
  * - a connection is served only when the process that opened it runs as the
- *   same user as `pi-host` (Linux; see `loopback-peer.ts`);
+ *   same user as `pi-host` (Linux; see `loopback-peer.ts`). Where that cannot
+ *   be checked, `verifiesPeerUser` is false and `pi-host` does not offer git
+ *   workspaces at all;
  * - a handle works only for the repository of the session it was issued for,
  *   and for a push only to that session's work branch;
  * - a credential set with a new token replaces the installation's handles.
@@ -35,6 +37,12 @@ import { sendUpstreamRequest, type UpstreamTlsOptions } from "./upstream-proxy.j
 export type GitProxyScope = { installationId: string; sessionId: string; repository: WorkspaceGitRepository; workBranch: string };
 
 export type GitCredentialProxy = {
+  /**
+   * Whether a connection is served only to a process of this user. Without
+   * that check any local user who reads a handle could use the token, so the
+   * caller must not offer git workspaces when it is false.
+   */
+  readonly verifiesPeerUser: boolean;
   /** Bind 127.0.0.1 on a free port. */
   start(): Promise<void>;
   close(): Promise<void>;
@@ -182,8 +190,9 @@ export type GitCredentialProxyOptions = {
   /**
    * The uid that owns the client end of a loopback connection, for tests.
    * By default the kernel's socket table on Linux; no check elsewhere.
+   * `null` stands for a platform without a lookup.
    */
-  peerUid?: LoopbackPeerUidLookup;
+  peerUid?: LoopbackPeerUidLookup | null;
   /** Environment used for HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY lookup. Defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
   /** Optional TLS overrides for upstream HTTPS connections (e.g. a test CA certificate). */
@@ -202,7 +211,9 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
   let server: Server | null = null;
   let port = 0;
   const ownUid = typeof process.getuid === "function" ? process.getuid() : null;
-  const peerUid = options.peerUid ?? (process.platform === "linux" ? createLoopbackPeerUidLookup() : null);
+  const peerUid = options.peerUid === undefined
+    ? (process.platform === "linux" ? createLoopbackPeerUidLookup() : null)
+    : options.peerUid;
 
   const reply = (res: ServerResponse, status: number, message: string) => {
     if (res.headersSent) return void res.destroy();
@@ -306,6 +317,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
   };
 
   return {
+    verifiesPeerUser: peerUid !== null && ownUid !== null,
     async start() {
       if (server) return;
       const created = createServer((req, res) => {
@@ -326,7 +338,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
         log("warn", uid === null ? "git proxy closed a connection whose owner is unknown" : "git proxy closed a connection opened by another user", uid === null ? undefined : { uid });
         socket.destroy();
       });
-      if (!peerUid) log("warn", "git proxy cannot check which user opens a connection on this platform; any local user who learns a handle can use it");
+      if (!peerUid) log("warn", "git proxy cannot check which user opens a connection on this platform; git workspaces are not offered");
       await new Promise<void>((resolve, reject) => {
         created.once("error", reject);
         created.listen(0, "127.0.0.1", () => {

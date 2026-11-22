@@ -341,6 +341,13 @@ describe("git credential proxy", () => {
     expect(text).not.toContain(TOKEN);
   });
 
+  it("reports whether it can tell which user opened a connection", () => {
+    expect(createGitCredentialProxy({ peerUid: () => 1 }).verifiesPeerUser).toBe(typeof process.getuid === "function");
+    // No lookup on this platform: the host must not offer git workspaces.
+    expect(createGitCredentialProxy({ peerUid: null }).verifiesPeerUser).toBe(false);
+    expect(createGitCredentialProxy().verifiesPeerUser).toBe(process.platform === "linux");
+  });
+
   it.runIf(process.platform === "linux")("recognizes its own connections through the kernel's socket table", async () => {
     // No injected lookup: the real `/proc/net/tcp` must name this process's uid.
     const up = await upstream();
