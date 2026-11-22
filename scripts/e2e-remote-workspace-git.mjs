@@ -5,8 +5,11 @@
  *   desktop boot API -> loopback RACP -> pi-host operations -> real host-core
  *   -> git -> pi-host credential proxy -> a local `git http-backend` fixture
  *
- * Scenarios `E2E-REMOTE-repo-session-prepares-isolated-worktree` and
- * `E2E-REMOTE-git-proxy-rejects-foreign-ref`
+ * Scenarios `E2E-REMOTE-repo-session-prepares-isolated-worktree`,
+ * `E2E-REMOTE-git-proxy-rejects-foreign-ref`,
+ * `E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree`,
+ * `E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect`, and
+ * `E2E-REMOTE-repo-session-offline-delete-records-pending-removal`
  * (docs/spec/06-delivery/e2e/live-and-remote.md).
  *
  * Usage: PI_HOST_CORE_BINARY=<host-core binary> node scripts/e2e-remote-workspace-git.mjs
@@ -83,6 +86,30 @@ async function pollJob(jobId) {
   throw new Error(`job ${jobId} did not finish; phases ${phases.join(",")}`);
 }
 
+async function until(read, description, timeoutMs = 30_000) {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    const value = await read();
+    if (value) return value;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  throw new Error(`timed out waiting for ${description}`);
+}
+
+let racpListener;
+/**
+ * Make the paired Host really unreachable: its RACP listener goes away, so
+ * the Desktop's reconnect before each workspace-git call fails with the
+ * WebSocket connect error rather than a typed offline result.
+ */
+async function takeHostOffline() {
+  await binding.close();
+  await until(async () => !(await boot.list()).find((entry) => entry.hostKey === HOST)?.connected, "the Desktop to see the Host disconnect");
+}
+async function bringHostOnline() {
+  binding = await racpListener();
+}
+
 async function prepare(sessionId, baseBranch, extra = {}) {
   const { jobId } = await boot.workspaceGit.prepare(HOST, { sessionId, repository, baseBranch, ...extra });
   const { job, phases } = await pollJob(jobId);
@@ -156,6 +183,8 @@ try {
   });
   server = new RacpServer({ agentHost, operations, authenticator, hostId: "git-host", serverVersion: "fixture", log: (level, message, data) => hostLogs.push(JSON.stringify({ level, message, data })) });
   binding = await bindRacpWebSocket({ server, authenticator, host: "127.0.0.1", port: 0, log: () => {} });
+  const racpPort = binding.address.port;
+  racpListener = () => bindRacpWebSocket({ server, authenticator, host: "127.0.0.1", port: racpPort, log: () => {} });
   const desktopLogs = [];
   boot = createRemoteHostsBoot({
     dataDir: join(root, "desktop"), router: createBackendRouter(), clientInfo: { name: "workspace-git-fixture", version: "fixture" }, emit: () => {},
@@ -389,18 +418,13 @@ try {
         localAgentHost.kick(payload.sessionId);
       }
     };
-    let online = true;
     let safeRemoval = true;
     const removalCalls = [];
-    // The real transport remains available so the same Host can reconnect
-    // immediately. Inject the typed offline result at the desktop Host port.
-    const offline = () => Object.assign(new Error("fixture host offline"), { errorCode: "AGENT_UNAVAILABLE" });
     const gitPort = { ...boot.workspaceGit,
-      status: (...args) => online ? boot.workspaceGit.status(...args) : Promise.reject(offline()),
       supportsSafeRemoval: (key) => safeRemoval && boot.workspaceGit.supportsSafeRemoval(key),
       remove: (...args) => {
         removalCalls.push(args);
-        return online ? boot.workspaceGit.remove(...args) : Promise.reject(offline());
+        return boot.workspaceGit.remove(...args);
       },
     };
     const hostPort = () => ({ ...boot, workspaceGit: gitPort });
@@ -597,13 +621,63 @@ try {
       assert.equal((await workspaces.binding(child.id)).path, childBinding.path);
       assert.equal(git(childBinding.path, "rev-parse", "HEAD"), head);
 
-      online = false;
+      const runningSetup = (sessionId) => events.some(({ payload }) => payload.sessionId === sessionId
+        && payload.remoteRepository?.phase === "runningSetup");
+      const pendingRemovals = async () => (await call("sessionWorkspace.pendingRemoval.list", { hostKey: HOST })).removals;
+      const connectFailed = (error) => (error.errorCode ?? error.code) === "REMOTE_CONNECTION_FAILED";
+
+      // E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree
+      const slow = await workspaces.upsert({ hostKey: HOST, name: "Slow setup", setupScript: "sleep 30" });
+      const { session: preparing } = await call("session.create", { projectPath, mode: "agent" });
+      await workspaces.start({ sessionId: preparing.id, environmentId: slow.id, repository, baseBranch: "main" });
+      await until(() => runningSetup(preparing.id), "the slow setup to start");
+      const preparingTree = (await boot.workspaceGit.status(HOST, preparing.id)).worktree;
+      assert.ok(existsSync(preparingTree.path));
+      assert.deepEqual(await repositoryGit.preflight(preparing.id), { kind: "clean" });
+      const deleteStarted = Date.now();
+      await repositoryGit.beforeDelete(preparing.id, false);
+      await call("session.delete", { id: preparing.id });
+      assert.ok(Date.now() - deleteStarted < 25_000, "the setup was cancelled, not waited out");
+      assert.equal(await workspaces.binding(preparing.id), null);
+      assert.ok(!existsSync(preparingTree.path), "the cancelled worktree is removed");
+      assert.ok(!(await boot.workspaceGit.list(HOST)).some((tree) => tree.sessionId === preparing.id));
+      assert.equal(git(sharedCheckout, "branch", "--list", preparingTree.workBranch), "");
+      assert.deepEqual(await pendingRemovals(), []);
+
+      // E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect
+      const acrossReconnect = await workspaces.upsert({ hostKey: HOST, name: "Setup across a reconnect", setupScript: "sleep 2; printf resumed > resumed.txt" });
+      const { session: interrupted } = await call("session.create", { projectPath, mode: "agent" });
+      await workspaces.start({ sessionId: interrupted.id, environmentId: acrossReconnect.id, repository, baseBranch: "main" });
+      await until(() => runningSetup(interrupted.id), "setup to start before the Host goes away");
+      await takeHostOffline();
+      const offlinePreparation = await until(async () => {
+        const current = await workspaces.binding(interrupted.id);
+        return current?.state === "failed" && current;
+      }, "the preparation to report the unreachable Host");
+      assert.equal(offlinePreparation.error.code, "REMOTE_TARGET_HOST_OFFLINE");
+      assert.ok(events.some(({ payload }) => payload.sessionId === interrupted.id
+        && payload.remoteRepository?.error?.code === "REMOTE_TARGET_HOST_OFFLINE"), "the renderer is told");
+      await bringHostOnline();
+      // What the Host's connect handler runs.
+      await workspaces.resume(HOST);
+      await workspaces.waitUntilReady(interrupted.id);
+      const resumedPreparation = await workspaces.binding(interrupted.id);
+      assert.equal(resumedPreparation.error, null);
+      assert.equal(await readFile(join(resumedPreparation.path, "resumed.txt"), "utf8"), "resumed");
+
+      // E2E-REMOTE-repo-session-offline-delete-records-pending-removal
+      await takeHostOffline();
+      await assert.rejects(boot.workspaceGit.status(HOST, child.id), connectFailed, "the real connect error reaches the delete flow");
+      assert.deepEqual(await repositoryGit.status(child.id), { reachable: false, workBranch: childBinding.workBranch, baseBranch: "main" });
       assert.deepEqual(await repositoryGit.preflight(child.id), { kind: "unknown" });
+      // Only the user's confirmation of the warning lets the Host be skipped.
+      await assert.rejects(repositoryGit.beforeDelete(child.id, false), connectFailed);
+      assert.deepEqual(await pendingRemovals(), []);
       await repositoryGit.beforeDelete(child.id, true);
       await call("session.delete", { id: child.id });
-      assert.equal((await call("sessionWorkspace.pendingRemoval.list", { hostKey: HOST })).removals.length, 1);
+      assert.equal((await pendingRemovals()).length, 1);
       assert.ok(existsSync(childBinding.path));
-      online = true;
+      await bringHostOnline();
       const recovered = createSessionWorkspaceGit({ call, workspaces, connector, emit });
       safeRemoval = false;
       const beforeLegacyReconcile = removalCalls.length;

@@ -19,13 +19,34 @@ export type WorkspaceBinding = SessionRemoteRepository & {
 };
 export type WorkspaceStart = RemoteSessionWorkspaceStart & { fromSessionId?: string };
 
+/**
+ * How long a delete waits for a cancelled Host job to stop. The Host's own
+ * cancel waits ten seconds; a job still cleaning up after that keeps the
+ * worktree busy.
+ */
+const JOB_STOP_TIMEOUT_MS = 30_000;
+const JOB_STOP_POLL_MS = 500;
+
 export const remoteError = (errorCode: string, message: string) => Object.assign(new Error(message), { errorCode });
 export function remoteCode(error: unknown): string | undefined {
   const value = error as { errorCode?: string; code?: string; data?: { errorCode?: string } } | undefined;
   return value?.data?.errorCode ?? value?.errorCode ?? value?.code;
 }
+/**
+ * The Host could not be reached. Every workspace-git call reconnects a
+ * dropped Host first (`ensureReady`), so an unreachable Host usually fails
+ * with the connect error itself: `HOST_BOOTSTRAP_FAILED` when the SSH
+ * startup check fails for any reason (refused, timed out, or SSH
+ * authentication), `REMOTE_CONNECTION_FAILED` when the WebSocket cannot
+ * open. Either way the Host's state cannot be read now. RACP token and
+ * version refusals (`*_AUTH_FAILED`, `HOST_VERSION_MISMATCH`) are not
+ * offline.
+ */
 export function offlineError(error: unknown): boolean {
-  return ["AGENT_UNAVAILABLE", "HOST_UNAVAILABLE", "TIMEOUT", "REMOTE_TARGET_HOST_OFFLINE", "REMOTE_DISCONNECTED", "HOST_DISCONNECTED", "NOT_CONNECTED"].includes(remoteCode(error) ?? "");
+  return [
+    "AGENT_UNAVAILABLE", "HOST_UNAVAILABLE", "TIMEOUT", "REMOTE_TARGET_HOST_OFFLINE", "REMOTE_DISCONNECTED",
+    "HOST_DISCONNECTED", "NOT_CONNECTED", ErrorCodes.HOST_BOOTSTRAP_FAILED, ErrorCodes.REMOTE_CONNECTION_FAILED,
+  ].includes(remoteCode(error) ?? "");
 }
 export function busyJob(error: unknown): string | undefined {
   if (remoteCode(error) !== ErrorCodes.WORKSPACE_GIT_BUSY) return undefined;
@@ -48,6 +69,8 @@ export function createSessionWorkspaces(deps: {
   const reclaiming = new Map<string, Promise<WorkspaceGitReclaimResult>>();
   const rerunSetups = new Set<string>();
   let disposed = false;
+  /** Ends waits that nothing else owns, such as a delete's job stop. */
+  const disposal = new AbortController();
   const git = () => {
     const boot = hosts();
     if (!boot) throw remoteError(ErrorCodes.HOST_UNAVAILABLE, "Remote hosts are unavailable");
@@ -200,12 +223,19 @@ export function createSessionWorkspaces(deps: {
         await sleep(Date.now() - started < 30_000 ? 1_000 : 2_000, null, { signal });
       }
     } catch (error) {
-      if (!signal.aborted && (!offlineError(error) || initial.requireSetupOnRetry)) {
-        await save({ state: "failed", jobId: null, error: {
-          code: remoteCode(error) ?? "WORKSPACE_GIT_FAILED",
-          message: error instanceof Error ? error.message : String(error),
+      if (signal.aborted) return;
+      const message = error instanceof Error ? error.message : String(error);
+      if (offlineError(error) && !initial.requireSetupOnRetry) {
+        // Nothing can be polled until the Host is back. Say so instead of
+        // showing "preparing" forever, and keep the job id: the Host may
+        // still be running it, and `resume` picks it up on reconnect.
+        await save({ state: "failed", error: {
+          code: ErrorCodes.REMOTE_TARGET_HOST_OFFLINE,
+          message: `The remote host could not be reached (${message}). Retry, or preparation resumes when the host reconnects.`,
         } });
+        return;
       }
+      await save({ state: "failed", jobId: null, error: { code: remoteCode(error) ?? "WORKSPACE_GIT_FAILED", message } });
     } finally {
       rerunSetups.delete(sessionId);
     }
@@ -223,6 +253,52 @@ export function createSessionWorkspaces(deps: {
     const result = announce(await update(sessionId, { state: "preparing", jobId: null, error: null, requireSetupOnRetry: rebuild }, current.state));
     watch(sessionId);
     return result;
+  }
+
+  /** A preparation the monitor stopped watching because its Host went offline. */
+  const waitingForHost = (current: WorkspaceBinding) => current.state === "failed"
+    && current.error?.code === ErrorCodes.REMOTE_TARGET_HOST_OFFLINE && current.requireSetupOnRetry !== true;
+
+  /** Continue polling the same job: the Host may have finished it meanwhile. */
+  async function resumeAfterOffline(current: WorkspaceBinding) {
+    if (disposed) return;
+    let next: WorkspaceBinding;
+    try {
+      next = await update(current.sessionId, { state: "preparing", error: null }, "failed");
+    } catch (error) {
+      // Retried or deleted by the user in the meantime.
+      if (remoteCode(error) === ErrorCodes.CONFLICT) return;
+      throw error;
+    }
+    announce(next);
+    watch(current.sessionId);
+  }
+
+  /** Cancel a Host job and wait until it no longer holds the worktree. */
+  async function stopJob(hostKey: string, jobId: string) {
+    const gone = (error: unknown) => remoteCode(error) === ErrorCodes.WORKSPACE_GIT_JOB_NOT_FOUND;
+    try {
+      await git().cancelJob(hostKey, jobId);
+    } catch (error) {
+      if (gone(error)) return;
+      throw error;
+    }
+    const deadline = Date.now() + JOB_STOP_TIMEOUT_MS;
+    while (true) {
+      let job: WorkspaceGitJob;
+      try {
+        job = await git().job(hostKey, jobId);
+      } catch (error) {
+        if (gone(error)) return;
+        throw error;
+      }
+      if (job.state !== "running") return;
+      if (Date.now() >= deadline) {
+        throw Object.assign(remoteError(ErrorCodes.WORKSPACE_GIT_BUSY,
+          "The repository workspace is still stopping a Git operation. Try again in a moment."), { details: { jobId } });
+      }
+      await sleep(JOB_STOP_POLL_MS, null, { signal: disposal.signal });
+    }
   }
 
   async function recoverMissingCheckout(expected: WorkspaceBinding, worktree: WorkspaceGitWorktree) {
@@ -338,6 +414,7 @@ export function createSessionWorkspaces(deps: {
 
   return {
     git, binding, update, listBindings, announce, ensureSession, list, getEnvironment, start, recoverMissingCheckout, touch, reclaim, wake,
+    watch, stopJob,
     async get(sessionId: string) {
       const current = await binding(sessionId);
       return current ? publicBinding(current) : null;
@@ -381,24 +458,24 @@ export function createSessionWorkspaces(deps: {
       monitorTask?.controller.abort();
       await monitorTask?.done;
       const current = await binding(sessionId);
-      if (current?.jobId) {
-        await git().cancelJob(current.hostKey, current.jobId).catch((error) => {
-          if (remoteCode(error) !== ErrorCodes.WORKSPACE_GIT_JOB_NOT_FOUND) throw error;
-        });
-      }
+      if (current?.jobId) await stopJob(current.hostKey, current.jobId);
     },
     async resume(hostKey?: string) {
-      const bindings = await listBindings(["preparing", "ready", "reclaiming", "reclaimed"]);
+      const bindings = (await listBindings(["preparing", "ready", "reclaiming", "reclaimed", "failed"]))
+        .filter((current) => !hostKey || current.hostKey === hostKey);
       for (const current of bindings) {
-        if (current.state === "preparing" && (!hostKey || current.hostKey === hostKey)) watch(current.sessionId);
+        if (current.state === "preparing") watch(current.sessionId);
       }
-      const ready = bindings.filter((current) => current.state !== "preparing" && (!hostKey || current.hostKey === hostKey));
-      if (!ready.length) return;
+      const ready = bindings.filter((current) => current.state === "ready" || current.state === "reclaiming" || current.state === "reclaimed");
+      const waiting = bindings.filter(waitingForHost);
+      if (!ready.length && !waiting.length) return;
       const connected = hostKey ? [hostKey] : (await hosts()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey);
       await Promise.all(connected.map(async (key) => {
         const selected = ready.filter((current) => current.hostKey === key);
-        if (!selected.length) return;
+        const resumable = waiting.filter((current) => current.hostKey === key);
         try {
+          for (const current of resumable) await resumeAfterOffline(current);
+          if (!selected.length) return;
           const worktrees = new Map((await git().list(key)).map((worktree) => [worktree.sessionId, worktree]));
           for (const current of selected) {
             const worktree = worktrees.get(current.sessionId);
@@ -444,6 +521,7 @@ export function createSessionWorkspaces(deps: {
     announceEnvironments,
     dispose() {
       disposed = true;
+      disposal.abort();
       rerunSetups.clear();
       for (const task of jobs.values()) task.controller.abort();
     },

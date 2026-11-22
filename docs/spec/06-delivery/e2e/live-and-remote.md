@@ -866,6 +866,49 @@ percentage when available. Updates are scoped to the session and clear when
 polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
 
+## E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Start a
+repository session whose environment setup runs for 30 seconds and wait until
+the setup phase is reported. The delete preflight reports a clean worktree, so
+the delete runs without a warning. Cancelling the prepare job stops the setup
+and discards what the job created. The session and its binding are gone well
+before the setup would have finished, the worktree directory, its Host record,
+and its local work branch are removed, and no pending removal is recorded.
+
+This real-Host path finishes within the Host's own cancel wait. The Desktop's
+part is pinned in `apps/desktop/test/remote-session-workspace-git.test.mjs`:
+waiting until a slow job reports stopped before removing, stopping a Host job
+the binding never learned the id of, and keeping a session whose delete failed
+monitored so it settles to a state the user can retry or delete again.
+
+## E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect
+
+Covered by step 9 of the same script. While a repository session's setup is
+running, close the Host's RACP listener so every reconnect fails with
+`REMOTE_CONNECTION_FAILED`. The preparation becomes `failed` with
+`REMOTE_TARGET_HOST_OFFLINE` and the renderer is told, so the composer shows
+the offline reason with Retry and Delete instead of "preparing" forever.
+Reopen the listener and run the reconnect handler's resume: the session polls
+the same job, becomes ready, and its setup output is present.
+
+## E2E-REMOTE-repo-session-offline-delete-records-pending-removal
+
+Covered by step 9 of the same script. Close the Host's RACP listener. The
+Desktop's reconnect before a workspace call fails with the real
+`REMOTE_CONNECTION_FAILED`, not a typed offline result. The session status
+reports the Host unreachable and the delete preflight reports `unknown`, which
+shows the "unpushed work cannot be checked" warning. A delete without that
+confirmation fails and records nothing. The confirmed delete removes the session
+locally, records one pending removal, and leaves the worktree on the Host. After
+the listener is back, reconciliation removes the clean leftover worktree. The
+SSH equivalent, where the startup check fails with `HOST_BOOTSTRAP_FAILED`, is
+pinned in `apps/desktop/test/remote-session-workspace-git.test.mjs`. So is a
+session deleted offline while it was still preparing: on reconnect,
+reconciliation stops the job it left running, whether or not a worktree is
+listed yet, and a job that will not stop keeps its pending removal for the next
+connection without blocking the others.
+
 ## E2E-REMOTE-idle-reclaim-restores-the-original-commit
 
 `pnpm test:e2e:remote-workspace-git` uses a temporary Host and a fixture Git
