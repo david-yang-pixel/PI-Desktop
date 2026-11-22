@@ -320,9 +320,11 @@ test("automation ownership keeps run transcripts out of the lists", async () => 
 test("the session list and search both consume the ownership rule", async () => {
   const { readFile } = await import("node:fs/promises");
   const sidebar = await readFile(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
-  assert.match(sidebar, /import \{ listableSessions \} from "\.\.\/lib\/session-origin";/);
+  const organization = await readFile(new URL("../src/lib/sidebar-session-organization.ts", import.meta.url), "utf8");
+  assert.match(sidebar, /sidebarSessionOrganization\(\{/);
+  assert.match(organization, /import \{ listableSessions \} from "\.\/session-origin";/);
   assert.match(
-    sidebar,
+    organization,
     /listableSessions\(sessions\)/,
     "the sidebar drops automation transcripts before grouping",
   );
