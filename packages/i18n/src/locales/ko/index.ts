@@ -114,6 +114,9 @@ export const ko = {
       workflowScopeRequired: "GitHub가 워크플로 파일 변경을 거부했습니다. 'GitHub Actions 워크플로 파일 변경 허용'을 켜고 GitHub를 다시 연결하세요.",
       stalled: "GitHub와의 전송이 멈춰 중단되었습니다. 다시 시도하세요.",
     },
+    sendFailure: {
+      message: "메시지를 보내지 못했습니다: {{message}}",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

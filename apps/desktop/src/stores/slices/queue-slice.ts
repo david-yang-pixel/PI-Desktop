@@ -1,5 +1,6 @@
 import { useSessionTargetStore } from "../../features/chat/session-target/session-target-store";
 import { startRemoteTargetSession } from "../runtime/remote-target-session";
+import { sendFailureText } from "../../features/chat/send-failure-message";
 import type { PersistSessionOptions } from "../runtime/session-coordination";
 import i18n from "i18next";
 import { formatFileInsert } from "@pi-desktop/shared";
@@ -569,7 +570,12 @@ export function createQueueSlice({
         }
       } catch (error) {
         // Keep sendPrompt's Promise<boolean> contract so the composer can
-        // restore a draft cleared before submission, even on unexpected setup errors.
+        // restore a draft cleared before submission, even on unexpected setup
+        // errors, and say why. Failures handled above resolve `false` without
+        // reaching here, so this cannot repeat their toast: a remote start
+        // explains itself in `startRemoteTargetSession`, a queued prompt in
+        // `enqueuePrompt`, and a refused prompt in the transcript.
+        get().showToast(sendFailureText((key, options) => i18n.t(key, options), error), { variant: "error" });
         return false;
       } finally {
         pendingSubmissions.delete(submissionKey);

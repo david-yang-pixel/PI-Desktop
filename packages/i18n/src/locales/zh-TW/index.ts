@@ -114,6 +114,9 @@ export const zhTW = {
       workflowScopeRequired: "GitHub 拒絕了對工作流程檔案的變更。請開啟「允許修改 GitHub Actions 工作流程檔案」後重新連接 GitHub。",
       stalled: "與 GitHub 的傳輸停滯，已被中止。請重試。",
     },
+    sendFailure: {
+      message: "無法傳送訊息：{{message}}",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

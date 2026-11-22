@@ -114,6 +114,9 @@ export const zhCN = {
       workflowScopeRequired: "GitHub 拒绝了对工作流文件的更改。请开启“允许修改 GitHub Actions 工作流文件”后重新连接 GitHub。",
       stalled: "与 GitHub 的传输停滞，已被中止。请重试。",
     },
+    sendFailure: {
+      message: "无法发送消息：{{message}}",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

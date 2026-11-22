@@ -114,6 +114,9 @@ export const fr = {
       workflowScopeRequired: "GitHub a refusé les modifications des fichiers de workflow. Reconnectez GitHub en activant « Autoriser la modification des fichiers de workflow GitHub Actions ».",
       stalled: "Le transfert avec GitHub s’est bloqué et a été arrêté. Réessayez.",
     },
+    sendFailure: {
+      message: "Impossible d’envoyer le message : {{message}}",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

@@ -114,6 +114,9 @@ export const tr = {
       workflowScopeRequired: "GitHub iş akışı dosyalarındaki değişiklikleri reddetti. GitHub'ı 'GitHub Actions iş akışı dosyalarında değişikliğe izin ver' açıkken yeniden bağlayın.",
       stalled: "GitHub ile aktarım takıldı ve durduruldu. Tekrar deneyin.",
     },
+    sendFailure: {
+      message: "Mesaj gönderilemedi: {{message}}",
+    },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",
       hostOutdated: "Uzak ana bilgisayar bu uygulamanın farklı bir sürümünü çalıştırıyor. Ana bilgisayarı güncelleyin, ardından tekrar deneyin.",

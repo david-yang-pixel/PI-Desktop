@@ -114,6 +114,9 @@ export const ptBR = {
       workflowScopeRequired: "O GitHub recusou alterações em arquivos de workflow. Reconecte o GitHub com “Permitir alterações nos arquivos de workflow do GitHub Actions” ativado.",
       stalled: "A transferência com o GitHub travou e foi interrompida. Tente novamente.",
     },
+    sendFailure: {
+      message: "Não foi possível enviar a mensagem: {{message}}",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

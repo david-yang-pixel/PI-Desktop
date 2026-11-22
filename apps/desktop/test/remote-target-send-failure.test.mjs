@@ -81,7 +81,9 @@ function stubMain(handlers) {
 }
 
 /** The home composer with an unsent draft and the real queue slice behind it. */
-function homeComposer() {
+function homeComposer({
+  materializeDraftSession = async () => assert.fail("a remote target must not start a local draft session"),
+} = {}) {
   const nav = createNavigationIntentController();
   const toasts = [];
   let state = {
@@ -122,7 +124,7 @@ function homeComposer() {
     viewingSessionIdForPrompt: () => null,
     messageErrorFromUnknown: (error) => ({ code: error?.code ?? "INTERNAL", message: String(error) }),
     assistantErrorMessage: () => ({ role: "assistant", content: "failed" }),
-    materializeDraftSession: async () => assert.fail("a remote target must not start a local draft session"),
+    materializeDraftSession,
     persistSessionAndSelect: async () => assert.fail("a failed start must not persist a session"),
     flushPendingSessionConfiguration: async () => {},
   });
@@ -230,4 +232,38 @@ test("a failed start releases the draft so the next Send tries again", async () 
 
   assert.equal(calls.filter((channel) => channel === IPC.invoke.remoteHostCreateSession).length, 2);
   assert.equal(composer.toasts.length, 2);
+});
+
+test("a local draft that cannot start explains why once and restores the draft", async () => {
+  useSessionTargetStore.getState().beginDraft({ environmentId: "local" });
+  stubMain({});
+  const composer = homeComposer({
+    materializeDraftSession: async () => {
+      throw Object.assign(new Error("host unavailable"), { code: "HOST_UNAVAILABLE" });
+    },
+  });
+
+  assert.equal(await composer.send(), false);
+
+  assert.equal(composer.composerText(), "Fix the flaky upload test");
+  const reason = en.errors.HOST_UNAVAILABLE;
+  assert.equal(typeof reason, "string");
+  assert.deepEqual(composer.toasts, [{
+    message: en.sessionTarget.sendFailure.message.replace("{{message}}", reason),
+    variant: "error",
+  }]);
+});
+
+test("a local failure without a catalog sentence keeps its own message", async () => {
+  useSessionTargetStore.getState().beginDraft({ environmentId: "local" });
+  stubMain({});
+  const composer = homeComposer({
+    materializeDraftSession: async () => { throw new Error("disk quota exceeded"); },
+  });
+
+  assert.equal(await composer.send(), false);
+
+  assert.deepEqual(composer.toasts.map((toast) => toast.message), [
+    en.sessionTarget.sendFailure.message.replace("{{message}}", "disk quota exceeded"),
+  ]);
 });

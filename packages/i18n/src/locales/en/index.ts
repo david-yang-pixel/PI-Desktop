@@ -112,6 +112,9 @@ export const en = {
       workflowScopeRequired: "GitHub refused changes to workflow files. Reconnect GitHub with 'Allow changes to GitHub Actions workflow files' turned on.",
       stalled: "The transfer with GitHub stalled and was stopped. Try again.",
     },
+    sendFailure: {
+      message: "Could not send the message: {{message}}",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",
