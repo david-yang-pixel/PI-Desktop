@@ -91,22 +91,50 @@ pub async fn plan(
     })
 }
 
+/// `git push` arguments for `plan`. The refspec never carries `+`, and a
+/// forced update is only ever a lease: `--force-with-lease` names the work
+/// branch and the commit this host last pushed or fetched for it (empty when
+/// it has none, which requires the remote branch to be absent). GitHub then
+/// takes the update only if its branch still points there, so commits
+/// someone else pushed meanwhile are never overwritten.
+fn push_args(work_branch: &str, plan: &PushPlan, force_with_lease: bool) -> Vec<String> {
+    let mut args = vec!["push".to_string(), "--progress".to_string()];
+    if force_with_lease {
+        args.push(format!(
+            "--force-with-lease=refs/heads/{work_branch}:{}",
+            plan.remote_tracking.as_deref().unwrap_or("")
+        ));
+    }
+    args.push("--".to_string());
+    args.push("origin".to_string());
+    args.push(format!("{}:refs/heads/{work_branch}", plan.commit));
+    args
+}
+
 /// Push `plan.commit` to `refs/heads/<work_branch>` on `origin`, and only
-/// there; returns the commit the remote branch now has.
+/// there; returns the commit the remote branch now has. `force_with_lease`
+/// allows a non-fast-forward update (after a rebase) under the lease
+/// `push_args` describes; without it such an update is rejected.
 pub async fn push(
     ctx: &NetworkContext<'_>,
     worktree_path: &Path,
     work_branch: &str,
     plan: &PushPlan,
+    force_with_lease: bool,
 ) -> Result<String, WorkspaceGitError> {
     validate_branch(work_branch)?;
-    if !is_object_id(&plan.commit) {
+    if !is_object_id(&plan.commit)
+        || plan
+            .remote_tracking
+            .as_deref()
+            .is_some_and(|expected| !is_object_id(expected))
+    {
         return Err(WorkspaceGitError::invalid(
             "the commit to push is not an object id",
         ));
     }
-    let refspec = format!("{}:refs/heads/{work_branch}", plan.commit);
-    let args = ["push", "--progress", "--", "origin", refspec.as_str()];
+    let args = push_args(work_branch, plan, force_with_lease);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
     repository::run(ctx, worktree_path, "push", &args, PUSH_TIMEOUT).await?;
     Ok(plan.commit.clone())
 }
@@ -117,6 +145,7 @@ mod tests {
 
     use super::*;
     use crate::session_worktrees::repo_lock;
+    use crate::session_worktrees::test_support::git_cmd;
     use crate::workspace_git::repository::ensure;
     use crate::workspace_git::test_support::{commit_file, rev_parse, Remote};
     use crate::workspace_git::worktree::{create, StartPoint};
@@ -162,7 +191,12 @@ mod tests {
 
         async fn push(&self) -> Result<String, WorkspaceGitError> {
             let plan = plan(&self.git, &self.worktree, WORK).await?;
-            push(&context(&self.git), &self.worktree, WORK, &plan).await
+            push(&context(&self.git), &self.worktree, WORK, &plan, false).await
+        }
+
+        async fn force_push(&self) -> Result<String, WorkspaceGitError> {
+            let plan = plan(&self.git, &self.worktree, WORK).await?;
+            push(&context(&self.git), &self.worktree, WORK, &plan, true).await
         }
     }
 
@@ -207,7 +241,7 @@ mod tests {
         // A tool commits while the transfer would run.
         let later = commit_file(&f.worktree, "two.txt", "2\n");
         assert_eq!(
-            push(&context(&f.git), &f.worktree, WORK, &plan)
+            push(&context(&f.git), &f.worktree, WORK, &plan, false)
                 .await
                 .unwrap(),
             planned
@@ -241,6 +275,85 @@ mod tests {
         let error = f.push().await.unwrap_err();
         assert_eq!(error.code, "WORKSPACE_GIT_PUSH_REJECTED", "{error}");
         assert_eq!(f.remote.head(WORK), theirs);
+    }
+
+    #[tokio::test]
+    async fn a_rebased_branch_is_pushed_only_with_a_lease_on_what_this_host_saw() {
+        let f = Fixture::new().await;
+        let first = commit_file(&f.worktree, "work.txt", "work\n");
+        f.push().await.unwrap();
+        // The Agent rewrites the branch (as a rebase would): not a fast-forward.
+        git_cmd(&f.worktree, &["reset", "-q", "--hard", "HEAD~1"]);
+        let rewritten = commit_file(&f.worktree, "rewritten.txt", "again\n");
+        let error = f.push().await.unwrap_err();
+        assert_eq!(error.code, "WORKSPACE_GIT_PUSH_REJECTED", "{error}");
+        assert_eq!(f.remote.head(WORK), first);
+        // Opted in: the remote still has what this host last pushed, so the
+        // lease holds and the rewritten branch replaces it.
+        assert_eq!(f.force_push().await.unwrap(), rewritten);
+        assert_eq!(f.remote.head(WORK), rewritten);
+    }
+
+    #[tokio::test]
+    async fn a_lease_never_overwrites_commits_this_host_has_not_seen() {
+        let f = Fixture::new().await;
+        commit_file(&f.worktree, "work.txt", "work\n");
+        f.push().await.unwrap();
+        // Someone else pushes to the work branch; this host never fetches it.
+        let theirs = f.remote.head("develop");
+        git_cmd(
+            &f.remote.bare,
+            &["update-ref", &format!("refs/heads/{WORK}"), &theirs],
+        );
+        git_cmd(&f.worktree, &["reset", "-q", "--hard", "HEAD~1"]);
+        commit_file(&f.worktree, "mine.txt", "mine\n");
+        let error = f.force_push().await.unwrap_err();
+        assert_eq!(error.code, "WORKSPACE_GIT_PUSH_REJECTED", "{error}");
+        assert_eq!(f.remote.head(WORK), theirs);
+    }
+
+    #[tokio::test]
+    async fn a_lease_on_a_branch_never_pushed_expects_it_to_be_absent() {
+        let f = Fixture::new().await;
+        let head = commit_file(&f.worktree, "work.txt", "work\n");
+        assert_eq!(f.force_push().await.unwrap(), head);
+        assert_eq!(f.remote.head(WORK), head);
+        let g = Fixture::new().await;
+        // The branch appeared on the remote without this host knowing.
+        let theirs = g.remote.create_branch(WORK, "develop");
+        commit_file(&g.worktree, "work.txt", "work\n");
+        let error = g.force_push().await.unwrap_err();
+        assert_eq!(error.code, "WORKSPACE_GIT_PUSH_REJECTED", "{error}");
+        assert_eq!(g.remote.head(WORK), theirs);
+    }
+
+    #[test]
+    fn a_forced_push_names_its_lease_and_never_forces_bare() {
+        let plan = PushPlan {
+            commit: "a".repeat(40),
+            remote_tracking: Some("b".repeat(40)),
+        };
+        let args = push_args(WORK, &plan, true);
+        assert!(args.contains(&format!(
+            "--force-with-lease=refs/heads/{WORK}:{}",
+            "b".repeat(40)
+        )));
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "--force" || arg == "-f" || arg.starts_with('+')));
+        assert_eq!(
+            args.last().unwrap(),
+            &format!("{}:refs/heads/{WORK}", "a".repeat(40))
+        );
+        let never = PushPlan {
+            remote_tracking: None,
+            ..plan.clone()
+        };
+        assert!(push_args(WORK, &never, true)
+            .contains(&format!("--force-with-lease=refs/heads/{WORK}:")));
+        assert!(!push_args(WORK, &plan, false)
+            .iter()
+            .any(|arg| arg.starts_with("--force")));
     }
 
     #[test]

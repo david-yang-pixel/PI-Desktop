@@ -51,7 +51,8 @@ export type WorkspaceGitBoot = {
     fromSessionId?: string; environment?: WorkspaceGitEnvironment; restoreOnly?: boolean; rerunSetup?: boolean;
     rebuild?: boolean;
   }): Promise<{ jobId: string }>;
-  push(hostKey: string, sessionId: string): Promise<{ jobId: string }>;
+  /** `forceWithLease` lets a rebased work branch replace the one the Host last pushed or fetched. */
+  push(hostKey: string, sessionId: string, options?: { forceWithLease?: boolean }): Promise<{ jobId: string }>;
   job(hostKey: string, jobId: string): Promise<WorkspaceGitJob>;
   cancelJob(hostKey: string, jobId: string): Promise<void>;
   status(hostKey: string, sessionId: string): Promise<WorkspaceGitStatus>;
@@ -329,8 +330,12 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
         ...(input.environment !== undefined ? { environment: input.environment } : {}),
       }), { needsCredential: !input.restoreOnly && !input.rerunSetup && !input.rebuild, mayUseCredential: true, rebuild: input.rebuild });
     },
-    push(hostKey, sessionId) {
-      return call(hostKey, "workspace/gitPush", (installationId) => ({ installationId, sessionId }), { needsCredential: true });
+    push(hostKey, sessionId, options) {
+      // Only sent when asked for: an older Host's closed schema refuses the
+      // field, which fails safe (nothing is forced).
+      return call(hostKey, "workspace/gitPush", (installationId) => ({
+        installationId, sessionId, ...(options?.forceWithLease === true ? { forceWithLease: true } : {}),
+      }), { needsCredential: true });
     },
     job(hostKey, jobId) {
       return call(hostKey, "workspace/gitJob", () => ({ jobId }));

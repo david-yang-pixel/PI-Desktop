@@ -86,6 +86,8 @@ test("every method sends its operation with the installation id and a 30 second 
   assert.deepEqual(await f.boot.prepare("h", { sessionId: "session-1", repository, baseBranch: "main", fromSessionId: "parent", environment }), { jobId: "job-1" });
   assert.deepEqual(await f.boot.prepare("h", { sessionId: "session-2", repository, baseBranch: "develop" }), { jobId: "job-1" });
   assert.deepEqual(await f.boot.push("h", "session-1"), { jobId: "job-2" });
+  assert.deepEqual(await f.boot.push("h", "session-1", { forceWithLease: true }), { jobId: "job-2" });
+  assert.deepEqual(await f.boot.push("h", "session-1", { forceWithLease: false }), { jobId: "job-2" });
   assert.deepEqual(await f.boot.job("h", "job-1"), job);
   assert.equal(await f.boot.cancelJob("h", "job-1"), undefined);
   assert.deepEqual(await f.boot.status("h", "session-1"), status);
@@ -97,6 +99,8 @@ test("every method sends its operation with the installation id and a 30 second 
     { method: "workspace/gitPrepare", params: { installationId: INSTALLATION, sessionId: "session-1", repository, baseBranch: "main", fromSessionId: "parent", environment }, timeoutMs: 30_000 },
     { method: "workspace/gitPrepare", params: { installationId: INSTALLATION, sessionId: "session-2", repository, baseBranch: "develop" }, timeoutMs: 30_000 },
     { method: "workspace/gitPush", params: { installationId: INSTALLATION, sessionId: "session-1" }, timeoutMs: 30_000 },
+    { method: "workspace/gitPush", params: { installationId: INSTALLATION, sessionId: "session-1", forceWithLease: true }, timeoutMs: 30_000 },
+    { method: "workspace/gitPush", params: { installationId: INSTALLATION, sessionId: "session-1" }, timeoutMs: 30_000 },
     { method: "workspace/gitJob", params: { jobId: "job-1" }, timeoutMs: 30_000 },
     { method: "workspace/gitJobCancel", params: { jobId: "job-1" }, timeoutMs: 30_000 },
     { method: "workspace/gitStatus", params: { installationId: INSTALLATION, sessionId: "session-1" }, timeoutMs: 30_000 },
@@ -104,7 +108,7 @@ test("every method sends its operation with the installation id and a 30 second 
     { method: "workspace/gitList", params: { installationId: INSTALLATION }, timeoutMs: 30_000 },
   ]);
   // Each call first makes sure the host is connected.
-  assert.equal(f.state.readied, 9);
+  assert.equal(f.state.readied, 11);
 });
 
 test("a caller cannot smuggle its own installation id or extra fields into prepare", async () => {

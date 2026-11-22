@@ -6,7 +6,7 @@ import {
   WorkspacePluginFilesRequestSchema, WorkspaceEnvironmentSetupSchema, WorkspaceGitEnvironmentSchema,
   WorkspaceGitCredentialClearSchema, WorkspaceGitCredentialSetSchema, WorkspaceGitJobRefSchema, WorkspaceGitListSchema,
   WorkspaceGitPrepareSchema, WorkspaceGitReclaimSchema, WorkspaceGitRemoveSchema, WorkspaceGitRepositoryRequestSchema,
-  WorkspaceGitSessionRefSchema,
+  WorkspaceGitPushSchema, WorkspaceGitSessionRefSchema,
   isEnvironmentVariableName, isGitBranchName, isGitHubOwner, isGitHubRepositoryName,
   RacpHostModelSelectionSchema,
   RacpCursorSchema,
@@ -248,7 +248,7 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     return service.prepare(input, toolOwner(context));
   });
   handlers.set("workspace/gitPush", async (context, params) =>
-    requireWorkspaceGit(context).push(check(WorkspaceGitSessionRefSchema, params), toolOwner(context)));
+    requireWorkspaceGit(context).push(check(WorkspaceGitPushSchema, params), toolOwner(context)));
   handlers.set("workspace/gitJob", async (context, params) =>
     requireWorkspaceGit(context).job(check(WorkspaceGitJobRefSchema, params)));
   handlers.set("workspace/gitJobCancel", async (context, params) => {

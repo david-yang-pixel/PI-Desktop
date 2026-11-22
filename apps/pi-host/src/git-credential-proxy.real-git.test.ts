@@ -37,7 +37,7 @@ function git(cwd: string, args: string[], env: Record<string, string> = {}): Pro
 }
 
 describe.skipIf(!available)("git credential proxy with real git", () => {
-  it("pushes a pack larger than git's post buffer to the work branch", async () => {
+  it("pushes a pack larger than git's post buffer, and a forced update, to the work branch only", async () => {
     const root = await mkdtemp(join(tmpdir(), "git-proxy-real-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
     const source = join(root, "source");
@@ -82,6 +82,21 @@ describe.skipIf(!available)("git credential proxy with real git", () => {
     // The same large pack aimed at another branch is still refused whole.
     const before = await git(bare, ["rev-parse", "--verify", "refs/heads/main"]);
     await expect(git(clone, ["push", "-q", "origin", `${WORK_BRANCH}:main`], rewrite)).rejects.toThrow(/403/);
+    expect(await git(bare, ["rev-parse", "--verify", "refs/heads/main"])).toBe(before);
+
+    // A rebased work branch replaces the remote one under a lease: the
+    // forced update names the work branch only, so the proxy forwards it.
+    await git(clone, ["reset", "-q", "--hard", "HEAD~1"]);
+    await writeFile(join(clone, "rebased.txt"), "rebased\n");
+    await git(clone, ["add", "rebased.txt"]);
+    await git(clone, ["commit", "-q", "-m", "rebased"]);
+    const rebased = await git(clone, ["rev-parse", "HEAD"]);
+    await expect(git(clone, ["push", "-q", "origin", `${WORK_BRANCH}:${WORK_BRANCH}`], rewrite)).rejects.toThrow(/rejected/);
+    await git(clone, ["push", "-q", `--force-with-lease=refs/heads/${WORK_BRANCH}:${head}`, "origin", `${WORK_BRANCH}:refs/heads/${WORK_BRANCH}`], rewrite);
+    expect(await git(bare, ["rev-parse", "--verify", `refs/heads/${WORK_BRANCH}`])).toBe(rebased);
+    // A forced update of any other ref is still refused whole.
+    await expect(git(clone, ["push", "-q", "--force", "origin", `${WORK_BRANCH}:main`], rewrite)).rejects.toThrow(/403/);
+    await expect(git(clone, ["push", "-q", "origin", `+${WORK_BRANCH}:main`, `+${WORK_BRANCH}:${WORK_BRANCH}`], rewrite)).rejects.toThrow(/403/);
     expect(await git(bare, ["rev-parse", "--verify", "refs/heads/main"])).toBe(before);
   }, 120_000);
 });

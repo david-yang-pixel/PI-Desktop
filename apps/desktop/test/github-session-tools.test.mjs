@@ -28,8 +28,8 @@ function fixture({ binding = { state: "ready", workBranch: "pi-desktop/abc123" }
     workspaces: { binding: async (id) => (id === SESSION ? binding : null) },
     connector: { status: async () => connector },
     git: {
-      push: async (id, assertCurrent) => {
-        calls.push(["push", id]);
+      push: async (id, assertCurrent, options) => {
+        calls.push(options?.forceWithLease ? ["push", id, options] : ["push", id]);
         assertCurrent?.();
         return git.push ? git.push() : status();
       },
@@ -120,13 +120,35 @@ test("other push failures stay failures", async () => {
     (error) => error.errorCode === ErrorCodes.REMOTE_TARGET_HOST_OFFLINE);
 });
 
-test("push takes no arguments and stops when the turn has ended", async () => {
-  await assert.rejects(run(fixture().tools, githubSessionPushTool.name, { args: { branch: "main" } }),
-    (error) => error.errorCode === ErrorCodes.INVALID_ARGUMENT);
+test("push takes only an optional forceWithLease flag and stops when the turn has ended", async () => {
+  for (const args of [{ branch: "main" }, { forceWithLease: "yes" }, { forceWithLease: true, force: true }, ["x"]]) {
+    await assert.rejects(run(fixture().tools, githubSessionPushTool.name, { args }),
+      (error) => error.errorCode === ErrorCodes.INVALID_ARGUMENT, JSON.stringify(args));
+  }
   const { tools, calls } = fixture();
   await assert.rejects(run(tools, githubSessionPushTool.name, { isCurrent: () => false }),
     (error) => error.errorCode === "TOOL_TURN_CANCELLED");
   assert.deepEqual(calls, []);
+});
+
+test("forceWithLease reaches the session's git only when the Agent sets it", async () => {
+  const schema = githubSessionPushTool.parameters;
+  assert.deepEqual(Object.keys(schema.properties), ["forceWithLease"]);
+  assert.equal(schema.properties.forceWithLease.type, "boolean");
+  assert.match(schema.properties.forceWithLease.description, /only after you rebased the work branch/i);
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.required, undefined);
+  const { tools, calls } = fixture();
+  await run(tools, githubSessionPushTool.name, { args: { forceWithLease: true } });
+  await run(tools, githubSessionPushTool.name, { args: { forceWithLease: false } });
+  await run(tools, githubSessionPushTool.name, { args: {} });
+  assert.deepEqual(calls, [["push", SESSION, { forceWithLease: true }], ["push", SESSION], ["push", SESSION]]);
+});
+
+test("a rejected push reaches the Agent with its typed code", async () => {
+  const { tools } = fixture({ git: { push: () => { throw coded(ErrorCodes.WORKSPACE_GIT_PUSH_REJECTED, "not a fast-forward"); } } });
+  await assert.rejects(run(tools, githubSessionPushTool.name),
+    (error) => error.errorCode === ErrorCodes.WORKSPACE_GIT_PUSH_REJECTED);
 });
 
 test("the pull request tool validates its input and opens the PR through the session's git", async () => {

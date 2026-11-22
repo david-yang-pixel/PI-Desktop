@@ -130,6 +130,14 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } =
             case "workspace/gitCredentialSet":
             case "workspace/gitCredentialClear":
               return { ok: true };
+            case "workspace/gitPush": {
+              const jobId = `job-${remote.nextJob++}`;
+              const tree = remote.worktrees.get(params.sessionId);
+              const job = { jobId, sessionId: params.sessionId, kind: "push", state: "succeeded", phase: "done" };
+              if (tree) tree.unpushedCommits = 0;
+              remote.jobs.set(jobId, job);
+              return { jobId };
+            }
             default:
               throw new Error(`unexpected host request ${method}`);
           }
@@ -592,4 +600,19 @@ test("only a ready repository session's commands hand its host the credential", 
   await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
   await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
   assert.equal(sets(), 1, "delivered once, then held by the connection");
+});
+
+test("a push asks the Host for a force-with-lease only when the caller does", async () => {
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1") },
+    worktrees: [readyWorktree("s-1", { unpushedCommits: 1, aheadOfBase: 1 })],
+  });
+  await f.git.push("s-1");
+  f.remote.worktrees.get("s-1").unpushedCommits = 1;
+  await f.git.push("s-1", undefined, { forceWithLease: true });
+  const pushes = f.remote.requests.filter((entry) => entry.method === "workspace/gitPush").map((entry) => entry.params);
+  assert.deepEqual(pushes, [
+    { installationId: INSTALLATION, sessionId: "s-1" },
+    { installationId: INSTALLATION, sessionId: "s-1", forceWithLease: true },
+  ]);
 });

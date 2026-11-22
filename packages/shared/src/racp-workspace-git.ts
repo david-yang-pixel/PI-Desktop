@@ -179,12 +179,25 @@ export const WorkspaceGitPrepareSchema = Type.Object({
 }, { additionalProperties: false });
 export type WorkspaceGitPrepare = Static<typeof WorkspaceGitPrepareSchema>;
 
-/** `{ installationId, sessionId }`; used by push and status. */
+/** `{ installationId, sessionId }`; used by status. */
 export const WorkspaceGitSessionRefSchema = Type.Object({
   installationId: InstallationId(),
   sessionId: SessionId(),
 }, { additionalProperties: false });
 export type WorkspaceGitSessionRef = Static<typeof WorkspaceGitSessionRefSchema>;
+
+export const WorkspaceGitPushSchema = Type.Object({
+  installationId: InstallationId(),
+  sessionId: SessionId(),
+  /**
+   * Allow a work branch that is not a fast-forward of the remote one, as
+   * after a rebase. The Host pushes with `--force-with-lease` on the commit
+   * it last pushed or fetched for the branch, never with a bare force, so
+   * commits someone else pushed meanwhile are refused, not overwritten.
+   */
+  forceWithLease: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export type WorkspaceGitPush = Static<typeof WorkspaceGitPushSchema>;
 
 export const WorkspaceGitRemoveSchema = Type.Object({
   installationId: InstallationId(),

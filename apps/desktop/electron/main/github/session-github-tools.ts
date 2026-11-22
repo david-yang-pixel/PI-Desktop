@@ -1,6 +1,6 @@
 import { ErrorCodes } from "@pi-desktop/shared";
 import type { GitHubConnector } from "./connector";
-import type { createSessionWorkspaceGit } from "../remote/session-workspace-git";
+import type { createSessionWorkspaceGit, PushOptions } from "../remote/session-workspace-git";
 import { remoteCode, remoteError, type SessionWorkspaces } from "../remote/session-workspaces";
 
 /*
@@ -15,11 +15,16 @@ import { remoteCode, remoteError, type SessionWorkspaces } from "../remote/sessi
 export const githubSessionPushTool = {
   externalToolSource: "connector" as const,
   name: "plugin_pi_github_PushSessionBranch",
-  description: "Use PI-Desktop's built-in GitHub connector to push this cloud session's work branch to GitHub. Commit the intended changes first; uncommitted files are not pushed. The push only ever updates this session's own work branch. Returns whether anything was pushed, the work and base branches, and the commit and uncommitted-file counts afterwards.",
+  description: "Use PI-Desktop's built-in GitHub connector to push this cloud session's work branch to GitHub. Commit the intended changes first; uncommitted files are not pushed. The push only ever updates this session's own work branch. Returns whether anything was pushed, the work and base branches, and the commit and uncommitted-file counts afterwards. A push GitHub refuses because the branch is not a fast-forward fails with WORKSPACE_GIT_PUSH_REJECTED: fetch, rebase the work branch onto the remote one, and push again with forceWithLease.",
   risk: "high" as const,
   parameters: {
     type: "object",
-    properties: {},
+    properties: {
+      forceWithLease: {
+        type: "boolean",
+        description: "Only after you rebased the work branch. Replaces the remote work branch if it still points at the commit this session last pushed or fetched; commits pushed by anyone else are never overwritten. Leave unset for a normal push.",
+      },
+    },
     additionalProperties: false,
   },
 };
@@ -50,11 +55,13 @@ type RepositorySessions = {
     & Partial<Pick<ReturnType<typeof createSessionWorkspaceGit>, "refreshPullRequest">>;
 };
 
-function pushInput(args: unknown) {
-  if (args === undefined || args === null) return;
-  if (typeof args !== "object" || Array.isArray(args) || Object.keys(args).length > 0) {
-    throw remoteError(ErrorCodes.INVALID_ARGUMENT, "Pushing the session branch takes no arguments");
-  }
+function pushInput(args: unknown): PushOptions {
+  if (args === undefined || args === null) return {};
+  const invalid = () => remoteError(ErrorCodes.INVALID_ARGUMENT, "Pushing the session branch takes only an optional forceWithLease flag");
+  if (typeof args !== "object" || Array.isArray(args)) throw invalid();
+  const { forceWithLease, ...rest } = args as { forceWithLease?: unknown };
+  if (Object.keys(rest).length > 0 || (forceWithLease !== undefined && typeof forceWithLease !== "boolean")) throw invalid();
+  return forceWithLease === true ? { forceWithLease: true } : {};
 }
 
 function pullRequestInput(args: unknown) {
@@ -80,9 +87,9 @@ async function assertSignedIn(sessions: RepositorySessions) {
   }
 }
 
-async function pushSessionBranch(sessions: RepositorySessions, sessionId: string, assertCurrent: () => void) {
+async function pushSessionBranch(sessions: RepositorySessions, sessionId: string, assertCurrent: () => void, options: PushOptions) {
   try {
-    return { pushed: true, ...(await sessions.git.push(sessionId, assertCurrent)) };
+    return { pushed: true, ...(await sessions.git.push(sessionId, assertCurrent, options)) };
   } catch (error) {
     // An up-to-date branch is an answer, not a failure: the counts tell the
     // Agent whether it still has uncommitted work to commit first.
@@ -127,10 +134,10 @@ export function createGitHubSessionTools(getSessions: () => RepositorySessions |
         if (!input.isCurrent()) throw remoteError("TOOL_TURN_CANCELLED", "The turn ended before publishing to GitHub");
       };
       if (input.toolName === githubSessionPushTool.name) {
-        pushInput(input.args);
+        const options = pushInput(input.args);
         await assertSignedIn(sessions);
         assertCurrent();
-        return pushSessionBranch(sessions, input.sessionId, assertCurrent);
+        return pushSessionBranch(sessions, input.sessionId, assertCurrent, options);
       }
       if (input.toolName === githubSessionPullRequestTool.name) {
         const args = pullRequestInput(input.args);

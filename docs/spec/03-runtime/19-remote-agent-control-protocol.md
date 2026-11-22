@@ -717,7 +717,7 @@ A missing `checkoutPresent` field leaves the checkout state unknown.
 | `workspace/gitCredentialClear` | `{}` | `{ ok: true }` | yes |
 | `workspace/gitRepository` | `{ repository }` | `{ path, cloned }` | no |
 | `workspace/gitPrepare` | `{ installationId, sessionId, repository, baseBranch, fromSessionId?, restoreOnly?, rerunSetup?, requireSetupSuccess?, environment? }` | `{ jobId }` | yes |
-| `workspace/gitPush` | `{ installationId, sessionId }` | `{ jobId }` | yes |
+| `workspace/gitPush` | `{ installationId, sessionId, forceWithLease? }` | `{ jobId }` | yes |
 | `workspace/gitJob` | `{ jobId }` | `WorkspaceGitJob` | no |
 | `workspace/gitJobCancel` | `{ jobId }` | `{ ok: true }` | yes |
 | `workspace/gitStatus` | `{ installationId, sessionId }` | `WorkspaceGitStatus` | no |
@@ -809,6 +809,17 @@ type WorkspaceGitJob = {
   the transfer runs, `workspace/toolExecute` and `workspace/gitStatus` in
   the worktree keep working, and no repository-wide lock is held, so other
   sessions of the repository are not held up by the network.
+- A push that is not a fast-forward of the remote work branch fails with
+  `WORKSPACE_GIT_PUSH_REJECTED`. After a rebase, `forceWithLease: true`
+  lets the push replace the remote branch, but only under a lease: the Host
+  runs `git push --force-with-lease=refs/heads/<workBranch>:<expected>`,
+  where `<expected>` is the commit it last pushed or fetched for that
+  branch (empty, meaning "must not exist", when it has none). Commits
+  someone else pushed meanwhile make the push fail with the same code
+  instead of being overwritten. The Host never runs a bare `--force`, and
+  the credential proxy still refuses any ref but the work branch. An older
+  Host refuses the field with `INVALID_ARGUMENT`; Desktop sends it only
+  when asked.
 - A failing setup script does not fail the job. The worktree reports
   `setup: { status: "failed", logTail }` with the last 16 KiB of output.
   The live `setupLogTail`, the stored log, and the output of tools in a

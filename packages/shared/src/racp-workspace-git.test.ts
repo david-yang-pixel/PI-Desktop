@@ -9,6 +9,7 @@ import {
   WorkspaceGitReclaimSchema,
   WorkspaceGitRemoveSchema,
   WorkspaceGitRepositoryRequestSchema,
+  WorkspaceGitPushSchema,
   WorkspaceGitSessionRefSchema,
   isEnvironmentVariableName,
   isGitBranchName,
@@ -123,6 +124,14 @@ describe("workspaceGit request schemas", () => {
     expect(Value.Check(WorkspaceGitSessionRefSchema, { installationId, sessionId: "" })).toBe(false);
     expect(Value.Check(WorkspaceGitSessionRefSchema, { installationId, sessionId: "s".repeat(257) })).toBe(false);
     expect(Value.Check(WorkspaceGitSessionRefSchema, { installationId, sessionId: "s", path: "/tmp" })).toBe(false);
+    // A push may opt into a force-with-lease, and nothing else.
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s" })).toBe(true);
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s", forceWithLease: true })).toBe(true);
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s", forceWithLease: false })).toBe(true);
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s", forceWithLease: "yes" })).toBe(false);
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s", force: true })).toBe(false);
+    expect(Value.Check(WorkspaceGitPushSchema, { installationId, sessionId: "s", branch: "main" })).toBe(false);
+    expect(Value.Check(WorkspaceGitSessionRefSchema, { installationId, sessionId: "s", forceWithLease: true })).toBe(false);
     expect(Value.Check(WorkspaceGitListSchema, { installationId })).toBe(true);
     expect(Value.Check(WorkspaceGitListSchema, {})).toBe(false);
     expect(Value.Check(WorkspaceGitListSchema, { installationId, sessionId: "s" })).toBe(false);

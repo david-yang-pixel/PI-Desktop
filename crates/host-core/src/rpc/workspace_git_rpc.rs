@@ -186,6 +186,9 @@ struct PushParams {
     git_proxy: Option<Value>,
     installation_id: String,
     session_id: String,
+    /// Allow a non-fast-forward update under a lease (`workspace_git::push`).
+    #[serde(default)]
+    force_with_lease: bool,
 }
 
 #[derive(Deserialize)]

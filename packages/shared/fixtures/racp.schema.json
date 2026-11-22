@@ -2691,6 +2691,28 @@
     },
     "additionalProperties": false
   },
+  "WorkspaceGitPush": {
+    "type": "object",
+    "required": [
+      "installationId",
+      "sessionId"
+    ],
+    "properties": {
+      "installationId": {
+        "type": "string",
+        "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
+      },
+      "sessionId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "forceWithLease": {
+        "type": "boolean"
+      }
+    },
+    "additionalProperties": false
+  },
   "WorkspaceGitRemove": {
     "type": "object",
     "required": [

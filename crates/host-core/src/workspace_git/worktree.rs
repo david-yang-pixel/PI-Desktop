@@ -830,7 +830,9 @@ mod tests {
         let head = rev_parse(&a, "HEAD");
         let plan = push::plan(&f.git, &a, WORK_A).await.unwrap();
         assert_eq!(
-            push::push(&f.context(), &a, WORK_A, &plan).await.unwrap(),
+            push::push(&f.context(), &a, WORK_A, &plan, false)
+                .await
+                .unwrap(),
             head
         );
         assert_eq!(f.remote.head(WORK_A), head);

@@ -74,3 +74,44 @@ async fn the_worktree_and_the_repository_stay_usable_while_a_push_transfers() {
     assert_eq!(job["pushed"]["remoteHead"], head);
     assert_eq!(f.remote.head(&work_branch(INSTALLATION, "session-1")), head);
 }
+
+#[tokio::test]
+async fn a_rebased_work_branch_needs_an_explicit_force_with_lease() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "work.txt", "work\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    let pushed = f.remote.head(&branch);
+
+    // A rebase onto the base branch rewrites the work branch.
+    git_cmd(&path, &["reset", "-q", "--hard", "HEAD~1"]);
+    let rebased = commit_file(&path, "rebased.txt", "rebased\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "failed", "{job}");
+    assert_eq!(job["error"]["code"], "WORKSPACE_GIT_PUSH_REJECTED", "{job}");
+    assert_eq!(f.remote.head(&branch), pushed);
+
+    let mut forced = push_params(&f, "session-1");
+    forced["forceWithLease"] = json!(true);
+    let started = f.call("workspaceGit.push", forced).await.unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(job["pushed"]["remoteHead"], rebased);
+    assert_eq!(f.remote.head(&branch), rebased);
+    // A value that is not a boolean is refused before anything runs.
+    let mut bad = push_params(&f, "session-1");
+    bad["forceWithLease"] = json!("yes");
+    let error = f.call("workspaceGit.push", bad).await.unwrap_err();
+    assert_eq!(code(&error), "INVALID_ARGUMENT");
+}

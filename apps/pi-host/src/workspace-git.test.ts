@@ -152,6 +152,20 @@ describe("pi-host workspace git", () => {
     expect(f.calls.at(-1)?.method).toBe("workspaceGit.list");
   });
 
+  it("forwards an opt-in force-with-lease to host-core and nothing for a plain push", async () => {
+    const f = fixture((method) => (method === "workspaceGit.list" ? { worktrees: [worktree("session-1")] } : { jobId: "job-2" }));
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    await f.git.push(session, owner);
+    await f.git.push({ ...session, forceWithLease: true }, owner);
+    await f.git.push({ ...session, forceWithLease: false }, owner);
+    const pushes = f.calls.filter((call) => call.method === "workspaceGit.push").map((call) => call.params);
+    expect(pushes).toEqual([
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session },
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session, forceWithLease: true },
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session },
+    ]);
+  });
+
   it("setCredential hands the token to the proxy and scopes every existing worktree", async () => {
     const f = fixture((method, params) => (method === "workspaceGit.list" ? { worktrees: params.installationId === INSTALLATION ? [worktree("session-1"), worktree("session-2")] : [] } : {}));
     await f.git.setCredential({ installationId: INSTALLATION, token: TOKEN }, owner);

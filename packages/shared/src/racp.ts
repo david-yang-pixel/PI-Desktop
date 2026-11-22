@@ -23,6 +23,7 @@ import {
   WorkspaceGitPrepareSchema,
   WorkspaceGitReclaimSchema,
   WorkspaceGitRemoveSchema,
+  WorkspaceGitPushSchema,
   WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitSessionRefSchema,
 } from "./racp-workspace-git.js";
@@ -1006,6 +1007,7 @@ export const RACP_SCHEMAS = {
   WorkspaceGitRepositoryRequest: WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitPrepare: WorkspaceGitPrepareSchema,
   WorkspaceGitSessionRef: WorkspaceGitSessionRefSchema,
+  WorkspaceGitPush: WorkspaceGitPushSchema,
   WorkspaceGitRemove: WorkspaceGitRemoveSchema,
   WorkspaceGitReclaim: WorkspaceGitReclaimSchema,
   WorkspaceGitJobRef: WorkspaceGitJobRefSchema,

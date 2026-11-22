@@ -9,6 +9,8 @@ import { busyJob, offlineError, remoteCode, remoteError, type HostCall, type Ses
 
 type PendingRemoval = { hostKey: string; sessionId: string; repository: WorkspaceGitRepository; workBranch?: string };
 type PullRequest = GitHubPullRequestSummary;
+/** `forceWithLease`: the work branch was rebased; replace the remote one the Host last saw. */
+export type PushOptions = { forceWithLease?: boolean };
 const ORPHAN_MIN_AGE = 24 * 60 * 60 * 1_000;
 /** How often using a session may ask GitHub about its pull request again. */
 const PULL_REQUEST_REFRESH_MS = 5 * 60 * 1_000;
@@ -60,7 +62,7 @@ export function createSessionWorkspaceGit(deps: {
       return { reachable: false, workBranch, baseBranch };
     }
   }
-  async function push(sessionId: string, assertCanPublish?: () => void) {
+  async function push(sessionId: string, assertCanPublish?: () => void, options: PushOptions = {}) {
     const binding = await requireReady(sessionId);
     const before = await readStatus(binding);
     if (!before.reachable) throw remoteError(ErrorCodes.REMOTE_TARGET_HOST_OFFLINE, "The host is offline");
@@ -70,7 +72,8 @@ export function createSessionWorkspaceGit(deps: {
     let jobId: string;
     try {
       assertCanPublish?.();
-      ({ jobId } = await workspaces.git().push(binding.hostKey, sessionId));
+      ({ jobId } = await workspaces.git().push(binding.hostKey, sessionId,
+        options.forceWithLease === true ? { forceWithLease: true } : undefined));
     } catch (error) {
       const active = busyJob(error);
       if (!active) throw error;
@@ -256,10 +259,10 @@ export function createSessionWorkspaceGit(deps: {
   const api = {
     isOperating: (sessionId: string) => pushes.has(sessionId) || requests.has(sessionId),
     async status(sessionId: string) { return readStatus(await requireReady(sessionId)); },
-    push(sessionId: string, assertCanPublish?: () => void) {
+    push(sessionId: string, assertCanPublish?: () => void, options: PushOptions = {}) {
       const current = pushes.get(sessionId);
       if (current) return current;
-      const task = push(sessionId, assertCanPublish).finally(async () => {
+      const task = push(sessionId, assertCanPublish, options).finally(async () => {
         try { await touched(sessionId); }
         finally { pushes.delete(sessionId); }
       });

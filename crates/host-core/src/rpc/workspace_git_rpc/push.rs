@@ -31,11 +31,20 @@ pub(super) async fn start_push(
         jobs,
         job_id.clone(),
         record,
-        proxy_url,
+        PushRequest {
+            proxy_url,
+            force_with_lease: params.force_with_lease,
+        },
         cancel,
         access,
     ));
     Ok(json!({ "jobId": job_id }))
+}
+
+/// What the caller asked of one push.
+struct PushRequest {
+    proxy_url: String,
+    force_with_lease: bool,
 }
 
 async fn run_push(
@@ -43,7 +52,7 @@ async fn run_push(
     jobs: SharedJobs,
     job_id: String,
     record: WorktreeRecord,
-    proxy_url: String,
+    request: PushRequest,
     mut cancel: watch::Receiver<bool>,
     access: tokio::sync::OwnedRwLockWriteGuard<()>,
 ) {
@@ -63,7 +72,7 @@ async fn run_push(
                 &job_id,
                 &record,
                 &repository,
-                &proxy_url,
+                &request,
                 &plan,
                 &mut cancel,
             )
@@ -89,11 +98,11 @@ async fn transfer(
     job_id: &str,
     record: &WorktreeRecord,
     repository: &Repository,
-    proxy_url: &str,
+    request: &PushRequest,
     plan: &PushPlan,
     cancel: &mut watch::Receiver<bool>,
 ) -> Option<Result<String, WorkspaceGitError>> {
-    let config = context.network_config(proxy_url, repository);
+    let config = context.network_config(&request.proxy_url, repository);
     let config: Vec<(&str, &str)> = config
         .iter()
         .map(|(key, value)| (key.as_str(), value.as_str()))
@@ -109,6 +118,6 @@ async fn transfer(
     tokio::select! {
         biased;
         _ = jobs::cancelled(cancel) => None,
-        result = push::push(&network, Path::new(&record.path), &record.work_branch, plan) => Some(result),
+        result = push::push(&network, Path::new(&record.path), &record.work_branch, plan, request.force_with_lease) => Some(result),
     }
 }

@@ -222,7 +222,10 @@ export function createWorkspaceGit(deps: {
       // Registering is idempotent and returns the live handle: a cached
       // address may have been rotated away by a credential set.
       const url = registerScope(input.installationId, input.sessionId, repository);
-      return call("workspaceGit.push", { gitProxy: { url }, installationId: input.installationId, sessionId: input.sessionId });
+      return call("workspaceGit.push", {
+        gitProxy: { url }, installationId: input.installationId, sessionId: input.sessionId,
+        ...(input.forceWithLease === true ? { forceWithLease: true } : {}),
+      });
     },
     async job(input) {
       const result = await call<Awaited<ReturnType<WorkspaceGitOperations["job"]>>>("workspaceGit.job", { jobId: input.jobId });
