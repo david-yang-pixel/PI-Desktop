@@ -118,7 +118,9 @@ The four CI jobs are required before merging to `main`:
   `pnpm -r --if-present test`
 - **Rust host-core format / lint / test** — formatting, Clippy, and the host tests
 - **Rust host-core Windows / transcript cache E2E** — Windows Host checks
-- **Trusted extensions Electron E2E** — Desktop integration tests
+- **Trusted extensions Electron E2E** — Desktop integration tests and the
+  Host/process E2E scripts that need the debug host-core it builds, including
+  `e2e-remote-workspace-git.mjs`
 
 `.github/workflows/docs-check.yml` adds documentation checks to pull requests
 that touch documentation, shared changelog sources, or check scripts.
