@@ -429,7 +429,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     const onConnect = () => {
       void workspaceGit.hostConnected(live.hostKey).then(async () => {
         const sessions = getRemoteRepositorySessions();
-        if (sessions) await recoverRepositoryHost(sessions, live.hostKey, (message, data) => log("warn", message, data));
+        if (sessions) await recoverRepositoryHost(sessions, live.hostKey, log);
       }).catch((error) => log("warn", "could not recover repository sessions", { hostKey: live.hostKey, error: String(error) }));
     };
     onConnect();

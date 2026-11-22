@@ -3,13 +3,17 @@ import test from "node:test";
 import { register } from "node:module";
 
 register(new URL("./helpers/ts-import-hooks.mjs", import.meta.url));
-const { recoverRepositoryHost } = await import("../electron/main/remote/repository-session-recovery.ts");
+const { recoverRepositoryHost, recoverRepositorySessions } = await import("../electron/main/remote/repository-session-recovery.ts");
+const { getRemoteRepositorySessions, recoverRemoteRepositorySessions, registerRemoteRepositorySessions } =
+  await import("../electron/main/ipc/repository-session-ipc.ts");
 
-function sessions(fail = new Set()) {
+const coded = (errorCode, message = errorCode) => Object.assign(new Error(message), { errorCode });
+
+function sessions(fail = new Map()) {
   const calls = [];
   const step = (name) => async (...args) => {
     calls.push([name, ...args]);
-    if (fail.has(name)) throw new Error(`${name} failed`);
+    if (fail.has(name)) throw fail.get(name);
   };
   return {
     calls,
@@ -21,9 +25,63 @@ function sessions(fail = new Set()) {
 
 test("a connect runs every recovery phase even when an earlier one fails", async () => {
   const logs = [];
-  const recovery = sessions(new Set(["resume", "reconcile"]));
-  await recoverRepositoryHost(recovery, "h1", (message, data) => logs.push({ message, data }));
+  const recovery = sessions(new Map([["resume", new Error("resume failed")], ["reconcile", new Error("reconcile failed")]]));
+  await recoverRepositoryHost(recovery, "h1", (level, message, data) => logs.push({ level, message, data }));
   assert.deepEqual(recovery.calls, [["environments"], ["resume", "h1"], ["reconcile", "h1"], ["reclaim", "h1"]]);
   assert.deepEqual(logs.map(({ data }) => data.phase), ["resume", "reconcile"]);
-  assert.ok(logs.every(({ message, data }) => message === "could not recover repository sessions" && data.hostKey === "h1"));
+  assert.ok(logs.every(({ level, message, data }) => level === "warn" && message === "could not recover repository sessions" && data.hostKey === "h1"));
 });
+
+test("a host that connects before host-core answers is deferred, not reported as a failure", async () => {
+  const logs = [];
+  const unavailable = coded("HOST_UNAVAILABLE", "Local host unavailable");
+  const recovery = sessions(new Map(["environments", "resume", "reconcile", "reclaim"].map((name) => [name, unavailable])));
+  await recoverRepositoryHost(recovery, "h1", (level, message, data) => logs.push({ level, message, data }));
+  assert.equal(logs.length, 4);
+  assert.ok(logs.every(({ level }) => level === "info"), JSON.stringify(logs));
+});
+
+test("the pass after host-core boots resumes every binding and reconciles each connected host", async () => {
+  const logs = [];
+  const recovery = sessions(new Map([["reconcile", new Error("one host failed")]]));
+  await recoverRepositorySessions(recovery, async () => ["h1", "h2"], (level, message, data) => logs.push({ level, message, data }));
+  assert.deepEqual(recovery.calls, [
+    ["environments"], ["resume"],
+    ["reconcile", "h1"], ["reclaim", "h1"], ["reconcile", "h2"], ["reclaim", "h2"],
+  ]);
+  assert.deepEqual(logs.map(({ data }) => [data.phase, data.hostKey]), [["reconcile", "h1"], ["reconcile", "h2"]]);
+});
+
+test("registering the IPC no longer resumes before host-core is up; the post-boot pass does", async (t) => {
+  const hostCalls = [];
+  let hostUp = false;
+  const call = async (method, params) => {
+    if (!hostUp) throw coded("HOST_UNAVAILABLE", "Local host unavailable");
+    hostCalls.push(method);
+    if (method === "sessionWorkspace.list") return { bindings: [] };
+    if (method === "environments.list") return { environments: [] };
+    throw new Error(`unexpected host-core call ${method}`);
+  };
+  const logs = [];
+  registerRemoteRepositorySessions({
+    registrar: { handleWithEvent() {}, assertMainWindowSender() {} },
+    call,
+    connector: { onChange: () => () => {}, token: async () => null, status: async () => ({ connected: false }) },
+    emit() {},
+    log: (message, error) => logs.push(`${message}: ${error}`),
+    runWhileIdle: async (_id, operation) => operation(),
+    acquireSessionOperation: async () => () => {},
+    hasQueuedPrompt: () => false,
+    isBusy: () => false,
+  });
+  t.after(() => getRemoteRepositorySessions()?.reclaimer.dispose());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(logs, [], "no misleading resume warning at cold start");
+
+  hostUp = true;
+  const recovered = [];
+  await recoverRemoteRepositorySessions((level, message, data) => recovered.push({ level, message, data }));
+  assert.ok(hostCalls.includes("sessionWorkspace.list"), "the resume ran once host-core answered");
+  assert.deepEqual(recovered, []);
+});
+

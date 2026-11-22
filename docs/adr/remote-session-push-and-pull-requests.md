@@ -110,3 +110,11 @@ leftover worktree list skips a worktree whose status cannot be read, which
 leaves it on the Host, and fails as a whole only when the Host is
 unreachable.
 
+At startup the same recovery runs once more after host-core has booted:
+announce environments, resume every binding, then reconcile and check idle
+workspaces on each Host connected by then. IPC registration happens before
+host-core starts, so the resume it used to start always failed with a
+misleading warning, and a Host that connected before host-core answered
+missed its recovery. A phase that fails because host-core is not up yet is
+logged as deferred rather than as a failure.
+

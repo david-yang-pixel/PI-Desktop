@@ -8,6 +8,7 @@ import { onConfirmedQuit } from "../bootstrap/confirmed-quit";
 import { createIdleWorkspaceReclaimer, idleSince } from "../remote/idle-workspace-reclaimer";
 import { createSessionWorkspaceGit } from "../remote/session-workspace-git";
 import { createSessionWorkspaces, remoteError, type HostCall } from "../remote/session-workspaces";
+import { recoverRepositorySessions, type RecoveryLog } from "../remote/repository-session-recovery";
 import type { IpcRegistrar } from "./types";
 
 let active: {
@@ -18,6 +19,18 @@ let active: {
 } | null = null;
 
 export function getRemoteRepositorySessions() { return active; }
+
+/**
+ * Resume repository workspaces once host-core is ready. IPC registers before
+ * host-core boots, so a resume at registration always failed, and a Host can
+ * connect before host-core answers too. Call after the backends boot.
+ */
+export async function recoverRemoteRepositorySessions(log: RecoveryLog) {
+  const sessions = active;
+  if (!sessions) return;
+  await recoverRepositorySessions(sessions, async () =>
+    (await getActiveRemoteHostsBoot()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey), log);
+}
 
 const invalid = () => remoteError(ErrorCodes.INVALID_ARGUMENT, "Invalid repository session request");
 const object = (value: unknown): Record<string, unknown> => {
@@ -119,5 +132,4 @@ export function registerRemoteRepositorySessions(deps: {
   handle(IPC.invoke.remoteSessionDeletePreflight, async (id) => git.preflight(string(id)));
   handle(IPC.invoke.remoteLeftoverWorktreesList, async (hostKey) => ({ worktrees: await git.leftovers(string(hostKey)) }));
   handle(IPC.invoke.remoteLeftoverWorktreesRemove, async (hostKey, id) => ({ ok: await git.removeLeftover(string(hostKey), string(id)) }));
-  void workspaces.resume().catch((error) => log("Could not resume repository workspaces", error));
 }
