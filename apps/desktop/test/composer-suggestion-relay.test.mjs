@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import test from "node:test";
+import { awaitWithLiveEventLoop } from "./helpers/live-event-loop.mjs";
 register(new URL("./helpers/ts-import-hooks.mjs", import.meta.url));
 
 /*
@@ -74,7 +75,10 @@ test("a draft that cannot take the line is reported with its own reason", async 
 
 test("a silent window costs the caller a miss, never a hang", async () => {
   const { relay } = makeRelay({ answerTimeoutMs: 20 });
-  assert.deepEqual(await relay.offer(offer()), { shown: false, reason: "unsupported" });
+  assert.deepEqual(await awaitWithLiveEventLoop(relay.offer(offer())), {
+    shown: false,
+    reason: "unsupported",
+  });
 });
 
 test("one suggestion per session: the newer offer takes the slot", async () => {

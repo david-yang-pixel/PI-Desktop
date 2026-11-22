@@ -15,6 +15,7 @@ import { fork } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { WebSocketServer } from "ws";
+import { awaitWithLiveEventLoop } from "./helpers/live-event-loop.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const hostProcessEntry = join(here, "..", "electron/main/plugin-host-process.mjs");
@@ -302,7 +303,9 @@ test("a timed-out connect refuses and leaves nothing behind", async () => {
   });
 
   await assert.rejects(
-    registry.connect({ pluginId: PLUGIN_ID, url: "wss://voice.example.com/live" }),
+    awaitWithLiveEventLoop(
+      registry.connect({ pluginId: PLUGIN_ID, url: "wss://voice.example.com/live" }),
+    ),
     (error) => error.code === "TIMEOUT",
   );
   assert.deepEqual(registry.list(PLUGIN_ID), []);
