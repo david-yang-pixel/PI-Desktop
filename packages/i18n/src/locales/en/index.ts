@@ -59,6 +59,12 @@ export const en = {
     dismiss: "Dismiss",
     pushing: "Pushing…",
     openPullRequest: "View PR #{{number}}",
+    pullRequestStatus: {
+      open: "Open",
+      draft: "Draft",
+      closed: "Closed",
+      merged: "Merged",
+    },
     offline: "Host offline",
     deleteAtRisk: "Delete this worktree? It has {{files}} uncommitted files and {{commits}} unpushed commits.",
     deleteUnknown: "The host is offline. Unpushed work cannot be checked. Any clean worktree will be removed when the host reconnects.",

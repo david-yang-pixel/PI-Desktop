@@ -46,7 +46,8 @@ export const githubSessionToolDefinitions = [githubSessionPushTool, githubSessio
 type RepositorySessions = {
   workspaces: Pick<SessionWorkspaces, "binding">;
   connector: Pick<GitHubConnector, "status">;
-  git: Pick<ReturnType<typeof createSessionWorkspaceGit>, "push" | "status" | "create">;
+  git: Pick<ReturnType<typeof createSessionWorkspaceGit>, "push" | "status" | "create">
+    & Partial<Pick<ReturnType<typeof createSessionWorkspaceGit>, "refreshPullRequest">>;
 };
 
 function pushInput(args: unknown) {
@@ -88,7 +89,11 @@ export function createGitHubSessionTools(getSessions: () => RepositorySessions |
       const binding = await sessions.workspaces.binding(sessionId);
       if (binding?.state !== "ready" || !binding.workBranch) return false;
       const status = await sessions.connector.status();
-      return status.connected && !status.needsReauthentication;
+      const signedIn = status.connected && !status.needsReauthentication;
+      // Each launch is a chance to learn that the recorded pull request was
+      // merged or closed; it never delays the launch.
+      if (signedIn) void sessions.git.refreshPullRequest?.(sessionId);
+      return signedIn;
     },
     async execute(input: {
       sessionId?: string;

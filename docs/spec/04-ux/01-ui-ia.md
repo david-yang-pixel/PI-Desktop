@@ -603,6 +603,11 @@ localized messages. A failure code without a localized reason shows the
 message the Host or main process reported.
 The composer shows preparation and setup status. The session top bar shows
 the Host, repository, work branch, and a link to a recorded pull request.
+The link names the request's state, for example "View PR #12 · Merged"
+(Open, Draft, Closed, or Merged). A merged or closed request stays linked;
+the state is refreshed from GitHub when the session is used, at most every
+five minutes, and a link recorded before states were stored shows no state
+until then.
 There are no manual push or pull request controls: ask the agent to push or to
 open a pull request. While the GitHub connector is signed in, the agent can
 push the session's committed work branch and open the PR against the

@@ -61,6 +61,12 @@ export const fr = {
     dismiss: "Fermer",
     pushing: "Envoi en cours…",
     openPullRequest: "Voir la PR nº {{number}}",
+    pullRequestStatus: {
+      open: "Ouverte",
+      draft: "Brouillon",
+      closed: "Fermée",
+      merged: "Fusionnée",
+    },
     offline: "Hôte hors ligne",
     deleteAtRisk: "Supprimer ce worktree ? Il contient {{files}} fichiers sans commit et {{commits}} commits non poussés.",
     deleteUnknown: "L’hôte est hors ligne et les changements non poussés ne peuvent pas être vérifiés. Les worktrees propres seront supprimés à la reconnexion.",

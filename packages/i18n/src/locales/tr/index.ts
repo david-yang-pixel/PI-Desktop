@@ -61,6 +61,12 @@ export const tr = {
     dismiss: "Kapat",
     pushing: "Gönderiliyor…",
     openPullRequest: "PR #{{number}} göster",
+    pullRequestStatus: {
+      open: "Açık",
+      draft: "Taslak",
+      closed: "Kapalı",
+      merged: "Birleştirildi",
+    },
     offline: "Ana makine çevrimdışı",
     deleteAtRisk: "Bu worktree silinsin mi? {{files}} commit yapılmamış dosya ve {{commits}} gönderilmemiş commit içeriyor.",
     deleteUnknown: "Ana makine çevrimdışı. Gönderilmemiş değişiklikler denetlenemiyor. Yeniden bağlanınca yerel değişiklikleri olmayan worktree’ler kaldırılır.",

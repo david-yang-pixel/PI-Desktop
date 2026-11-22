@@ -50,7 +50,7 @@ function hostError(code, message, details) {
  * the two real external edges are faked: host-core's local RPC and the paired
  * Host's `workspace/git*` RACP surface (including its reconnect).
  */
-function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
+function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } = {}) {
   const store = new Map(Object.entries(bindings));
   const pendingRemovals = [];
   const events = [];
@@ -115,7 +115,7 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
             case "workspace/gitStatus": {
               const tree = remote.worktrees.get(params.sessionId);
               if (!tree) throw hostError(ErrorCodes.WORKSPACE_GIT_NOT_FOUND, "no such worktree");
-              return { worktree: tree, ahead: 0, behind: 0, aheadOfBase: 0, pushedOnce: false,
+              return { worktree: tree, ahead: tree.ahead ?? 0, behind: 0, aheadOfBase: tree.aheadOfBase ?? 0, pushedOnce: tree.pushedOnce ?? false,
                 uncommittedFiles: tree.uncommittedFiles ?? 0, unpushedCommits: tree.unpushedCommits ?? 0 };
             }
             case "workspace/gitList":
@@ -182,7 +182,8 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
   });
   const git = createSessionWorkspaceGit({
     call, workspaces, emit: (channel, payload) => events.push({ channel, payload }),
-    connector: { findPullRequest: async () => null, createPullRequest: async () => { throw new Error("unused"); } },
+    connector: connector ?? { findPullRequest: async () => null, createPullRequest: async () => { throw new Error("unused"); } },
+    log: (message, error) => logs.push(`${message}: ${error}`),
   });
   return {
     workspaces, git, store, remote, pendingRemovals, events, logs,
@@ -403,4 +404,97 @@ test("a monitor whose reconnect fails resumes on the next connection", async (t)
   await settle(t, f.workspaces.resume("h1"));
   await until(t, () => f.store.get("s-1").state === "ready", "the binding to become ready");
   f.workspaces.dispose();
+});
+
+// ---- pull requests ---------------------------------------------------------
+
+const pullRequestUrl = (number) => `https://github.com/octo/repo/pull/${number}`;
+const summary = (number, state, extra = {}) => ({ number, url: pullRequestUrl(number), title: `PR ${number}`, draft: false,
+  state, head: workBranch, base: "main", ...extra });
+
+/** A GitHub connector double that records every lookup's arguments. */
+function gitHub({ found = null, create } = {}) {
+  const lookups = [];
+  const created = [];
+  return {
+    lookups, created, found,
+    async findPullRequest(...args) { lookups.push(args); return typeof this.found === "function" ? this.found() : this.found; },
+    async createPullRequest(repository, input) {
+      created.push(input);
+      if (create) return create(input);
+      return summary(created.length + 1, "open", { title: input.title, draft: input.draft });
+    },
+  };
+}
+
+test("a merged pull request stays linked with its state instead of being forgotten", async () => {
+  const connector = gitHub({ found: summary(1, "merged") });
+  const f = createFixture({ bindings: { "s-1": binding("s-1", { pullRequest: { number: 1, url: pullRequestUrl(1) } }) }, connector });
+
+  assert.equal((await f.git.find("s-1")).state, "merged");
+  // Every state is asked for: an open-only lookup cannot see a merged request.
+  assert.deepEqual(connector.lookups, [[repository, workBranch]]);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+  assert.deepEqual(f.events.at(-1).payload.remoteRepository.pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+
+  // An empty answer cannot prove the request is gone: the link stays.
+  connector.found = null;
+  assert.equal(await f.git.find("s-1"), null);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+});
+
+test("a pull request request opens a new one after the last was merged and new commits exist", async () => {
+  const connector = gitHub({ found: summary(1, "merged") });
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1", { pullRequest: { number: 1, url: pullRequestUrl(1), state: "open", draft: false } }) },
+    worktrees: [readyWorktree("s-1", { aheadOfBase: 2, pushedOnce: true })],
+    connector,
+  });
+
+  const created = await f.git.create("s-1", { title: "Follow-up", body: "", draft: true });
+  assert.equal(created.number, 2);
+  assert.deepEqual(connector.created, [{ title: "Follow-up", body: "", draft: true, head: workBranch, base: "main" }]);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 2, url: pullRequestUrl(2), state: "open", draft: true });
+});
+
+test("an open pull request answers the call, and a refused create never returns the merged one", async () => {
+  const open = gitHub({ found: summary(4, "open") });
+  const reuse = createFixture({ bindings: { "s-1": binding("s-1") }, worktrees: [readyWorktree("s-1", { aheadOfBase: 1, pushedOnce: true })], connector: open });
+  assert.equal((await reuse.git.create("s-1", { title: "Again", body: "", draft: false })).number, 4);
+  assert.deepEqual(open.created, []);
+
+  const refused = gitHub({ found: summary(1, "merged"), create: () => {
+    throw Object.assign(new Error("GitHub rejected the request (422). No commits between main and pi-desktop/abc123"), { errorCode: ErrorCodes.GITHUB_VALIDATION_FAILED });
+  } });
+  const f = createFixture({ bindings: { "s-1": binding("s-1") }, worktrees: [readyWorktree("s-1", { aheadOfBase: 1, pushedOnce: true })], connector: refused });
+  await assert.rejects(f.git.create("s-1", { title: "Nothing new", body: "", draft: false }),
+    (error) => error.errorCode === ErrorCodes.GITHUB_VALIDATION_FAILED);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+});
+
+test("using a session refreshes its pull request state at most once per interval and never after a merge", async (t) => {
+  useVirtualClock(t);
+  const connector = gitHub({ found: summary(3, "open") });
+  const f = createFixture({ bindings: { "s-1": binding("s-1", { pullRequest: { number: 3, url: pullRequestUrl(3) } }) }, connector });
+
+  await f.git.refreshPullRequest("s-1");
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 1);
+  assert.equal(f.store.get("s-1").pullRequest.state, "open");
+
+  t.mock.timers.tick(5 * 60 * 1_000);
+  connector.found = summary(3, "merged");
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 2);
+  assert.equal(f.store.get("s-1").pullRequest.state, "merged");
+
+  t.mock.timers.tick(60 * 60 * 1_000);
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 2, "a merged pull request is final");
+
+  // A failed lookup is logged, never thrown into the launch that asked.
+  const failing = gitHub({ found: () => { throw new Error("GitHub is unavailable"); } });
+  const g = createFixture({ bindings: { "s-2": binding("s-2") }, connector: failing });
+  await g.git.refreshPullRequest("s-2");
+  assert.match(g.logs.join("\n"), /Could not refresh the session's pull request/);
 });

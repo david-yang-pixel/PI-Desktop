@@ -376,7 +376,8 @@ try {
     const connector = {
       status: async () => ({ connected: true }),
       findPullRequest: async (_repository, head, state) => {
-        assert.equal(state, "open");
+        // Every state: a merged or closed request must stay visible.
+        assert.equal(state, undefined);
         if (cancelOnLookup) isPullRequestTurnActive = false;
         if (lookupError) throw lookupError;
         return requests.get(head) ?? null;
@@ -565,11 +566,12 @@ try {
       assert.equal((await workspaces.binding(session.id)).pullRequest.number, 1);
       lookupError = null;
       requests.set(pr.head, { ...pr, state: "closed" });
-      assert.equal(await repositoryGit.find(session.id), null);
-      assert.equal((await workspaces.binding(session.id)).pullRequest, null);
+      assert.equal((await repositoryGit.find(session.id)).state, "closed");
+      // The closed request stays linked with its state instead of vanishing.
+      assert.deepEqual((await workspaces.binding(session.id)).pullRequest, { number: 1, url: pr.url, state: "closed", draft: true });
       const replacement = await repositoryGit.create(session.id, { title: "Replacement PR", body: "", draft: false });
       assert.equal(replacement.number, 2);
-      assert.equal((await workspaces.binding(session.id)).pullRequest.number, 2);
+      assert.deepEqual((await workspaces.binding(session.id)).pullRequest, { number: 2, url: replacement.url, state: "open", draft: false });
 
       assert.equal(boot.workspaceGit.supportsReclaim(HOST), true);
       const checkout = ready.remoteWorkspace.path;

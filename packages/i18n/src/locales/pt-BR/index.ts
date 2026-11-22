@@ -61,6 +61,12 @@ export const ptBR = {
     dismiss: "Fechar",
     pushing: "Enviando…",
     openPullRequest: "Ver PR #{{number}}",
+    pullRequestStatus: {
+      open: "Aberta",
+      draft: "Rascunho",
+      closed: "Fechada",
+      merged: "Mesclada",
+    },
     offline: "Host offline",
     deleteAtRisk: "Excluir este worktree? Ele tem {{files}} arquivos sem commit e {{commits}} commits não enviados.",
     deleteUnknown: "O host está offline e não é possível verificar as alterações pendentes. Worktrees sem alterações locais serão removidos quando o host se reconectar.",

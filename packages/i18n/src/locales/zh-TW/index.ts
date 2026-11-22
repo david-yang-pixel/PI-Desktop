@@ -61,6 +61,12 @@ export const zhTW = {
     dismiss: "關閉",
     pushing: "正在推送…",
     openPullRequest: "檢視 PR #{{number}}",
+    pullRequestStatus: {
+      open: "開啟",
+      draft: "草稿",
+      closed: "已關閉",
+      merged: "已合併",
+    },
     offline: "主機離線",
     deleteAtRisk: "要刪除此 worktree 嗎？其中有 {{files}} 個未提交檔案及 {{commits}} 個未推送的提交。",
     deleteUnknown: "主機離線，無法檢查未推送的變更。主機重新連線後會清理無本機變更的 worktree。",

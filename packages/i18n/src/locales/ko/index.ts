@@ -61,6 +61,12 @@ export const ko = {
     dismiss: "닫기",
     pushing: "푸시 중…",
     openPullRequest: "PR #{{number}} 보기",
+    pullRequestStatus: {
+      open: "열림",
+      draft: "초안",
+      closed: "닫힘",
+      merged: "병합됨",
+    },
     offline: "호스트 오프라인",
     deleteAtRisk: "이 워크트리를 삭제할까요? 커밋하지 않은 파일 {{files}}개와 푸시하지 않은 커밋 {{commits}}개가 있습니다.",
     deleteUnknown: "호스트가 오프라인이라 푸시하지 않은 작업을 확인할 수 없습니다. 재연결 시 변경 사항이 없는 워크트리를 제거합니다.",

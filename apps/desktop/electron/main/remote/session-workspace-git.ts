@@ -1,14 +1,20 @@
 import { setTimeout as sleep } from "node:timers/promises";
 import {
-  ErrorCodes, IPC, type GitHubPullRequestInput, type LeftoverWorktree,
-  type RemoteSessionDeletePreflight, type RemoteSessionGitStatus,
+  ErrorCodes, IPC, type GitHubPullRequestInput, type GitHubPullRequestSummary, type LeftoverWorktree,
+  type RemoteSessionDeletePreflight, type RemoteSessionGitStatus, type SessionPullRequestLink,
   type WorkspaceGitRepository,
 } from "@pi-desktop/shared";
 import type { GitHubConnector } from "../github/connector";
 import { busyJob, offlineError, remoteCode, remoteError, type HostCall, type SessionWorkspaces, type WorkspaceBinding } from "./session-workspaces";
 
 type PendingRemoval = { hostKey: string; sessionId: string; repository: WorkspaceGitRepository; workBranch?: string };
+type PullRequest = GitHubPullRequestSummary;
 const ORPHAN_MIN_AGE = 24 * 60 * 60 * 1_000;
+/** How often using a session may ask GitHub about its pull request again. */
+const PULL_REQUEST_REFRESH_MS = 5 * 60 * 1_000;
+const pullRequestLink = (pullRequest: PullRequest): SessionPullRequestLink => ({
+  number: pullRequest.number, url: pullRequest.url, state: pullRequest.state, draft: pullRequest.draft,
+});
 const missing = (error: unknown) => remoteCode(error) === ErrorCodes.WORKSPACE_GIT_NOT_FOUND;
 const lostRemoval = () => remoteError(ErrorCodes.CONFLICT, "The remote worktree has unpushed work. Confirm deletion after reviewing its status.");
 
@@ -22,9 +28,11 @@ export function createSessionWorkspaceGit(deps: {
   const { call, workspaces, connector, emit } = deps;
   const pushJobs = new Map<string, { hostKey: string; jobId: string }>();
   const pushes = new Map<string, Promise<RemoteSessionGitStatus>>();
-  const requests = new Map<string, Promise<Awaited<ReturnType<GitHubConnector["createPullRequest"]>>>>();
+  const requests = new Map<string, Promise<PullRequest>>();
   const reconciling = new Map<string, Promise<void>>();
-  const lookups = new Map<string, Promise<Awaited<ReturnType<GitHubConnector["findPullRequest"]>>>>();
+  const lookups = new Map<string, Promise<PullRequest | null>>();
+  /** When GitHub was last asked about each session's pull request. */
+  const checkedAt = new Map<string, number>();
   const pending = (hostKey: string) => call<{ removals: PendingRemoval[] }>("sessionWorkspace.pendingRemoval.list", { hostKey });
   const discardPending = (hostKey: string, sessionId: string) => call("sessionWorkspace.pendingRemoval.remove", { hostKey, sessionId });
   const load = async (sessionId: string) => {
@@ -84,27 +92,55 @@ export function createSessionWorkspaceGit(deps: {
       emit(IPC.event.remoteSessionPushProgress, { sessionId, active: false, phase: "done" });
     }
   }
-  async function lookupOpenPullRequest(sessionId: string) {
+  /**
+   * Record what GitHub says about the work branch's latest pull request. A
+   * merged or closed request stays linked with its state; nothing found keeps
+   * the recorded link, because GitHub never deletes a pull request and an
+   * empty answer cannot prove the old one is gone.
+   */
+  async function record(sessionId: string, current: WorkspaceBinding, pullRequest: PullRequest) {
+    const link = pullRequestLink(pullRequest);
+    const previous = current.pullRequest;
+    if (previous?.number === link.number && previous.url === link.url
+      && previous.state === link.state && previous.draft === link.draft) return;
+    workspaces.announce(await workspaces.update(sessionId, { pullRequest: link }));
+  }
+  async function lookupPullRequest(sessionId: string) {
     const binding = await requireReady(sessionId);
-    const found = await connector.findPullRequest(binding.repository, binding.workBranch, "open");
-    const pullRequest = found?.state === "open" ? found : null;
-    const link = pullRequest ? { number: pullRequest.number, url: pullRequest.url } : null;
-    if (link?.number !== binding.pullRequest?.number || link?.url !== binding.pullRequest?.url) {
-      workspaces.announce(await workspaces.update(sessionId, { pullRequest: link }));
-    }
-    return pullRequest;
+    // Every state: the newest open request wins, then the most recent one.
+    const found = await connector.findPullRequest(binding.repository, binding.workBranch);
+    checkedAt.set(sessionId, Date.now());
+    if (found) await record(sessionId, binding, found);
+    return found;
   }
   function find(sessionId: string) {
     const existing = lookups.get(sessionId);
     if (existing) return existing;
-    const task = lookupOpenPullRequest(sessionId).finally(() => lookups.delete(sessionId));
+    const task = lookupPullRequest(sessionId).finally(() => lookups.delete(sessionId));
     lookups.set(sessionId, task);
     return task;
+  }
+  /**
+   * Bring a recorded pull request's state up to date when the session is
+   * used, at most once per interval. A merged request is final.
+   */
+  async function refreshPullRequest(sessionId: string) {
+    const last = checkedAt.get(sessionId);
+    if (last !== undefined && Date.now() - last < PULL_REQUEST_REFRESH_MS) return;
+    try {
+      const binding = await workspaces.binding(sessionId);
+      if (binding?.state !== "ready" || !binding.workBranch || binding.pullRequest?.state === "merged") return;
+      await (requests.get(sessionId) ?? find(sessionId));
+    } catch (error) {
+      deps.log?.("Could not refresh the session's pull request", error);
+    }
   }
   async function create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">, assertCanPublish?: () => void) {
     const binding = await requireReady(sessionId);
     const previous = await find(sessionId);
-    if (previous) return previous;
+    // A merged or closed request does not answer the call: new commits get a
+    // new pull request, and GitHub refuses one when there are none.
+    if (previous?.state === "open") return previous;
     try {
       await api.push(sessionId, assertCanPublish);
     } catch (error) {
@@ -117,15 +153,18 @@ export function createSessionWorkspaceGit(deps: {
     }
     const request = { ...input, head: binding.workBranch, base: binding.baseBranch };
     assertCanPublish?.();
-    let created: Awaited<ReturnType<GitHubConnector["createPullRequest"]>>;
+    let created: PullRequest;
     try {
       created = await connector.createPullRequest(binding.repository, request);
     } catch (error) {
+      // Only a request opened meanwhile answers this call; the merged one
+      // found above must not be returned as if it were new.
       const raced = await find(sessionId).catch(() => null);
-      if (!raced) throw error;
+      if (raced?.state !== "open") throw error;
       return raced;
     }
-    workspaces.announce(await workspaces.update(sessionId, { pullRequest: { number: created.number, url: created.url } }));
+    checkedAt.set(sessionId, Date.now());
+    workspaces.announce(await workspaces.update(sessionId, { pullRequest: pullRequestLink(created) }));
     return created;
   }
   async function reconcile(hostKey: string) {
@@ -212,6 +251,7 @@ export function createSessionWorkspaceGit(deps: {
     find(sessionId: string) {
       return requests.get(sessionId) ?? find(sessionId);
     },
+    refreshPullRequest,
     create(sessionId: string, input: Pick<GitHubPullRequestInput, "title" | "body" | "draft">, assertCanPublish?: () => void) {
       const current = requests.get(sessionId);
       if (current) return current;
@@ -241,6 +281,7 @@ export function createSessionWorkspaceGit(deps: {
       if (!current) return;
       try {
         await removeForDelete(current, force);
+        checkedAt.delete(sessionId);
       } catch (error) {
         // The session stays. Cancelling stopped its preparation monitor;
         // without one the binding would show "preparing" forever and could

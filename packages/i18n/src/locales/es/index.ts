@@ -61,6 +61,12 @@ export const es = {
     dismiss: "Cerrar",
     pushing: "Enviando…",
     openPullRequest: "Ver PR #{{number}}",
+    pullRequestStatus: {
+      open: "Abierta",
+      draft: "Borrador",
+      closed: "Cerrada",
+      merged: "Fusionada",
+    },
     offline: "Host sin conexión",
     deleteAtRisk: "¿Eliminar este worktree? Contiene {{files}} archivos sin confirmar y {{commits}} commits sin enviar.",
     deleteUnknown: "El host está sin conexión y no se pueden comprobar los cambios pendientes. Los worktrees limpios se eliminarán cuando se vuelva a conectar.",

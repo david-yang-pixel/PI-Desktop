@@ -68,3 +68,29 @@ for the user.
 
 Consequence: a user who wants a push or a pull request asks the Agent. A user
 who signs out of the connector withdraws both tools at the next session launch.
+
+## Amendment: merged and closed pull requests stay linked
+
+- Date: 2026-11-22
+- Related: D695
+
+The lookup asks GitHub for the work branch's pull requests in every state,
+not only open ones. The newest open request wins, otherwise the most recent
+one. The binding's `pullRequest` record keeps that request's `state`
+(`open`, `closed`, or `merged`) and `draft` flag as additive fields, so a
+merged request no longer vanishes from the session. When GitHub returns
+nothing the recorded link is kept: GitHub does not delete pull requests, and
+an empty answer cannot prove the old one is gone.
+
+`plugin_pi_github_CreateSessionPullRequest` returns an existing request only
+while it is open. After a merge or close it pushes and asks GitHub for a new
+request; GitHub refuses when the branch has no commits ahead of the base, and
+that refusal is returned instead of the old request. Each session launch that
+offers the publishing tools refreshes the recorded state in the background, at
+most every five minutes and never after a merge.
+
+Commits ahead of the base are counted against the base branch as the Host
+last fetched it; `workspace/gitStatus` does not fetch. A stale base can only
+cause an attempt that GitHub then validates. Fetching the base first needs a
+Host change and is left for a later release.
+

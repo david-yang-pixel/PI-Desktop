@@ -23,6 +23,18 @@ export type RemoteEnvironment = {
 
 export type RepositoryProject = WorkspaceGitRepository & { defaultBranch: string; hostKey: string };
 
+/**
+ * The pull request recorded for a session's work branch. `state` and `draft`
+ * are additive: links recorded by older releases carry only the number and
+ * URL, and their state is unknown until GitHub is asked again.
+ */
+export type SessionPullRequestLink = {
+  number: number;
+  url: string;
+  state?: "open" | "closed" | "merged";
+  draft?: boolean;
+};
+
 export type SessionRemoteRepository = {
   environmentId: string;
   hostKey: string;
@@ -35,7 +47,7 @@ export type SessionRemoteRepository = {
   progress?: WorkspaceGitJob["progress"];
   error?: NonNullable<WorkspaceGitJob["error"]>;
   setup?: WorkspaceGitWorktree["setup"];
-  pullRequest?: { number: number; url: string };
+  pullRequest?: SessionPullRequestLink;
   lastActivityAt?: string;
   reclaimedAt?: string;
   reclaimedCommit?: string;

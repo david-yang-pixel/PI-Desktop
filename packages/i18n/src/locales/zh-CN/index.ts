@@ -61,6 +61,12 @@ export const zhCN = {
     dismiss: "关闭",
     pushing: "正在推送…",
     openPullRequest: "查看 PR #{{number}}",
+    pullRequestStatus: {
+      open: "打开",
+      draft: "草稿",
+      closed: "已关闭",
+      merged: "已合并",
+    },
     offline: "主机离线",
     deleteAtRisk: "删除此 worktree？其中有 {{files}} 个未提交文件和 {{commits}} 个未推送提交。",
     deleteUnknown: "主机离线，无法检查未推送的改动。主机重连后会清理没有本地改动的 worktree。",

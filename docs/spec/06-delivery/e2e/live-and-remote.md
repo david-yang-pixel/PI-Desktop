@@ -912,6 +912,20 @@ percentage when available. Updates are scoped to the session and clear when
 polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
 
+## E2E-REMOTE-repo-session-keeps-merged-or-closed-pull-request
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git` (D695). Every pull
+request lookup asks the connector for all states. After the fixture marks the
+session's PR closed, the lookup returns it and the binding keeps the link with
+`state: "closed"` and its draft flag instead of clearing it. The pull request
+request then opens replacement PR #2 and records it as open.
+`apps/desktop/test/remote-session-workspace-git.test.mjs` covers a merged PR
+staying linked, an empty lookup keeping the recorded link, a new PR after a
+merge when commits exist, a refused create never returning the merged PR, and
+the throttled refresh on session use;
+`apps/desktop/test/conversation-details-pull-request.test.mjs` covers the
+"View PR #12 · Merged" label.
+
 ## E2E-REMOTE-agent-pushes-session-branch-through-connector
 
 Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Desktop has no

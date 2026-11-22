@@ -42,6 +42,7 @@ function fixture({ binding = { state: "ready", workBranch: "pi-desktop/abc123" }
         assertCurrent?.();
         return { number: 7, url: "https://github.com/octo/repo/pull/7", title: input.title };
       },
+      refreshPullRequest: async (id) => { calls.push(["refreshPullRequest", id]); },
     },
   };
   return { tools: createGitHubSessionTools(() => sessions), calls };
@@ -142,4 +143,16 @@ test("a session without a repository workspace is refused", async () => {
   await assert.rejects(run(tools, githubSessionPushTool.name),
     (error) => error.errorCode === ErrorCodes.REMOTE_SESSION_NOT_REPOSITORY);
   assert.equal(await tools.available(SESSION), false);
+});
+
+test("offering the tools refreshes the recorded pull request state in the background", async () => {
+  const signedIn = fixture();
+  assert.equal(await signedIn.tools.available(SESSION), true);
+  assert.deepEqual(signedIn.calls, [["refreshPullRequest", SESSION]]);
+  // Without a usable connector nothing is asked of GitHub.
+  for (const connector of [{ connected: false }, { connected: true, needsReauthentication: true }]) {
+    const signedOut = fixture({ connector });
+    assert.equal(await signedOut.tools.available(SESSION), false);
+    assert.deepEqual(signedOut.calls, []);
+  }
 });
