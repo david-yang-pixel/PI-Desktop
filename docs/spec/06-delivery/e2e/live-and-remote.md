@@ -794,6 +794,34 @@ The same refusals, a gzip-encoded foreign push, and a push whose ref updates
 do not end within 64 KiB are pinned byte-for-byte in
 `apps/pi-host/src/git-credential-proxy.test.ts`.
 
+## E2E-REMOTE-interrupted-prepare-leaves-no-orphan-branch
+
+Covered by host-core tests in
+`crates/host-core/src/rpc/workspace_git_rpc_tests/interrupted_prepare.rs`,
+run by `cargo test -p host-core --locked`. They use a real git, a local bare
+repository, and a git wrapper that stalls or fails a chosen step. No Desktop,
+`pi-host`, or network takes part.
+
+1. Cancelling a prepare after `git worktree add` finished, or failing a later
+   step of the creation (also for a forked session), leaves no checkout, git
+   worktree entry, work branch, or registration. The parent's branch keeps
+   its unpushed commit, and a retry with a healthy git succeeds.
+2. A registration left unfinished by a stopped Host is listed with
+   `checkoutPresent: false`, answers `WORKSPACE_GIT_NOT_FOUND` to status,
+   push, reclaim, and `restoreOnly`, and is rolled back by the next prepare,
+   which starts from the current base, or by removal without `force`.
+3. If its work branch gained a commit, the prepare fails and keeps the
+   commit and the checkout; removal without `force` reports the commit, and
+   `force` removes everything.
+4. A non-empty directory already at the worktree path, and a work branch
+   without a registration, survive a failed prepare.
+5. A cancelled setup whose cleanup failed stays registered and is finished
+   by the next prepare.
+6. An interrupted strict restore is retried from a clean checkout, or
+   removed without `force` when its branch is published. An interrupted
+   reclamation is refused without `force` and removed, quarantine included,
+   with it.
+
 ## E2E-REMOTE-composer-target-starts-isolated-repo-session
 
 On New Task, This computer is in a separate location row underneath the
@@ -825,6 +853,24 @@ preparation and readiness, runs a setup script on the paired Host, and reads
 its output through real tool relay. A second session without a binding
 receives `REMOTE_WORKSPACE_NOT_READY` before any tool is forwarded. A fork
 starts at the parent's unpushed commit.
+
+## E2E-REMOTE-composer-target-send-failure-explains-and-keeps-draft
+
+On New Task, choose a paired environment, type a prompt, and send while the
+start fails: the Host is offline, the Host runs another release, GitHub is
+disconnected for a repository target, or the environment was deleted. Verify
+Send restores the typed draft and shows one error toast. The toast is "Could
+not start the remote session:" plus a reason in the UI language instead of the
+English text main reported. Each of these failures happens before a session
+exists, so none is created or selected, and a second Send tries again.
+
+`apps/desktop/test/remote-target-send-failure.test.mjs` drives this path
+through the real queue slice, remote target materialization, renderer `api`
+wrapper, and composer draft-restore helper. Only main's IPC replies are faked.
+`apps/desktop/test/remote-target-error-message.test.mjs` pins the code to
+sentence mapping and the language switch.
+`apps/desktop/test/workspace-preparation-status.test.mjs` pins the localized
+reason in a failed preparation banner.
 
 ## E2E-REMOTE-cloud-session-topbar
 
@@ -865,6 +911,49 @@ conversation. While the Host push job is running, the composer shows its Git
 percentage when available. Updates are scoped to the session and clear when
 polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
+
+## E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Start a
+repository session whose environment setup runs for 30 seconds and wait until
+the setup phase is reported. The delete preflight reports a clean worktree, so
+the delete runs without a warning. Cancelling the prepare job stops the setup
+and discards what the job created. The session and its binding are gone well
+before the setup would have finished, the worktree directory, its Host record,
+and its local work branch are removed, and no pending removal is recorded.
+
+This real-Host path finishes within the Host's own cancel wait. The Desktop's
+part is pinned in `apps/desktop/test/remote-session-workspace-git.test.mjs`:
+waiting until a slow job reports stopped before removing, stopping a Host job
+the binding never learned the id of, and keeping a session whose delete failed
+monitored so it settles to a state the user can retry or delete again.
+
+## E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect
+
+Covered by step 9 of the same script. While a repository session's setup is
+running, close the Host's RACP listener so every reconnect fails with
+`REMOTE_CONNECTION_FAILED`. The preparation becomes `failed` with
+`REMOTE_TARGET_HOST_OFFLINE` and the renderer is told, so the composer shows
+the offline reason with Retry and Delete instead of "preparing" forever.
+Reopen the listener and run the reconnect handler's resume: the session polls
+the same job, becomes ready, and its setup output is present.
+
+## E2E-REMOTE-repo-session-offline-delete-records-pending-removal
+
+Covered by step 9 of the same script. Close the Host's RACP listener. The
+Desktop's reconnect before a workspace call fails with the real
+`REMOTE_CONNECTION_FAILED`, not a typed offline result. The session status
+reports the Host unreachable and the delete preflight reports `unknown`, which
+shows the "unpushed work cannot be checked" warning. A delete without that
+confirmation fails and records nothing. The confirmed delete removes the session
+locally, records one pending removal, and leaves the worktree on the Host. After
+the listener is back, reconciliation removes the clean leftover worktree. The
+SSH equivalent, where the startup check fails with `HOST_BOOTSTRAP_FAILED`, is
+pinned in `apps/desktop/test/remote-session-workspace-git.test.mjs`. So is a
+session deleted offline while it was still preparing: on reconnect,
+reconciliation stops the job it left running, whether or not a worktree is
+listed yet, and a job that will not stop keeps its pending removal for the next
+connection without blocking the others.
 
 ## E2E-REMOTE-idle-reclaim-restores-the-original-commit
 

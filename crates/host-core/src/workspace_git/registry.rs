@@ -49,7 +49,15 @@ pub struct Recovery {
     pub reclaimed_commit: Option<String>,
     pub reclaim_intent: Option<ReclaimIntent>,
     pub strict_setup_pending: bool,
+    /// Written before `git worktree add` and cleared once the checkout is
+    /// complete. While set, whatever is at `path` was made by that step and
+    /// is rolled back rather than trusted (`rollback`).
     pub checkout_creation_pending: bool,
+    /// Set together with `checkout_creation_pending` when the same step also
+    /// creates the work branch: the registration of a new session, which
+    /// does not exist until the flags clear. An older host-core ignores this
+    /// field and still sees the checkout flag, so it only blocks access.
+    pub branch_creation_pending: bool,
 }
 
 impl Recovery {
@@ -59,6 +67,7 @@ impl Recovery {
             || self.reclaim_intent.is_some()
             || self.strict_setup_pending
             || self.checkout_creation_pending
+            || self.branch_creation_pending
     }
 }
 

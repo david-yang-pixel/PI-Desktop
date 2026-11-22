@@ -134,13 +134,18 @@ export function createSessionWorkspaceGit(deps: {
     for (const removal of removals) {
       if (await workspaces.binding(removal.sessionId)) continue;
       const tree = worktrees.find((candidate) => candidate.sessionId === removal.sessionId);
-      if (tree && (!removal.workBranch || tree.workBranch === removal.workBranch)
-        && tree.repository.owner === removal.repository.owner && tree.repository.name === removal.repository.name) {
+      const foreign = tree && ((removal.workBranch && tree.workBranch !== removal.workBranch)
+        || tree.repository.owner !== removal.repository.owner || tree.repository.name !== removal.repository.name);
+      if (!foreign) {
         try {
           // Offline deletion cannot prove a worktree is clean. Keep any
-          // discovered local work for the leftover management view.
-          if (!(await workspaces.git().remove(hostKey, tree.sessionId, false)).removed) continue;
+          // discovered local work for the leftover management view. Even
+          // with no worktree listed, a prepare the deleted session left
+          // running is stopped here before it can create one.
+          if (!(await removeWorktree(hostKey, removal.sessionId, false)).removed) continue;
         } catch (error) {
+          // Still busy: try again on the next connection.
+          if (remoteCode(error) === ErrorCodes.WORKSPACE_GIT_BUSY) continue;
           if (!missing(error)) throw error;
         }
       }
@@ -153,6 +158,40 @@ export function createSessionWorkspaceGit(deps: {
       if (bound.has(tree.sessionId) || pendingIds.has(tree.sessionId) || !(age >= ORPHAN_MIN_AGE)) continue;
       await workspaces.git().remove(hostKey, tree.sessionId, false).catch((error) => {
         if (!missing(error) && remoteCode(error) !== ErrorCodes.WORKSPACE_GIT_BUSY) throw error;
+      });
+    }
+  }
+  /**
+   * A job the desktop does not track, such as a prepare whose reply was lost,
+   * still holds the worktree. The session is being deleted, so stop it.
+   */
+  async function removeWorktree(hostKey: string, sessionId: string, force: boolean) {
+    try {
+      return await workspaces.git().remove(hostKey, sessionId, force);
+    } catch (error) {
+      const jobId = busyJob(error);
+      if (!jobId) throw error;
+      await workspaces.stopJob(hostKey, jobId);
+      return workspaces.git().remove(hostKey, sessionId, force);
+    }
+  }
+  async function removeForDelete(current: WorkspaceBinding, force: boolean) {
+    const { sessionId } = current;
+    try {
+      // Waits until the cancelled prepare job has stopped.
+      if (current.state === "preparing") await workspaces.cancel(sessionId);
+      const push = pushJobs.get(sessionId);
+      if (push) await workspaces.stopJob(push.hostKey, push.jobId);
+      const result = await removeWorktree(current.hostKey, sessionId, force);
+      if (!result.removed) throw lostRemoval();
+    } catch (error) {
+      if (missing(error)) return;
+      const legacyHost = !force && [ErrorCodes.HOST_VERSION_MISMATCH, "METHOD_NOT_FOUND"].includes(remoteCode(error) ?? "");
+      // An unreachable Host is skipped only after the user confirmed the
+      // "cannot check unpushed work" warning (`force`).
+      if (!(legacyHost || offlineError(error) && force)) throw error;
+      await call("sessionWorkspace.pendingRemoval.add", {
+        sessionId, hostKey: current.hostKey, repository: current.repository, workBranch: current.workBranch,
       });
     }
   }
@@ -201,18 +240,13 @@ export function createSessionWorkspaceGit(deps: {
       const current = await workspaces.binding(sessionId);
       if (!current) return;
       try {
-        if (current.state === "preparing") await workspaces.cancel(sessionId);
-        const push = pushJobs.get(sessionId);
-        if (push) await workspaces.git().cancelJob(push.hostKey, push.jobId);
-        const result = await workspaces.git().remove(current.hostKey, sessionId, force);
-        if (!result.removed) throw lostRemoval();
+        await removeForDelete(current, force);
       } catch (error) {
-        if (missing(error)) return;
-        const legacyHost = !force && [ErrorCodes.HOST_VERSION_MISMATCH, "METHOD_NOT_FOUND"].includes(remoteCode(error) ?? "");
-        if (!(legacyHost || offlineError(error) && force)) throw error;
-        await call("sessionWorkspace.pendingRemoval.add", {
-          sessionId, hostKey: current.hostKey, repository: current.repository, workBranch: current.workBranch,
-        });
+        // The session stays. Cancelling stopped its preparation monitor;
+        // without one the binding would show "preparing" forever and could
+        // be neither retried nor deleted.
+        if (current.state === "preparing") workspaces.watch(sessionId);
+        throw error;
       }
     },
     reconcile(hostKey: string) {

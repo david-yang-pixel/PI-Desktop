@@ -594,6 +594,13 @@ model configured on that Host, or leave Host default model selected. An older
 Host still supports the default choice. The first prompt uses the model saved
 on the Host session at creation. The row wraps
 when space is limited and sits outside the input card's background and shadow.
+If the first send cannot start the remote session, the composer keeps the
+draft and shows an error toast that says why in the UI language: an offline
+or outdated Host, a missing environment or base branch, a disconnected GitHub
+account, or a Git failure on the Host. A failed workspace preparation uses the
+same reasons, and repository or branch list errors use the GitHub connector's
+localized messages. A failure code without a localized reason shows the
+message the Host or main process reported.
 The composer shows preparation and setup status. The session top bar shows
 the Host, repository, work branch, and a link to a recorded pull request.
 Ask the agent to open a pull request from a repository session with GitHub

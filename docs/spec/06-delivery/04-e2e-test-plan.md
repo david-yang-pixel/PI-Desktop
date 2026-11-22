@@ -287,7 +287,9 @@ identify the platform validation still needed.
 | E — Tools & permissions (disclosure reading position) | E2E-CHAT-disclosure-toggle-keeps-reading-position |
 | D (surfaces) / Quality — Remote-host Add and Pair form disclosure | E2E-REMOTE-HOST-settings-compact-inventory |
 | Post-MVP remote control (git workspaces on a paired Host) | E2E-REMOTE-repo-session-prepares-isolated-worktree |
+| Post-MVP remote control (repository session delete and an unreachable Host) | E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree, E2E-REMOTE-repo-session-preparation-resumes-after-host-reconnect, E2E-REMOTE-repo-session-offline-delete-records-pending-removal |
 | Post-MVP remote control (No repository Environment setup and variables) | E2E-REMOTE-no-repository-environment |
+| Post-MVP remote control (failed remote start keeps the draft and explains why) | E2E-REMOTE-composer-target-send-failure-explains-and-keeps-draft |
 | Post-MVP remote control (idle repository checkout reclamation and recovery) | E2E-REMOTE-idle-reclaim-restores-the-original-commit |
 | Security (git credential proxy on a paired Host) | E2E-REMOTE-git-proxy-rejects-foreign-ref |
 | E — Tools & permissions (capability level move) | E2E-CAPABILITY-move-across-levels |

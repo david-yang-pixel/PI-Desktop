@@ -419,7 +419,16 @@ status row shows the failure and the log tail.
 
 The work is asynchronous across several awaits, so each step re-checks that
 the session still exists and is still `preparing`. A session deleted mid-way
-cancels the job and removes the worktree.
+cancels the job, waits until the host reports it stopped (bounded at 30
+seconds after the host's own cancel wait), and removes the worktree. A job the
+binding has no id for is cancelled the same way when removal reports it busy.
+If the delete still fails, the session stays and its preparation is monitored
+again, so it settles to `ready` or `failed` rather than staying `preparing`.
+
+**Host offline while preparing**: when the host cannot be reached, the
+binding becomes `failed` with `REMOTE_TARGET_HOST_OFFLINE` and keeps its job
+id. Retry and delete stay available. When the host reconnects (or on Retry),
+the desktop resumes polling the same job.
 
 **Restart**: a binding found in `preparing` at startup is resumed by polling
 its job id. If the host no longer knows the job, the desktop checks
@@ -441,10 +450,17 @@ becomes `failed` and retryable.
   commits or uncommitted files produce the loss warning. Deletion then removes
   the worktree and the local work branch. The remote branch on GitHub is never
   deleted.
-- **Host offline at delete**: the warning says unpushed work cannot be
+- **Host offline at delete**: the host counts as offline when it cannot be
+  reached, including a failed reconnect: any failure of the SSH startup check
+  (`HOST_BOOTSTRAP_FAILED`, which also covers SSH authentication) or a
+  WebSocket that cannot open (`REMOTE_CONNECTION_FAILED`). RACP token and
+  version refusals do not count. The warning says unpushed work cannot be
   checked. On confirmation the session is deleted locally and a pending
-  removal is recorded; it is carried out, forced, on the next connection. The
-  user consented to the loss.
+  removal is recorded. On the next connection the desktop first stops any job
+  the session left running, then removes the worktree without force: a clean
+  worktree is removed, one with local work stays as a leftover worktree (see
+  below). A job that will not stop keeps the pending removal for the following
+  connection.
 - **Reconcile on connect**: the desktop lists its own worktrees on the host
   and looks at those that have neither a local binding nor a pending removal
   and are older than a day. It removes one only when it has no uncommitted
