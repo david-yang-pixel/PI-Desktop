@@ -752,6 +752,8 @@ export function createSessionSlice({
         });
         if (!runtime.navigationIntentIsCurrent(intent)) return false;
         if (!workspace) throw new Error(i18n.t("errors.workspaceActivationFailed"));
+        // A local project's draft runs on this computer.
+        target = { environmentId: "local" };
       } else {
         if (get().workspace) await get().clearProject({ navigationIntent: intent });
         if (!runtime.navigationIntentIsCurrent(intent)) return false;

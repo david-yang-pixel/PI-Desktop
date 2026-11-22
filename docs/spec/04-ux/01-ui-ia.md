@@ -506,8 +506,10 @@ shared capability contract:
   project. A temporary session shows dedicated temporary-chat copy with no
   project underline or switcher; and with no project open the generic welcome
   title stands.
-- The primary New task action opens a temporary chat draft on This computer.
-  The control beside This computer can switch the draft to an open local
+- The primary New task action opens a temporary chat draft on the last used
+  target: This computer, or the remembered environment, repository, and base
+  branch. It does not inherit the open session, its project, or a Host folder
+  chosen for the previous draft. The control beside This computer can switch the draft to an open local
   project or browse for a single folder. Choosing Temporary chat clears the
   draft's project before sending. A project's add button opens a draft with its project defaults. For a GitHub
   project these are the latest saved environment and base branch for that

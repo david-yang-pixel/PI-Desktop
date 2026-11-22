@@ -22,6 +22,12 @@ type TargetStore = DraftSessionTarget & {
   setEnvironment(id: string, hostKey?: string): void;
   setRepository(repository?: Repository): void;
   setBaseBranch(branch: string): void;
+  /**
+   * Start a new draft. With a target (a project's defaults), the draft uses
+   * it. Without one (the primary New task), the draft keeps the remembered
+   * environment, repository, and branch and drops only what belonged to the
+   * previous draft: a Host project or folder and a Host model choice.
+   */
   beginDraft(target?: DraftSessionTarget): void;
 };
 
@@ -43,13 +49,17 @@ export const useSessionTargetStore = create<TargetStore>()(persist((set) => ({
       : current
   )),
   setBaseBranch: (baseBranch) => set({ baseBranch }),
-  beginDraft: (target = { environmentId: "local" }) => set({
+  beginDraft: (target) => set(target ? {
     environmentId: target.environmentId,
     repository: target.repository,
     baseBranch: target.baseBranch ?? target.repository?.defaultBranch,
     defaultEnvironmentId: target.defaultEnvironmentId,
     remoteProject: target.remoteProject,
     folderProject: target.folderProject,
+    hostModel: undefined,
+  } : {
+    remoteProject: undefined,
+    folderProject: undefined,
     hostModel: undefined,
   }),
 }), { name: "pi-desktop.sessionTarget.v1", partialize: ({ environmentId, repository, baseBranch }) => ({ environmentId, repository, baseBranch }) }));
