@@ -15,6 +15,8 @@ import { createServer } from "vite";
 let server;
 let RemoteSessionBadge;
 let remoteSessionBadgeStatus;
+let trackSessionDeletion;
+let useSessionDeletions;
 
 before(async () => {
   server = await createServer({
@@ -27,6 +29,9 @@ before(async () => {
   });
   ({ RemoteSessionBadge, remoteSessionBadgeStatus } = await server.ssrLoadModule(
     "/src/features/chat/session-target/RemoteSessionBadge.tsx",
+  ));
+  ({ trackSessionDeletion, useSessionDeletions } = await server.ssrLoadModule(
+    "/src/features/chat/session-target/session-deletions.ts",
   ));
   await i18n.init({
     lng: "en",
@@ -79,4 +84,17 @@ test("the sidebar mounts the mark in every session row", () => {
   const sidebar = readFileSync(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
   const row = sidebar.slice(sidebar.indexOf("const renderSessionRows"), sidebar.indexOf("const renderProjectGroup"));
   assert.match(row, /<RemoteSessionBadge session=\{session\} \/>/);
+});
+
+test("a session being deleted is marked until the deletion settles, whatever its workspace", async () => {
+  // Server rendering reads a store's initial state, so the mark itself is
+  // driven in Electron by session-deletion-progress-user-path.test.mjs.
+  assert.equal(remoteSessionBadgeStatus(undefined, true), "deleting");
+  assert.equal(remoteSessionBadgeStatus(workspace("failed"), true), "deleting");
+  let finish;
+  const deletion = trackSessionDeletion("s", () => new Promise((resolve, reject) => { finish = { resolve, reject }; }));
+  assert.deepEqual(useSessionDeletions.getState().ids, { s: true });
+  finish.reject(new Error("host refused"));
+  await assert.rejects(deletion, /host refused/);
+  assert.deepEqual(useSessionDeletions.getState().ids, {}, "a failed deletion leaves the session as it was");
 });

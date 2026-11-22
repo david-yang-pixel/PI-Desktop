@@ -5,10 +5,17 @@ import { Button } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { useAppStore } from "../../../stores/app-store";
 import { remoteTargetErrorText, remoteTargetErrorTextForCode } from "./remote-target-error-message";
+import { useSessionDeletions } from "./session-deletions";
 
 type StatusProps = { sessionId: string; workspace: SessionRemoteRepository };
 
 export function WorkspacePreparationStatus(props: StatusProps) {
+  const { t } = useTranslation();
+  // Stopping the Host job and removing the worktree can take a while.
+  const deleting = useSessionDeletions((state) => state.ids[props.sessionId] === true);
+  if (deleting) {
+    return <div className="composer-status" role="status" aria-busy="true">{t("sessionTarget.deletion.deletingSession")}</div>;
+  }
   return <>
     <PushStatus key={props.sessionId} sessionId={props.sessionId} />
     <PreparationStatus {...props} />

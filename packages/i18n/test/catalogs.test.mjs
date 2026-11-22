@@ -193,9 +193,9 @@ test("remote session target controls and notices are localized in every shipped 
   // Nested groups after `sessionTarget.preparation`: Cancel while preparing,
   // sidebar marks, the environment editor, environment removal, the Host's
   // push and credential failures, a send that could not start, the hint for
-  // an offline Host, lookups beyond the capped GitHub lists, and the work
-  // branch's compare link and checks.
-  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors", "sendFailure", "offlineHost", "lookup", "githubActivity"];
+  // an offline Host, lookups beyond the capped GitHub lists, the work
+  // branch's compare link and checks, and a slow deletion.
+  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors", "sendFailure", "offlineHost", "lookup", "githubActivity", "deletion"];
   const keys = Object.keys(english).filter((key) => groups.some((group) => key.startsWith(`sessionTarget.${group}.`)));
   for (const group of groups) {
     assert.ok(keys.some((key) => key.startsWith(`sessionTarget.${group}.`)), group);

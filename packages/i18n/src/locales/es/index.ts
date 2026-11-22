@@ -138,6 +138,10 @@ export const es = {
       checksUnavailable: "Comprobaciones: no se pudieron leer",
       unavailable: "No se pudo consultar GitHub: {{message}}",
     },
+    deletion: {
+      deleting: "Eliminando…",
+      deletingSession: "Eliminando esta sesión. Detener el espacio de trabajo en el host puede tardar un momento…",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

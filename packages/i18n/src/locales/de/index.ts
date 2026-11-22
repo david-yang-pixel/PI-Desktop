@@ -138,6 +138,10 @@ export const de = {
       checksUnavailable: "Prüfungen: konnten nicht gelesen werden",
       unavailable: "GitHub konnte nicht abgefragt werden: {{message}}",
     },
+    deletion: {
+      deleting: "Wird gelöscht…",
+      deletingSession: "Diese Sitzung wird gelöscht. Das Beenden des Arbeitsbereichs auf dem Host kann einen Moment dauern…",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

@@ -138,6 +138,10 @@ export const zhTW = {
       checksUnavailable: "檢查：無法讀取",
       unavailable: "無法查詢 GitHub：{{message}}",
     },
+    deletion: {
+      deleting: "正在刪除…",
+      deletingSession: "正在刪除此工作階段。停止主機上的工作區可能需要一點時間…",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

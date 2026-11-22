@@ -138,6 +138,10 @@ export const fr = {
       checksUnavailable: "Vérifications : illisibles",
       unavailable: "Impossible d’interroger GitHub : {{message}}",
     },
+    deletion: {
+      deleting: "Suppression…",
+      deletingSession: "Suppression de cette session. L’arrêt de l’espace de travail sur l’hôte peut prendre un moment…",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

@@ -136,6 +136,10 @@ export const en = {
       checksUnavailable: "Checks: could not be read",
       unavailable: "Could not check GitHub: {{message}}",
     },
+    deletion: {
+      deleting: "Deleting…",
+      deletingSession: "Deleting this session. Stopping the workspace on the host can take a moment…",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

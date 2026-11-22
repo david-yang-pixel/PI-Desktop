@@ -2,6 +2,7 @@ import { forgetTranscriptReadingState } from "../../lib/transcript-reading-posit
 import i18n from "i18next";
 import type { ProjectWorkspace } from "@pi-desktop/shared";
 import { api } from "../../lib/api";
+import { isSessionDeleting, trackSessionDeletion } from "../../features/chat/session-target/session-deletions";
 import {
   rememberProject,
   removeRecentProject,
@@ -622,12 +623,13 @@ export function createProjectSlice({
     },
 
     deleteSession: async (id) => {
-      if (!id) return;
+      // A second Delete while the first is still running does nothing.
+      if (!id || isSessionDeleting(id)) return;
       try {
         const session = get().sessions.find((item) => item.id === id);
         let forceRemoteWorkspace = false;
         if (session?.remoteRepository) {
-          const review = await api.remoteSessionDeletePreflight(id);
+          const review = await trackSessionDeletion(id, () => api.remoteSessionDeletePreflight(id));
           if (review.kind === "atRisk" || review.kind === "unknown") {
             const message = review.kind === "atRisk"
               ? i18n.t("sessionTarget.deleteAtRisk", { files: review.uncommittedFiles, commits: review.unpushedCommits })
@@ -636,7 +638,7 @@ export function createProjectSlice({
             forceRemoteWorkspace = true;
           }
         }
-        await api.deleteSession(id, forceRemoteWorkspace);
+        await trackSessionDeletion(id, () => api.deleteSession(id, forceRemoteWorkspace));
       } catch (error) {
         // The main-side running guard is the backstop for races the sidebar's
         // pre-check cannot see (issue #2291); surface it translated instead

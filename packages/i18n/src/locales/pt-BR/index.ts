@@ -138,6 +138,10 @@ export const ptBR = {
       checksUnavailable: "Verificações: não foi possível ler",
       unavailable: "Não foi possível consultar o GitHub: {{message}}",
     },
+    deletion: {
+      deleting: "Excluindo…",
+      deletingSession: "Excluindo esta sessão. Parar a área de trabalho no host pode levar um momento…",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

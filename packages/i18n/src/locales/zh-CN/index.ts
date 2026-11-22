@@ -138,6 +138,10 @@ export const zhCN = {
       checksUnavailable: "检查：无法读取",
       unavailable: "无法查询 GitHub：{{message}}",
     },
+    deletion: {
+      deleting: "正在删除…",
+      deletingSession: "正在删除此会话。停止主机上的工作区可能需要一点时间…",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",
