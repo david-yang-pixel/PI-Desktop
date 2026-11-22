@@ -341,6 +341,8 @@ codes surface through the same error object as any other call.
 | `WORKSPACE_GIT_BUSY` | no | a prepare or push job for the same session is still running. Details include its job id |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | the job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | a git step failed for another reason; the message carries the tail of git's output |
+| `WORKSPACE_GIT_PUSH_REJECTED` | no | GitHub did not take a push of the work branch: it is not a fast-forward (`non-fast-forward`, `fetch first`), a force-with-lease found the remote branch moved (`stale info`), or a server hook or branch rule declined it; the message carries git's status lines |
+| `WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED` | no | GitHub refused to create or update a file under `.github/workflows/` because the token lacks the `workflow` scope; sign in again with that scope |
 | `WORKSPACE_GIT_STALLED` | yes | a clone, fetch, or push moved less than one byte per second for five minutes, or the host's credential proxy gave up on an idle GitHub connection; the transfer was abandoned |
 | `WORKSPACE_GIT_SETUP_FAILED` | no | the environment setup script must succeed before the restored checkout is ready |
 | `WORKSPACE_GIT_TRANSPORT_REFUSED` | no | the desktop refused to send the GitHub credential because the host is not reached over SSH, `wss://`, or loopback |

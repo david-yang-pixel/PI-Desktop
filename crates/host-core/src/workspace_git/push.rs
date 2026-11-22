@@ -232,6 +232,17 @@ mod tests {
         assert_eq!(pushed.unwrap(), f.remote.head(WORK));
     }
 
+    #[tokio::test]
+    async fn a_push_that_would_lose_remote_commits_is_rejected_with_a_typed_code() {
+        let f = Fixture::new().await;
+        // Someone else put a commit on the remote work branch.
+        let theirs = f.remote.create_branch(WORK, "develop");
+        commit_file(&f.worktree, "work.txt", "work\n");
+        let error = f.push().await.unwrap_err();
+        assert_eq!(error.code, "WORKSPACE_GIT_PUSH_REJECTED", "{error}");
+        assert_eq!(f.remote.head(WORK), theirs);
+    }
+
     #[test]
     fn only_full_object_ids_are_pushed() {
         assert!(is_object_id(&"a".repeat(40)));

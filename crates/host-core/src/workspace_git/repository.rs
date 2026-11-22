@@ -251,7 +251,16 @@ pub(super) fn classify(
     let stderr = redact(config, output.stderr.trim());
     let lower = stderr.to_ascii_lowercase();
     let contains_any = |needles: &[&str]| needles.iter().any(|needle| lower.contains(needle));
-    let code = if contains_any(&[
+    // GitHub refuses a workflow file change unless the token has the
+    // `workflow` scope: "refusing to allow an OAuth App (or a Personal
+    // Access Token, or a GitHub App) to create or update workflow `<path>`
+    // without `workflow` scope". Checked first: it is also a remote rejection.
+    let code = if lower.contains("refusing to allow")
+        && lower.contains("workflow")
+        && lower.contains("scope")
+    {
+        "WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED"
+    } else if contains_any(&[
         "returned error: 401",
         "returned error: 403",
         "authentication failed",
@@ -274,6 +283,19 @@ pub(super) fn classify(
         "returned error: 504",
     ]) {
         "WORKSPACE_GIT_STALLED"
+    } else if contains_any(&[
+        // git's per-ref status lines for a push the remote did not take:
+        // not a fast-forward, a remote ref this host has not fetched, a
+        // force-with-lease whose expectation no longer holds, or a server
+        // hook or branch rule that declined it.
+        "! [rejected]",
+        "! [remote rejected]",
+        "(non-fast-forward)",
+        "(fetch first)",
+        "(stale info)",
+        "updates were rejected",
+    ]) {
+        "WORKSPACE_GIT_PUSH_REJECTED"
     } else {
         "WORKSPACE_GIT_FAILED"
     };
@@ -599,6 +621,27 @@ mod tests {
                 "WORKSPACE_GIT_STALLED",
                 "{stderr}"
             );
+        }
+        for stderr in [
+            "To https://github.com/o/r.git\n ! [rejected]        a1b2 -> pi-desktop/x (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: Updates were rejected because a pushed branch tip is behind its remote",
+            "To https://github.com/o/r.git\n ! [rejected]        pi-desktop/x -> pi-desktop/x (fetch first)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            // A force-with-lease whose expectation no longer holds.
+            "To https://github.com/o/r.git\n ! [rejected]        a1b2 -> pi-desktop/x (stale info)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (protected branch hook declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+        ] {
+            assert_eq!(
+                classify(none, "push", &failed(stderr)).code,
+                "WORKSPACE_GIT_PUSH_REJECTED",
+                "{stderr}"
+            );
+        }
+        for stderr in [
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (refusing to allow an OAuth App to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (refusing to allow a Personal Access Token to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)",
+        ] {
+            let error = classify(none, "push", &failed(stderr));
+            assert_eq!(error.code, "WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED", "{stderr}");
+            assert!(error.message.contains(".github/workflows/ci.yml"));
         }
         let other = classify(
             none,
