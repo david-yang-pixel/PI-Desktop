@@ -127,6 +127,9 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } =
             }
             case "workspace/gitList":
               return { worktrees: [...remote.worktrees.values()] };
+            case "workspace/gitCredentialSet":
+            case "workspace/gitCredentialClear":
+              return { ok: true };
             default:
               throw new Error(`unexpected host request ${method}`);
           }
@@ -567,4 +570,26 @@ test("a reconnect that fails for one workspace still recovers the others", async
   assert.equal(f.store.get("s-1").state, "reclaiming");
   assert.equal(f.store.get("s-2").state, "ready", "the second workspace is settled despite the first failure");
   assert.match(f.logs.join("\n"), /Could not check a repository workspace on reconnect/);
+});
+
+// ---- least privilege ---------------------------------------------------------
+
+test("only a ready repository session's commands hand its host the credential", async () => {
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1"), "s-2": binding("s-2", { state: "preparing", workBranch: undefined, path: undefined }) },
+  });
+  f.workspaces.git().setCredentialProvider(async () => "fixture-token-not-a-real-credential");
+  const sets = () => f.remote.requests.filter((entry) => entry.method === "workspace/gitCredentialSet").length;
+
+  // Reads and edits never run git; a folder session or a session still
+  // preparing gets nothing either.
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Read" });
+  await f.workspaces.prepareTool({ sessionId: "folder-session", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-2", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "other-host", toolName: "Bash" });
+  assert.equal(sets(), 0);
+
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
+  assert.equal(sets(), 1, "delivered once, then held by the connection");
 });

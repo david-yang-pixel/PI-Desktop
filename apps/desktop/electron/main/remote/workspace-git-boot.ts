@@ -6,7 +6,9 @@
  * operations plus the one thing that needs care here: handing the Host the
  * GitHub token. The token is read from a provider only at the moment it is
  * sent, is sent only over a transport an observer on the network cannot read,
- * and is never logged or placed in an error.
+ * and is never logged or placed in an error. A Host connection receives it
+ * only when an operation on that Host first needs it (D695): a prepare, a
+ * push, or a ready repository session's tools.
  *
  * Nothing here waits on git. `prepare` and `push` return a job id; callers
  * poll `job`.
@@ -30,8 +32,14 @@ export type WorkspaceGitCredentialProvider = () => Promise<string | null>;
 
 export type WorkspaceGitBoot = {
   setCredentialProvider(provider: WorkspaceGitCredentialProvider | null): void;
-  /** Push or clear the credential on every connected capable host. */
+  /** The credential changed: replace or clear it on every host connection that holds one. */
   refreshCredential(): Promise<void>;
+  /**
+   * Give the host's live connection the credential if it does not hold the
+   * current one, for work that may run git through the Host's proxy. Best
+   * effort: it never throws, and a refused or failed delivery is only logged.
+   */
+  ensureCredential(hostKey: string): Promise<void>;
   /** Whether the host offers git workspaces; realigns it once when it does not. */
   supported(hostKey: string): Promise<boolean>;
   supportsSafeRemoval(hostKey: string): boolean;
@@ -100,7 +108,7 @@ function errorCodeOf(error: unknown): string {
 }
 
 export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGitBoot & {
-  /** A host connected or reconnected: give its new connection the credential. */
+  /** A host connected or reconnected: its new connection holds no credential yet. */
   hostConnected(hostKey: string): Promise<void>;
   hostRemoved(hostKey: string): void;
 } {
@@ -138,7 +146,10 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     const host = deps.connectedHost(hostKey);
     if (!host || !advertises(host)) return "skipped";
     const connection = connectionOf(hostKey);
-    const held = holding(hostKey, host)?.token === true;
+    const holds = holding(hostKey, host);
+    // A push queued behind one that already delivered this generation has nothing to do.
+    if (holds?.generation === sent) return holds.token ? "delivered" : refused.has(hostKey) ? "refused" : "anonymous";
+    const held = holds?.token === true;
     const stale = () => provider !== current || deps.connectedHost(hostKey) !== host || connectionOf(hostKey) !== connection;
     const settle = (token: boolean) => {
       if (!stale()) delivered.set(hostKey, { host, connection, generation: sent, token });
@@ -190,21 +201,24 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
 
   /**
    * Make sure the host's live connection holds the current credential before
-   * a call that depends on it. A delivery that failed, or one made to an
-   * earlier connection, is sent again now; a credential that still cannot be
-   * delivered fails the call with a typed error rather than letting git run
-   * without it. With no token to send the call proceeds, as it always has.
+   * a call that depends on it. This is the first delivery to a connection, and
+   * also re-sends one that failed or was made to an earlier connection. When
+   * `strict`, a credential that still cannot be delivered fails the call with a
+   * typed error rather than letting git run without it. With no token to send
+   * the call proceeds, as it always has.
    */
-  async function ensureCredential(hostKey: string, host: WorkspaceGitHost): Promise<void> {
-    // A connect may still be delivering the credential this call depends on.
+  async function ensureCredential(hostKey: string, host: WorkspaceGitHost, strict = true): Promise<void> {
+    // Another call may still be delivering the credential this one depends on.
     await pushes.get(hostKey);
     let outcome: Outcome | undefined;
-    // A push overtaken by a new connection or provider is tried once more.
+    // A delivery that failed, or was overtaken by a new connection or a
+    // credential change, is tried once more before the call gives up.
     for (let attempt = 0; attempt < 2 && !upToDate(hostKey, host); attempt++) {
       outcome = await schedulePush(hostKey);
-      if (outcome !== "stale") break;
+      if (outcome === "anonymous" || outcome === "refused" || outcome === "skipped") break;
     }
     if (deps.connectedHost(hostKey) !== host) throw unavailable();
+    if (!strict) return;
     if (refused.has(hostKey)) {
       throw fail(ErrorCodes.WORKSPACE_GIT_TRANSPORT_REFUSED, "the GitHub credential is only sent to a host reached over SSH, wss://, or a loopback ws:// address");
     }
@@ -223,7 +237,7 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     return host;
   }
 
-  async function call<T>(hostKey: string, method: string, params: (installationId: string) => Record<string, unknown>, options: { needsCredential?: boolean; needsSafeRemoval?: boolean; rebuild?: boolean } = {}): Promise<T> {
+  async function call<T>(hostKey: string, method: string, params: (installationId: string) => Record<string, unknown>, options: { needsCredential?: boolean; mayUseCredential?: boolean; needsSafeRemoval?: boolean; rebuild?: boolean } = {}): Promise<T> {
     const host = await capableHost(hostKey);
     let installationId: string;
     try {
@@ -231,11 +245,10 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     } catch {
       throw fail(ErrorCodes.WORKSPACE_GIT_UNAVAILABLE, "this desktop's installation identity is unavailable");
     }
-    if (options.rebuild) {
-      if (!supportsReclaim(hostKey)) throw fail(ErrorCodes.HOST_VERSION_MISMATCH, "Upgrade pi-host to restore a reclaimed workspace");
-      await pushes.get(hostKey);
-    }
-    if (options.needsCredential) await ensureCredential(hostKey, host);
+    if (options.rebuild && !supportsReclaim(hostKey)) throw fail(ErrorCodes.HOST_VERSION_MISMATCH, "Upgrade pi-host to restore a reclaimed workspace");
+    // A restore or a setup rerun may reach GitHub through the proxy too, but
+    // it never required the credential and still does not.
+    if (options.needsCredential || options.mayUseCredential) await ensureCredential(hostKey, host, options.needsCredential === true);
     if (deps.connectedHost(hostKey) !== host) throw unavailable();
     if (options.needsSafeRemoval && host.adapter.workspaceCapabilities?.()?.workspaceGitSafeRemoval !== true) {
       throw fail(ErrorCodes.HOST_VERSION_MISMATCH, "Upgrade pi-host to enable safe worktree removal");
@@ -252,7 +265,21 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     },
     async refreshCredential() {
       generation += 1;
-      await Promise.all([...known].map((hostKey) => schedulePush(hostKey)));
+      // Only a connection that holds a token, or is being given one, is told:
+      // a sign-in reaches no Host until an operation there needs it, and a
+      // sign-out clears every Host that has one.
+      const holders = [...known].filter((hostKey) => pushes.has(hostKey)
+        || holding(hostKey, deps.connectedHost(hostKey))?.token === true);
+      await Promise.all(holders.map((hostKey) => schedulePush(hostKey)));
+    },
+    async ensureCredential(hostKey) {
+      const host = deps.connectedHost(hostKey);
+      if (!host || !advertises(host)) return;
+      try {
+        await ensureCredential(hostKey, host, false);
+      } catch {
+        // The host went away meanwhile: the work that asked fails on its own.
+      }
     },
     async supported(hostKey) {
       await deps.ensureReady(hostKey);
@@ -300,7 +327,7 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
         ...(input.rebuild || input.rerunSetup === true ? { rerunSetup: true } : {}),
         ...(input.rebuild ? { requireSetupSuccess: true } : {}),
         ...(input.environment !== undefined ? { environment: input.environment } : {}),
-      }), { needsCredential: !input.restoreOnly && !input.rerunSetup && !input.rebuild, rebuild: input.rebuild });
+      }), { needsCredential: !input.restoreOnly && !input.rerunSetup && !input.rebuild, mayUseCredential: true, rebuild: input.rebuild });
     },
     push(hostKey, sessionId) {
       return call(hostKey, "workspace/gitPush", (installationId) => ({ installationId, sessionId }), { needsCredential: true });
@@ -323,9 +350,9 @@ export function createWorkspaceGitBoot(deps: WorkspaceGitBootDeps): WorkspaceGit
     },
     async hostConnected(hostKey) {
       known.add(hostKey);
-      // The Host dropped the credential with the previous connection.
+      // The Host dropped the credential with the previous connection. The
+      // new one gets it only when an operation on this Host needs it.
       connections.set(hostKey, connectionOf(hostKey) + 1);
-      await schedulePush(hostKey);
     },
     hostRemoved(hostKey) {
       known.delete(hostKey);

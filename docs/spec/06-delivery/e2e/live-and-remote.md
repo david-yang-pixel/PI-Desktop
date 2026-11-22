@@ -926,6 +926,20 @@ the throttled refresh on session use;
 `apps/desktop/test/conversation-details-pull-request.test.mjs` covers the
 "View PR #12 · Merged" label.
 
+## E2E-REMOTE-git-credential-sent-on-first-use
+
+Covered by steps 1 and 2 of `pnpm test:e2e:remote-workspace-git` (D695).
+After the Host connects and the connector's credential is refreshed,
+`pi-host` has been handed no token. The first prepare delivers it once, and
+the clone goes through the proxy with it. A retried prepare on the same
+connection sends nothing more.
+`apps/desktop/test/remote-workspace-git-boot.test.mjs` covers a sign-in
+reaching no Host until it needs the token, a changed token replacing the one a
+Host holds, a sign-out clearing it, delivery again after a reconnect, one retry
+before `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE`, and the transport rules;
+`apps/desktop/test/remote-session-workspace-git.test.mjs` covers only a ready
+repository session's commands asking for the token.
+
 ## E2E-REMOTE-agent-pushes-session-branch-through-connector
 
 Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Desktop has no

@@ -73,6 +73,8 @@ async function step(name, action) {
 let fixture; let host; let proxy; let binding; let server; let boot; let localHost; let repositorySessions;
 const hostLogs = [];
 let token = FIXTURE_TOKEN;
+/** One entry per token pi-host was given: true for a token, false for a clear. */
+const tokenSets = [];
 const deadline = setTimeout(() => { console.error(`FAILED - ${currentStep}: remote workspace git acceptance exceeded 180s`); process.exit(1); }, 180_000);
 
 async function pollJob(jobId) {
@@ -167,6 +169,9 @@ try {
   await host.handshake();
   // The only way to point the proxy anywhere but GitHub: its constructor.
   proxy = createGitCredentialProxy({ upstream: fixture.url, log: (level, message, data) => hostLogs.push(JSON.stringify({ level, message, data })) });
+  // Record when pi-host is handed a token (never the value): connecting must not.
+  const proxySetToken = proxy.setToken.bind(proxy);
+  proxy.setToken = (installationId, value) => { tokenSets.push(value !== null); return proxySetToken(installationId, value); };
   await proxy.start();
   const agentHost = new AgentHost({ sessions: createHostSessionPort(() => host),
     runtime: { async prompt() { throw new Error("no remote model"); }, async stop() { return { requested: false }; }, async abort() {}, async respondInput() {} },
@@ -198,7 +203,7 @@ try {
   const workA = workspaceGitWorkBranch(INSTALLATION, "session-a");
   const workB = workspaceGitWorkBranch(INSTALLATION, "session-b");
 
-  await step("1 connect and deliver the credential", async () => {
+  await step("1 connect; the credential waits for its first use", async () => {
     boot.workspaceGit.setCredentialProvider(async () => token);
     assert.equal((await boot.addHost({ hostKey: HOST, label: "Fixture", url: `ws://127.0.0.1:${binding.address.port}/v1/racp/ws`, deviceToken: OWNER_TOKEN })).connected, true);
     await boot.workspaceGit.refreshCredential();
@@ -208,6 +213,8 @@ try {
     assert.deepEqual(where, { path: join(workspacesRoot, "repos/github.com/octo/repo"), cloned: false });
     assert.equal(existsSync(workspacesRoot), false, "asking where a repository lives creates nothing");
     assert.equal(fixture.requests.length, 0);
+    // Least privilege (D695): connecting and signing in hand the host no token.
+    assert.deepEqual(tokenSets, [], "the token waits for the first operation that needs it");
   });
 
   await step("2 prepare session A from main (E2E-REMOTE-repo-session-prepares-isolated-worktree)", async () => {
@@ -224,6 +231,7 @@ try {
     assert.equal(git(a.mainPath, "config", "--get", "remote.origin.url"), "https://github.com/octo/repo.git");
     assert.deepEqual(await boot.workspaceGit.repository(HOST, repository), { path: a.mainPath, cloned: true });
     assert.ok(fixture.requests.length > 0 && fixture.requests.every((request) => request.authorized), "the clone went through the proxy with the credential");
+    assert.deepEqual(tokenSets, [true], "the first prepare delivered the token once");
     // A retry returns the same worktree instead of a second one.
     assert.deepEqual((await prepare("session-a", "develop")).worktree, a);
   });

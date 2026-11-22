@@ -412,9 +412,25 @@ export function createSessionWorkspaces(deps: {
     }
   }
 
+  /**
+   * A ready repository session's commands can run git through the Host's
+   * credential proxy, so its Host gets the credential before the first one.
+   * Only commands run git; folder sessions on the same Host get nothing.
+   */
+  async function prepareTool(input: { sessionId: string; hostKey: string; toolName: string }) {
+    if (input.toolName !== "Bash") return;
+    try {
+      const current = await binding(input.sessionId);
+      if (current?.state !== "ready" || current.hostKey !== input.hostKey) return;
+      await git().ensureCredential(input.hostKey);
+    } catch (error) {
+      log("Could not prepare the GitHub credential for a repository tool", error);
+    }
+  }
+
   return {
     git, binding, update, listBindings, announce, ensureSession, list, getEnvironment, start, recoverMissingCheckout, touch, reclaim, wake,
-    watch, stopJob,
+    watch, stopJob, prepareTool,
     async get(sessionId: string) {
       const current = await binding(sessionId);
       return current ? publicBinding(current) : null;

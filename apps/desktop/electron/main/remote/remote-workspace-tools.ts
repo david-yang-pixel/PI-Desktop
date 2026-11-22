@@ -21,6 +21,8 @@ type Dependencies = {
   isCurrent: () => boolean;
   isTurnDispatchable: (sessionId: string, turnId: string) => boolean;
   log: (message: string, error: unknown) => void;
+  /** Runs before the call is sent, such as giving the Host a credential the tool may use. */
+  beforeExecute?: (request: RemoteWorkspaceToolRequest) => Promise<void>;
 };
 
 /** Local permission admission precedes this relay. No models or credentials cross it. */
@@ -52,6 +54,13 @@ export function createRemoteWorkspaceToolRelay(host: HostReply, deps: Dependenci
         if (active.has(key)) throw new Error("duplicate remote tool dispatch");
         active.set(key, request);
         ownsActive = true;
+        if (deps.beforeExecute) {
+          try { await deps.beforeExecute(request); }
+          catch (error) { deps.log("remote tool preparation failed", error); }
+          // The turn or the call may have been cancelled meanwhile.
+          if (!deps.isCurrent() || !deps.isTurnDispatchable(request.sessionId, request.turnId)
+            || cancelled.has(key)) throw Object.assign(new Error("remote tool turn was cancelled"), { errorCode: "TOOL_ABORTED" });
+        }
         result = await boot.executeWorkspaceTool({ ...request.remoteWorkspace,
           sessionId: request.sessionId, turnId: request.turnId, toolCallId: request.toolCallId,
           toolName: request.toolName, args: request.args,

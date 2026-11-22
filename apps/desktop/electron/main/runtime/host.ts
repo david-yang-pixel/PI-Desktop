@@ -10,6 +10,7 @@ import type { RuntimeState } from "./context";
 import type { FinishTurn } from "./plans";
 import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
 import { createRemoteWorkspaceToolRelay, type RemoteWorkspaceToolRequest } from "../remote/remote-workspace-tools";
+import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 
 export type HostRuntimeDependencies = {
   runtimeState: RuntimeState;
@@ -88,6 +89,9 @@ export function createHostRuntime({
     isCurrent: () => runtimeState.host === h,
     isTurnDispatchable: (sessionId, turnId) => isTurnDispatchable(sessionId, turnId),
     log: (message, error) => logger.app("diagnostics", "warn", message, { data: String(error) }),
+    beforeExecute: async (request) => getRemoteRepositorySessions()?.workspaces.prepareTool({
+      sessionId: request.sessionId, hostKey: request.remoteWorkspace.hostKey, toolName: request.toolName,
+    }),
   });
 
   h.onNotification((method, params) => {

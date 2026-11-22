@@ -422,8 +422,9 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
   });
   /**
    * Every new connection to a Host starts without a git credential: the Host
-   * drops it when a connection closes. Send it after the first open and after
-   * each transport-level reconnect. Failures are logged there, never thrown.
+   * drops it when a connection closes. Tell the git boot after the first open
+   * and after each transport-level reconnect; the credential follows only when
+   * an operation on this Host needs it. Then recover repository sessions.
    */
   gitHostConnected = (live) => {
     const onConnect = () => {

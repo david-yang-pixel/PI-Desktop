@@ -7,15 +7,16 @@ const request = {
   requestId: "request", sessionId: "session", turnId: "turn", toolCallId: "tool",
   toolName: "Read", args: { path: "README.md" }, remoteWorkspace: { hostKey: "ssh", path: "/work/app" },
 };
-function fixture(execute) {
-  const sent = [], replies = [], aborted = [];
+function fixture(execute, beforeExecute) {
+  const sent = [], replies = [], aborted = [], logs = [];
   let current = true, dispatchable = true;
   const relay = createRemoteWorkspaceToolRelay({ call: async (method, params) => replies.push({ method, params }) }, {
     getBoot: () => ({ executeWorkspaceTool: async (input) => { sent.push(input); return execute(input); },
       abortWorkspaceTool: async (input) => aborted.push(input) }),
-    isCurrent: () => current, isTurnDispatchable: () => dispatchable, log: () => {},
+    isCurrent: () => current, isTurnDispatchable: () => dispatchable, log: (message) => logs.push(message),
+    ...(beforeExecute ? { beforeExecute } : {}),
   });
-  return { relay, sent, replies, aborted, replace: () => { current = false; }, cancelTurn: () => { dispatchable = false; } };
+  return { relay, sent, replies, aborted, logs, replace: () => { current = false; }, cancelTurn: () => { dispatchable = false; } };
 }
 test("an admitted local turn sends only a workspace tool and completes locally", async () => {
   const f = fixture(() => ({ ok: true, content: "remote README" }));
@@ -71,4 +72,26 @@ test("a duplicate dispatch does not remove the original call's cancellation owne
   assert.equal(f.sent.length, 1);
   assert.equal(f.aborted.length, 1);
   assert.equal(f.replies.find(reply => reply.params.requestId === "request").params.result.errorCode, "TOOL_ABORTED");
+});
+test("the call is prepared before it is sent, and a failed preparation never fails the tool", async () => {
+  const order = [];
+  const f = fixture(() => { order.push("execute"); return { ok: true, content: "done" }; }, async (input) => {
+    order.push(["prepare", input.toolName, input.remoteWorkspace.hostKey]);
+    throw new Error("credential unavailable");
+  });
+  await f.relay.execute({ ...request, toolName: "Bash", args: { command: "git fetch" } });
+  assert.deepEqual(order, [["prepare", "Bash", "ssh"], "execute"]);
+  assert.deepEqual(f.replies.at(-1).params.result, { ok: true, content: "done" });
+  assert.deepEqual(f.logs, ["remote tool preparation failed"]);
+});
+test("a call cancelled while it is being prepared is never sent", async () => {
+  let release;
+  const f = fixture(() => assert.fail("not admitted"), () => new Promise((done) => { release = done; }));
+  const pending = f.relay.execute(request);
+  await new Promise((resolve) => setImmediate(resolve));
+  f.relay.cancel(request);
+  release();
+  await pending;
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.replies.at(-1).params.result.errorCode, "TOOL_ABORTED");
 });
