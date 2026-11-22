@@ -595,6 +595,9 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
       return result;
     },
     async createSession(input) {
+      // Creating a session is a user action: bring an offline Host back, as
+      // browsing its projects does, instead of failing because it dropped.
+      await ensureReady(input.hostKey);
       let environment: WorkspaceGitEnvironment | undefined;
       if (input.environmentId) {
         const workspaces = getRemoteRepositorySessions()?.workspaces;

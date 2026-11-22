@@ -117,6 +117,9 @@ export const ptBR = {
     sendFailure: {
       message: "Não foi possível enviar a mensagem: {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} está offline. Ao enviar, ele é reconectado primeiro, o que pode levar um momento.",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

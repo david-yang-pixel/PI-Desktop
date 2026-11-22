@@ -117,6 +117,9 @@ export const es = {
     sendFailure: {
       message: "No se pudo enviar el mensaje: {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} está sin conexión. Al enviar, primero se vuelve a conectar, lo que puede tardar un momento.",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

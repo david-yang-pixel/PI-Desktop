@@ -117,6 +117,9 @@ export const zhCN = {
     sendFailure: {
       message: "无法发送消息：{{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} 已离线。发送时会先重新连接，可能需要一点时间。",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

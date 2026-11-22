@@ -117,6 +117,9 @@ export const zhTW = {
     sendFailure: {
       message: "無法傳送訊息：{{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} 已離線。傳送時會先重新連線，可能需要一點時間。",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

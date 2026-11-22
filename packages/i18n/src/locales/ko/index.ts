@@ -117,6 +117,9 @@ export const ko = {
     sendFailure: {
       message: "메시지를 보내지 못했습니다: {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}}이(가) 오프라인입니다. 보내면 먼저 다시 연결하며, 잠시 걸릴 수 있습니다.",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

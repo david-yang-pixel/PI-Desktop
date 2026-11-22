@@ -28,6 +28,7 @@ test("every remote target and workspace code main reports maps to a catalog sent
   const expected = {
     AGENT_UNAVAILABLE: en.sessionTarget.errors.hostOffline,
     HOST_DISCONNECTED: en.sessionTarget.errors.hostOffline,
+    HOST_BOOTSTRAP_FAILED: en.sessionTarget.errors.hostOffline,
     REMOTE_CONNECTION_FAILED: en.sessionTarget.errors.hostOffline,
     REMOTE_TARGET_HOST_OFFLINE: en.sessionTarget.errors.hostOffline,
     HOST_VERSION_MISMATCH: en.sessionTarget.errors.hostOutdated,

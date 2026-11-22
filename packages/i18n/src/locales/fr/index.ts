@@ -117,6 +117,9 @@ export const fr = {
     sendFailure: {
       message: "Impossible d’envoyer le message : {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} est hors ligne. L’envoi le reconnecte d’abord, ce qui peut prendre un moment.",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

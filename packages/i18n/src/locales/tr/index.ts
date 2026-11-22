@@ -117,6 +117,9 @@ export const tr = {
     sendFailure: {
       message: "Mesaj gönderilemedi: {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} çevrimdışı. Gönderdiğinizde önce yeniden bağlanır; bu biraz sürebilir.",
+    },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",
       hostOutdated: "Uzak ana bilgisayar bu uygulamanın farklı bir sürümünü çalıştırıyor. Ana bilgisayarı güncelleyin, ardından tekrar deneyin.",

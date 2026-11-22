@@ -115,6 +115,9 @@ export const en = {
     sendFailure: {
       message: "Could not send the message: {{message}}",
     },
+    offlineHost: {
+      sendHint: "{{host}} is offline. Sending reconnects it first, which can take a moment.",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

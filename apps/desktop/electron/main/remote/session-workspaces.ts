@@ -510,10 +510,16 @@ export function createSessionWorkspaces(deps: {
     },
     async resolve(input: RemoteSessionTarget) {
       const environment = await getEnvironment(input.environmentId);
-      if (!(await hosts()?.list())?.some((host) => host.hostKey === environment.hostKey && host.connected)) {
+      // The first send reconnects an offline Host: `supported` brings the
+      // connection up. Only a Host that still cannot be reached is offline.
+      let supported: boolean;
+      try {
+        supported = await git().supported(environment.hostKey);
+      } catch (error) {
+        if (!offlineError(error)) throw error;
         throw remoteError(ErrorCodes.REMOTE_TARGET_HOST_OFFLINE, "The selected remote host is offline");
       }
-      if (!await git().supported(environment.hostKey)) {
+      if (!supported) {
         throw remoteError(ErrorCodes.REMOTE_TARGET_UNSUPPORTED, "The selected host needs an update for repository sessions");
       }
       const status = await connector.status();

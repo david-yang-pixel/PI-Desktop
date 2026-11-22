@@ -22,6 +22,9 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   // creates a session without a repository.
   [ErrorCodes.AGENT_UNAVAILABLE, HOST_OFFLINE],
   [ErrorCodes.HOST_DISCONNECTED, HOST_OFFLINE],
+  // A send reconnects an offline Host; a failed SSH startup check is what an
+  // unreachable SSH Host reports then, as main's `offlineError` treats it.
+  [ErrorCodes.HOST_BOOTSTRAP_FAILED, HOST_OFFLINE],
   [ErrorCodes.REMOTE_CONNECTION_FAILED, HOST_OFFLINE],
   [ErrorCodes.REMOTE_TARGET_HOST_OFFLINE, HOST_OFFLINE],
   [ErrorCodes.HOST_VERSION_MISMATCH, HOST_OUTDATED],
