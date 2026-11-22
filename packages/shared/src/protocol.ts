@@ -331,6 +331,8 @@ export const IPC = {
     /** Stop a preparing repository workspace; the binding becomes `failed` and retryable. */
     remoteSessionWorkspaceCancel: "pi-desktop/remoteSession/workspace/cancel",
     remoteSessionDeletePreflight: "pi-desktop/remoteSession/deletePreflight",
+    /** Whether the work branch is on GitHub and, with a pull request, its CI state. */
+    remoteSessionGithubActivity: "pi-desktop/remoteSession/github/activity",
     remoteLeftoverWorktreesList: "pi-desktop/remoteHost/leftoverWorktrees/list",
     remoteLeftoverWorktreesRemove: "pi-desktop/remoteHost/leftoverWorktrees/remove",
     githubConnectorStatus: "pi-desktop/github/status",

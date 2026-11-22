@@ -6,6 +6,7 @@ import type { GitHubConnector } from "../github/connector";
 import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
 import { onConfirmedQuit } from "../bootstrap/confirmed-quit";
 import { createIdleWorkspaceReclaimer, idleSince } from "../remote/idle-workspace-reclaimer";
+import { createSessionGitHubActivity } from "../remote/session-github-activity";
 import { createSessionWorkspaceGit } from "../remote/session-workspace-git";
 import { createSessionWorkspaces, remoteError, type HostCall } from "../remote/session-workspaces";
 import { recoverRepositorySessions, type RecoveryLog } from "../remote/repository-session-recovery";
@@ -88,6 +89,7 @@ export function registerRemoteRepositorySessions(deps: {
   const { registrar, call, connector, emit, log } = deps;
   const workspaces = createSessionWorkspaces({ call, hosts: getActiveRemoteHostsBoot, connector, emit, log, hasQueuedPrompt: deps.hasQueuedPrompt });
   const git = createSessionWorkspaceGit({ call, workspaces, connector, emit, log });
+  const githubActivity = createSessionGitHubActivity({ workspaces, connector });
   const supported = (hostKey: string) => getActiveRemoteHostsBoot()?.workspaceGit.supportsReclaim(hostKey) === true;
   const reclaimer = createIdleWorkspaceReclaimer({
     connectedHosts: async () => (await getActiveRemoteHostsBoot()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey),
@@ -146,6 +148,7 @@ export function registerRemoteRepositorySessions(deps: {
   handle(IPC.invoke.remoteSessionWorkspaceRetry, async (id) => ({ remoteRepository: await workspaces.retry(string(id)) }));
   handle(IPC.invoke.remoteSessionWorkspaceCancel, async (id) => ({ remoteRepository: await workspaces.cancelPreparation(string(id)) }));
   handle(IPC.invoke.remoteSessionDeletePreflight, async (id) => git.preflight(string(id)));
+  handle(IPC.invoke.remoteSessionGithubActivity, async (id) => githubActivity(string(id)));
   handle(IPC.invoke.remoteLeftoverWorktreesList, async (hostKey) => ({ worktrees: await git.leftovers(string(hostKey)) }));
   handle(IPC.invoke.remoteLeftoverWorktreesRemove, async (hostKey, id) => ({ ok: await git.removeLeftover(string(hostKey), string(id)) }));
 }

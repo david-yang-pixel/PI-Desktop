@@ -128,6 +128,16 @@ export const zhCN = {
       repositoryHint: "输入 owner/name 可查找未列出的仓库。",
       branchesTruncated: "仅显示前 500 个分支。输入分支全名可查找其他分支。",
     },
+    githubActivity: {
+      label: "GitHub 上",
+      viewChanges: "在 GitHub 上查看更改",
+      checksPassing: "检查：通过",
+      checksFailing: "检查：失败",
+      checksPending: "检查：进行中",
+      checksNone: "检查：无",
+      checksUnavailable: "检查：无法读取",
+      unavailable: "无法查询 GitHub：{{message}}",
+    },
     errors: {
       hostOffline: "远程主机已离线。请在“设置 → 远程主机”中重新连接，然后重试。",
       hostOutdated: "远程主机运行的应用版本与本机不同。请更新该主机，然后重试。",

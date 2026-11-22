@@ -128,6 +128,16 @@ export const tr = {
       repositoryHint: "Listede olmayan bir depoyu bulmak için owner/name yazın.",
       branchesTruncated: "İlk 500 dal gösteriliyor. Başka bir dal bulmak için dalın tam adını yazın.",
     },
+    githubActivity: {
+      label: "GitHub'da",
+      viewChanges: "Değişiklikleri GitHub'da görüntüle",
+      checksPassing: "Denetimler: başarılı",
+      checksFailing: "Denetimler: başarısız",
+      checksPending: "Denetimler: bekliyor",
+      checksNone: "Denetimler: bildirilen yok",
+      checksUnavailable: "Denetimler: okunamadı",
+      unavailable: "GitHub denetlenemedi: {{message}}",
+    },
     errors: {
       hostOffline: "Uzak ana bilgisayar çevrimdışı. Ayarlar → Uzak ana bilgisayarlar bölümünden yeniden bağlayın, ardından tekrar deneyin.",
       hostOutdated: "Uzak ana bilgisayar bu uygulamanın farklı bir sürümünü çalıştırıyor. Ana bilgisayarı güncelleyin, ardından tekrar deneyin.",

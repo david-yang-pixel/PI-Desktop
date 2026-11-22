@@ -128,6 +128,16 @@ export const es = {
       repositoryHint: "Escribe owner/name para encontrar un repositorio que no aparece.",
       branchesTruncated: "Se muestran las primeras 500 ramas. Escribe el nombre completo de una rama para encontrar otra.",
     },
+    githubActivity: {
+      label: "En GitHub",
+      viewChanges: "Ver cambios en GitHub",
+      checksPassing: "Comprobaciones: correctas",
+      checksFailing: "Comprobaciones: con errores",
+      checksPending: "Comprobaciones: pendientes",
+      checksNone: "Comprobaciones: ninguna",
+      checksUnavailable: "Comprobaciones: no se pudieron leer",
+      unavailable: "No se pudo consultar GitHub: {{message}}",
+    },
     errors: {
       hostOffline: "El host remoto está sin conexión. Vuelve a conectarlo en Configuración → Hosts remotos e inténtalo de nuevo.",
       hostOutdated: "El host remoto ejecuta una versión distinta de esta aplicación. Actualiza el host e inténtalo de nuevo.",

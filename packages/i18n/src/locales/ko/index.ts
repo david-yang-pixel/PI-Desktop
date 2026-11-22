@@ -128,6 +128,16 @@ export const ko = {
       repositoryHint: "목록에 없는 저장소를 찾으려면 owner/name을 입력하세요.",
       branchesTruncated: "처음 500개 브랜치만 표시합니다. 다른 브랜치를 찾으려면 브랜치의 전체 이름을 입력하세요.",
     },
+    githubActivity: {
+      label: "GitHub",
+      viewChanges: "GitHub에서 변경 사항 보기",
+      checksPassing: "검사: 통과",
+      checksFailing: "검사: 실패",
+      checksPending: "검사: 대기 중",
+      checksNone: "검사: 보고된 항목 없음",
+      checksUnavailable: "검사: 읽을 수 없음",
+      unavailable: "GitHub를 확인하지 못했습니다: {{message}}",
+    },
     errors: {
       hostOffline: "원격 호스트가 오프라인입니다. 설정 → 원격 호스트에서 다시 연결한 후 다시 시도하세요.",
       hostOutdated: "원격 호스트가 이 앱과 다른 릴리스를 실행 중입니다. 호스트를 업데이트한 후 다시 시도하세요.",

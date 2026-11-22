@@ -100,6 +100,7 @@ import type {
   RemoteEnvironment,
   RemoteEnvironmentInput,
   RemoteSessionDeletePreflight,
+  RemoteSessionGitHubActivity,
   RemoteSessionTarget,
   RemoteSessionWorkspaceStart,
   SessionRemoteRepository,
@@ -1134,6 +1135,7 @@ export const api = {
   /** Resolves `null` when the session was deleted while its job was stopping. */
   cancelRemoteSessionWorkspace: (id: string) => invoke<{ remoteRepository: SessionRemoteRepository | null }>(IPC.invoke.remoteSessionWorkspaceCancel, id),
   remoteSessionDeletePreflight: (id: string) => invoke<RemoteSessionDeletePreflight>(IPC.invoke.remoteSessionDeletePreflight, id),
+  getRemoteSessionGithubActivity: (id: string) => invoke<RemoteSessionGitHubActivity>(IPC.invoke.remoteSessionGithubActivity, id),
   listRemoteLeftoverWorktrees: (hostKey: string) => invoke<{ worktrees: LeftoverWorktree[] }>(IPC.invoke.remoteLeftoverWorktreesList, hostKey),
   removeRemoteLeftoverWorktree: (hostKey: string, id: string) => invoke<{ ok: boolean }>(IPC.invoke.remoteLeftoverWorktreesRemove, hostKey, id),
   onRemoteSessionWorkspaceChanged: (callback: (event: { sessionId: string; remoteRepository: SessionRemoteRepository | null }) => void) =>

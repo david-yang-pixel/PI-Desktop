@@ -126,6 +126,16 @@ export const en = {
       repositoryHint: "Type owner/name to find a repository that is not listed.",
       branchesTruncated: "Showing the first 500 branches. Type a branch's full name to find another.",
     },
+    githubActivity: {
+      label: "On GitHub",
+      viewChanges: "View changes on GitHub",
+      checksPassing: "Checks: passing",
+      checksFailing: "Checks: failing",
+      checksPending: "Checks: pending",
+      checksNone: "Checks: none reported",
+      checksUnavailable: "Checks: could not be read",
+      unavailable: "Could not check GitHub: {{message}}",
+    },
     errors: {
       hostOffline: "The remote host is offline. Reconnect it in Settings → Remote hosts, then try again.",
       hostOutdated: "The remote host runs a different release of this app. Update the host, then try again.",

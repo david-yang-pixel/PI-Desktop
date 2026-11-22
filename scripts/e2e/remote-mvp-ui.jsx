@@ -120,6 +120,8 @@ window.piDesktop = {
       data = { accepted: true };
     }
     else if (channel === IPC.invoke.plansPending) data = { plans: [] };
+    else if (channel === IPC.invoke.remoteSessionGithubActivity) data = input === cloudSession.id
+      ? { pushed: true, checks: { state: "passing", total: 2, failed: 0, pending: 0 } } : { pushed: false };
     else if (channel === IPC.invoke.remoteHostReconnect) {
       if (++reconnects === 1) return { ok: false, error: { message: "Fixture reconnect failure", code: "AGENT_UNAVAILABLE" } };
       data = { host };
@@ -561,6 +563,13 @@ globalThis.remoteMvpProbe = async () => {
   const pullRequest = changes.querySelector("a");
   assert(pullRequest?.textContent === "View PR #7" && pullRequest.href === "https://github.com/example/repo/pull/7",
     "the saved pull request is not linked");
+  await until(() => details().querySelector(".conversation-details-github a"), "the pushed work branch has no compare link");
+  const compare = details().querySelector(".conversation-details-github a");
+  assert(compare.textContent === catalogs.en.sessionTarget.githubActivity.viewChanges
+    && compare.href === `https://github.com/${repository.owner}/${repository.name}/compare/develop...pi-desktop/fixture`,
+  "the compare link does not name the base and work branch");
+  assert(details().querySelector('.conversation-details-github [data-checks-state="passing"]')?.textContent
+    === catalogs.en.sessionTarget.githubActivity.checksPassing, "the pull request's checks are not shown");
   const changeRow = () => changes.querySelector('[data-snapshot-id="fixture-change"]');
   await until(() => changeRow()?.textContent.includes("src/changed.ts"), "the session change is missing");
   const change = changeRow();

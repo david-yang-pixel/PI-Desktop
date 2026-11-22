@@ -72,6 +72,17 @@ export type GitHubBranchList = {
   ssoPartial?: boolean;
 };
 
+/** The CI verdict for one commit, as GitHub's pull request page sums it up. */
+export type GitHubChecksState = "passing" | "failing" | "pending" | "none";
+
+/** Check runs and commit statuses of one commit, counted together. */
+export type GitHubCommitChecks = {
+  state: GitHubChecksState;
+  total: number;
+  failed: number;
+  pending: number;
+};
+
 export type GitHubPullRequestInput = {
   head: string;
   base: string;

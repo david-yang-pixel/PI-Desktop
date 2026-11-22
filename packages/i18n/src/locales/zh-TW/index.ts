@@ -128,6 +128,16 @@ export const zhTW = {
       repositoryHint: "輸入 owner/name 可尋找未列出的儲存庫。",
       branchesTruncated: "僅顯示前 500 個分支。輸入分支全名可尋找其他分支。",
     },
+    githubActivity: {
+      label: "GitHub 上",
+      viewChanges: "在 GitHub 上檢視變更",
+      checksPassing: "檢查：通過",
+      checksFailing: "檢查：失敗",
+      checksPending: "檢查：進行中",
+      checksNone: "檢查：無",
+      checksUnavailable: "檢查：無法讀取",
+      unavailable: "無法查詢 GitHub：{{message}}",
+    },
     errors: {
       hostOffline: "遠端主機已離線。請在「設定 → 遠端主機」中重新連線，然後重試。",
       hostOutdated: "遠端主機執行的應用程式版本與本機不同。請更新該主機，然後重試。",

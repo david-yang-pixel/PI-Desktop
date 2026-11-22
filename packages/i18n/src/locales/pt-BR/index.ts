@@ -128,6 +128,16 @@ export const ptBR = {
       repositoryHint: "Digite owner/name para encontrar um repositório que não está na lista.",
       branchesTruncated: "Mostrando as primeiras 500 branches. Digite o nome completo de uma branch para encontrar outra.",
     },
+    githubActivity: {
+      label: "No GitHub",
+      viewChanges: "Ver alterações no GitHub",
+      checksPassing: "Verificações: aprovadas",
+      checksFailing: "Verificações: com falha",
+      checksPending: "Verificações: pendentes",
+      checksNone: "Verificações: nenhuma informada",
+      checksUnavailable: "Verificações: não foi possível ler",
+      unavailable: "Não foi possível consultar o GitHub: {{message}}",
+    },
     errors: {
       hostOffline: "O host remoto está offline. Reconecte-o em Configurações → Hosts remotos e tente novamente.",
       hostOutdated: "O host remoto executa uma versão diferente deste app. Atualize o host e tente novamente.",

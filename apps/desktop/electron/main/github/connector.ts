@@ -30,6 +30,7 @@ import {
   githubConnectorScopes,
   isGitHubTokenShape,
   type GitHubBranchList,
+  type GitHubCommitChecks,
   type GitHubConnectorAccount,
   type GitHubConnectorStatus,
   type GitHubPullRequestInput,
@@ -68,6 +69,8 @@ export type GitHubConnector = {
   getRepository(repository: GitHubRepositoryRef): Promise<GitHubRepositorySummary | null>;
   /** A branch by exact name with its head commit; `null` when it does not exist. */
   getBranch(repository: GitHubRepositoryRef, branch: string): Promise<GitHubBranchHead | null>;
+  /** CI state of one commit. Main only: it names a commit, not a session. */
+  getCommitChecks(repository: GitHubRepositoryRef, sha: string): Promise<GitHubCommitChecks>;
   findPullRequest(
     repository: GitHubRepositoryRef,
     head: string,
@@ -563,6 +566,11 @@ export function createGitHubConnector(deps: GitHubConnectorDeps): GitHubConnecto
     async getBranch(repository, branch) {
       const credential = await requireCredential();
       return spend(credential, (token) => deps.api.getBranch(token, repository, branch));
+    },
+
+    async getCommitChecks(repository, sha) {
+      const credential = await requireCredential();
+      return spend(credential, (token) => deps.api.getCommitChecks(token, repository, sha));
     },
 
     async findPullRequest(repository, head, ...filter) {

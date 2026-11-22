@@ -1,4 +1,5 @@
 import type { WorkspaceGitEnvironment, WorkspaceGitJob, WorkspaceGitRepository, WorkspaceGitWorktree } from "../racp-workspace-git";
+import type { GitHubCommitChecks } from "./github-connector";
 
 export type RemoteEnvironmentInput = {
   id?: string;
@@ -76,6 +77,18 @@ export type RemoteSessionGitStatus = {
   uncommittedFiles?: number;
   unpushedCommits?: number;
   pushedOnce?: boolean;
+};
+
+/**
+ * What GitHub shows for a repository session's work branch. `pushed` is true
+ * once the branch exists on GitHub. `checks` summarizes CI on its head commit
+ * while a pull request is recorded; `checksError` says why they could not be
+ * read when the branch itself could.
+ */
+export type RemoteSessionGitHubActivity = {
+  pushed: boolean;
+  checks?: GitHubCommitChecks;
+  checksError?: { code: string; message: string };
 };
 
 export type RemoteSessionDeletePreflight =

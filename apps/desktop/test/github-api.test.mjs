@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 register(pathToFileURL(join(here, "helpers/ts-import-hooks.mjs")));
-const { GitHubApiError, createGitHubApi } = await import(
+const { GitHubApiError, createGitHubApi, summarizeCommitChecks } = await import(
   "../electron/main/github/github-api.ts"
 );
 
@@ -884,4 +884,38 @@ test("exact lookups check the names before any request", async () => {
     assert.equal((await rejection(call)).errorCode, "INVALID_ARGUMENT");
   }
   assert.equal(requests.length, 0);
+});
+
+test("a commit's checks combine its check runs and commit statuses", async () => {
+  const sha = "d".repeat(40);
+  const { fetchImpl, requests } = scriptedFetch((request) =>
+    new URL(request.url).pathname.endsWith("/check-runs")
+      ? json({ total_count: 2, check_runs: [
+        { status: "completed", conclusion: "success" }, { status: "in_progress", conclusion: null },
+      ] })
+      : json({ state: "success", total_count: 1, statuses: [{ state: "success" }] }));
+  const checks = await createGitHubApi({ fetchImpl }).getCommitChecks(TOKEN, REPO, sha);
+
+  assert.deepEqual(checks, { state: "pending", total: 3, failed: 0, pending: 1 });
+  assert.deepEqual(requests.map((request) => request.url).sort(), [
+    `https://api.github.com/repos/octo-org/hello.world/commits/${sha}/check-runs?per_page=100`,
+    `https://api.github.com/repos/octo-org/hello.world/commits/${sha}/status?per_page=100`,
+  ]);
+  requests.forEach(assertGitHubHeaders);
+  // Only a full commit id may name the commit: a branch name could be ambiguous.
+  assert.equal((await rejection(createGitHubApi({ fetchImpl }).getCommitChecks(TOKEN, REPO, "main"))).errorCode, "INVALID_ARGUMENT");
+  const unreadable = createGitHubApi({ fetchImpl: async () => json({ check_runs: "no" }) });
+  assert.equal((await rejection(unreadable.getCommitChecks(TOKEN, REPO, sha))).errorCode, "GITHUB_NETWORK");
+});
+
+test("checks fail on any failure, wait on anything unfinished, and pass otherwise", () => {
+  const run = (status, conclusion = null) => ({ status, conclusion });
+  assert.deepEqual(summarizeCommitChecks([], []), { state: "none", total: 0, failed: 0, pending: 0 });
+  assert.equal(summarizeCommitChecks([run("completed", "success"), run("completed", "skipped"), run("completed", "neutral")], [{ state: "success" }]).state, "passing");
+  for (const conclusion of ["failure", "timed_out", "cancelled", "action_required", "startup_failure"]) {
+    assert.equal(summarizeCommitChecks([run("completed", conclusion), run("queued")], []).state, "failing", conclusion);
+  }
+  assert.equal(summarizeCommitChecks([run("completed", "success")], [{ state: "error" }]).state, "failing");
+  assert.equal(summarizeCommitChecks([run("queued")], [{ state: "success" }]).state, "pending");
+  assert.equal(summarizeCommitChecks([], [{ state: "pending" }]).state, "pending");
 });

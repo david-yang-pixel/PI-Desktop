@@ -128,6 +128,16 @@ export const fr = {
       repositoryHint: "Saisissez owner/name pour trouver un dépôt qui n’est pas listé.",
       branchesTruncated: "Les 500 premières branches sont affichées. Saisissez le nom complet d’une branche pour en trouver une autre.",
     },
+    githubActivity: {
+      label: "Sur GitHub",
+      viewChanges: "Voir les modifications sur GitHub",
+      checksPassing: "Vérifications : réussies",
+      checksFailing: "Vérifications : en échec",
+      checksPending: "Vérifications : en attente",
+      checksNone: "Vérifications : aucune signalée",
+      checksUnavailable: "Vérifications : illisibles",
+      unavailable: "Impossible d’interroger GitHub : {{message}}",
+    },
     errors: {
       hostOffline: "L’hôte distant est hors ligne. Reconnectez-le dans Paramètres → Hôtes distants, puis réessayez.",
       hostOutdated: "L’hôte distant exécute une autre version de cette application. Mettez l’hôte à jour, puis réessayez.",

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "rea
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { formatCompactTokenCount, type SessionPullRequestLink, type SessionSummary } from "@pi-desktop/shared";
+import { SessionGitHubActivity } from "../features/chat/session-target/SessionGitHubActivity";
 import { useEnvironments } from "../features/chat/session-target/use-environments";
 import { composerContextUsage } from "../lib/context-usage";
 import { latestTurnContextInspector } from "../lib/latest-turn-context";
@@ -133,6 +134,7 @@ function ConversationDetailsSidebar({ id, session, cloud, onClose }: {
               </div>
             )}
             {branch && <div><dt>{t("conversationDetails.branch")}</dt><dd>{branch}</dd></div>}
+            {repository && <SessionGitHubActivity sessionId={session.id} workspace={repository} />}
           </dl>
         </section>
         <section>

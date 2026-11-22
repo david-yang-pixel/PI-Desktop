@@ -103,3 +103,19 @@
     animation: none;
   }
 }
+
+/* Conversation details: the work branch's compare link and CI state. */
+.conversation-details-github dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--spacing, 0.25rem) * 2);
+  align-items: baseline;
+}
+
+.conversation-details-github [data-checks-state="failing"] {
+  color: var(--ds-error);
+}
+
+.conversation-details-github [data-checks-state="unavailable"] {
+  color: var(--ds-text-secondary);
+}

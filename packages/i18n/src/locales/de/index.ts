@@ -128,6 +128,16 @@ export const de = {
       repositoryHint: "Gib owner/name ein, um ein nicht aufgeführtes Repository zu finden.",
       branchesTruncated: "Die ersten 500 Branches werden angezeigt. Gib den vollständigen Namen eines Branches ein, um einen anderen zu finden.",
     },
+    githubActivity: {
+      label: "Auf GitHub",
+      viewChanges: "Änderungen auf GitHub ansehen",
+      checksPassing: "Prüfungen: bestanden",
+      checksFailing: "Prüfungen: fehlgeschlagen",
+      checksPending: "Prüfungen: ausstehend",
+      checksNone: "Prüfungen: keine gemeldet",
+      checksUnavailable: "Prüfungen: konnten nicht gelesen werden",
+      unavailable: "GitHub konnte nicht abgefragt werden: {{message}}",
+    },
     errors: {
       hostOffline: "Der Remote-Host ist offline. Verbinde ihn unter Einstellungen → Remote-Hosts erneut und versuche es dann noch einmal.",
       hostOutdated: "Auf dem Remote-Host läuft eine andere Version dieser App. Aktualisiere den Host und versuche es dann erneut.",

@@ -124,6 +124,7 @@ function harness({ clientId = CLIENT_ID, credential = null, openExternal } = {})
     }),
     getRepository: async (_token, repository) => repositorySummary(`${repository.owner}/${repository.name}`),
     getBranch: async (_token, _repository, branch) => ({ name: branch, protected: false, sha: "b".repeat(40) }),
+    getCommitChecks: async () => ({ state: "passing", total: 1, failed: 0, pending: 0 }),
     findPullRequest: async () => null,
     createPullRequest: async (_token, _repository, input) => ({
       number: 4,
@@ -600,6 +601,7 @@ test("every GitHub call without a credential is refused as not connected", async
     () => h.connector.listBranches(REPO),
     () => h.connector.getRepository(REPO),
     () => h.connector.getBranch(REPO, "main"),
+    () => h.connector.getCommitChecks(REPO, "b".repeat(40)),
     () => h.connector.findPullRequest(REPO, "feature"),
     () => h.connector.createPullRequest(REPO, pull),
   ]) {
@@ -973,8 +975,10 @@ test("exact repository and branch lookups spend the stored token", async () => {
   const h = harness({ credential: storedCredential() });
   assert.equal((await h.call("getRepository", REPO)).fullName, "octo-org/hello");
   assert.deepEqual(await h.call("getBranch", REPO, "release/1"), { name: "release/1", protected: false, sha: "b".repeat(40) });
+  assert.equal((await h.call("getCommitChecks", REPO, "b".repeat(40))).state, "passing");
   assert.deepEqual(h.apiCalls, [
     { method: "getRepository", args: [TOKEN, REPO] },
     { method: "getBranch", args: [TOKEN, REPO, "release/1"] },
+    { method: "getCommitChecks", args: [TOKEN, REPO, "b".repeat(40)] },
   ]);
 });
