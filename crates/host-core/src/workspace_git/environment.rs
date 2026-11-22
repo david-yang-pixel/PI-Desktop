@@ -229,6 +229,7 @@ mod tests {
                 setup_script: None,
                 setup_status: SetupStatus::None,
                 setup_log_tail: None,
+                last_pushed_commit: None,
                 recovery: Default::default(),
             },
         )

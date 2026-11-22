@@ -293,6 +293,7 @@ fn new_record(
             SetupStatus::None
         },
         setup_log_tail: None,
+        last_pushed_commit: None,
         recovery: registry::Recovery {
             strict_setup_pending: request.require_setup_success && request.setup_script.is_some(),
             ..Default::default()

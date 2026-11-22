@@ -847,8 +847,14 @@ type WorkspaceGitJob = {
 
 **Status and removal.** `WorkspaceGitStatus` carries the worktree, `ahead` and
 `behind` relative to the remote work branch (zero before the first push),
-`uncommittedFiles`, `unpushedCommits` (commits no remote branch contains), and
-`pushedOnce`. `workspace/gitRemove` removes the worktree and its local work
+`uncommittedFiles`, `unpushedCommits`, and `pushedOnce`. A commit counts as
+unpushed when no remote branch contains it and the Host's last successful
+push of the work branch did not send it either: the Host keeps that commit
+in the worktree's registration (`lastPushedCommit`, an additive field older
+Hosts ignore), so work that GitHub squash-merged and whose branch it then
+deleted is not reported as unpushed after the next fetch prunes the branch.
+Status, removal without `force`, and reclaim apply the same rule. A push the
+Agent makes from Bash is not recorded this way. `workspace/gitRemove` removes the worktree and its local work
 branch. Without `force`, uncommitted files or unpushed commits make it answer
 `{ removed: false, uncommittedFiles, unpushedCommits }` and change nothing.
 The remote branch is never deleted. A restore that stopped while recreating a

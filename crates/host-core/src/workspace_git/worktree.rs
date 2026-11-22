@@ -272,10 +272,12 @@ pub async fn restore(
 }
 
 /// Counts for one worktree. Read-only: it takes no repository lock.
+/// `last_pushed` is the record's last pushed commit (`unpushed_commits`).
 pub async fn status(
     git: &GitRunner,
     worktree_path: &Path,
     work_branch: &str,
+    last_pushed: Option<&str>,
 ) -> Result<StatusCounts, WorkspaceGitError> {
     validate_branch(work_branch)?;
     let porcelain = git
@@ -290,6 +292,7 @@ pub async fn status(
         worktree_path,
         work_branch,
         count_porcelain_entries(&porcelain),
+        last_pushed,
     )
     .await
 }
@@ -300,11 +303,12 @@ pub async fn branch_status(
     worktree_path: &Path,
     work_branch: &str,
     uncommitted_files: u32,
+    last_pushed: Option<&str>,
 ) -> Result<StatusCounts, WorkspaceGitError> {
     validate_branch(work_branch)?;
     let local = format!("refs/heads/{work_branch}");
     let remote = format!("refs/remotes/origin/{work_branch}");
-    let unpushed_commits = unpushed_commits(git, worktree_path, work_branch).await?;
+    let unpushed_commits = unpushed_commits(git, worktree_path, work_branch, last_pushed).await?;
 
     let pushed_once = git
         .output(
@@ -344,11 +348,35 @@ pub async fn branch_status(
     })
 }
 
-/// Count branch-only commits even when the worktree directory has disappeared.
+/// The record's last pushed commit, when it names a commit this repository
+/// still has: commits up to it count as pushed. Anything else (absent,
+/// malformed, or pruned) is `None`, which only ever counts more commits as
+/// unpushed, never fewer.
+pub async fn pushed_floor(
+    git: &GitRunner,
+    repository_path: &Path,
+    last_pushed: Option<&str>,
+) -> Option<String> {
+    let oid = last_pushed.filter(|oid| super::push::is_object_id(oid))?;
+    let probe = format!("{oid}^{{commit}}");
+    let output = git
+        .local_inspection(
+            repository_path,
+            &["--no-replace-objects", "cat-file", "-e", &probe],
+        )
+        .await
+        .ok()?;
+    output.success().then(|| oid.to_string())
+}
+
+/// Count branch-only commits even when the worktree directory has disappeared:
+/// commits on the work branch that no `origin` branch contains and that the
+/// last push from this host (`last_pushed`) did not send either.
 pub async fn unpushed_commits(
     git: &GitRunner,
     repository_path: &Path,
     work_branch: &str,
+    last_pushed: Option<&str>,
 ) -> Result<u32, WorkspaceGitError> {
     validate_branch(work_branch)?;
     let branch = format!("refs/heads/{work_branch}");
@@ -367,11 +395,11 @@ pub async fn unpushed_commits(
             "could not inspect the local work branch",
         ));
     }
+    let floor = pushed_floor(git, repository_path, last_pushed).await;
+    let mut args = vec!["rev-list", "--count", &branch, "--not", "--remotes=origin"];
+    args.extend(floor.as_deref());
     let unpushed = git
-        .run(
-            repository_path,
-            &["rev-list", "--count", &branch, "--not", "--remotes=origin"],
-        )
+        .run(repository_path, &args)
         .await
         .map_err(git_failed("rev-list"))?;
     parse_count(&unpushed)
@@ -447,6 +475,7 @@ pub async fn remove_checked(
     path: &Path,
     work_branch: &str,
     force: bool,
+    last_pushed: Option<&str>,
 ) -> Result<(bool, u32, u32), WorkspaceGitError> {
     let common_dir = repository::common_dir(main_path);
     let _lock = repo_lock::lock(&common_dir).await;
@@ -463,11 +492,11 @@ pub async fn remove_checked(
                 "the registered path belongs to another checkout",
             ));
         }
-        status(git, path, work_branch)
+        status(git, path, work_branch, last_pushed)
             .await
             .map(|status| (status.uncommitted_files, status.unpushed_commits))
     } else {
-        unpushed_commits(git, main_path, work_branch)
+        unpushed_commits(git, main_path, work_branch, last_pushed)
             .await
             .map(|commits| (0, commits))
     };
@@ -776,7 +805,12 @@ mod tests {
         .is_err());
         assert_eq!(rev_parse(&a, "HEAD"), head);
         fs::remove_dir_all(&a).unwrap();
-        assert_eq!(unpushed_commits(&f.git, &f.main, WORK_A).await.unwrap(), 1);
+        assert_eq!(
+            unpushed_commits(&f.git, &f.main, WORK_A, None)
+                .await
+                .unwrap(),
+            1
+        );
         restore(&f.git, &f.main, &a, WORK_A).await.unwrap();
         assert_eq!(rev_parse(&a, "HEAD"), head);
     }
@@ -794,7 +828,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let clean = status(&f.git, &a, WORK_A).await.unwrap();
+        let clean = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(
             clean,
             StatusCounts {
@@ -808,14 +842,14 @@ mod tests {
 
         std::fs::write(a.join("untracked.txt"), "u\n").unwrap();
         std::fs::write(a.join("README.md"), "changed\n").unwrap();
-        let dirty = status(&f.git, &a, WORK_A).await.unwrap();
+        let dirty = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(dirty.uncommitted_files, 2);
         assert_eq!(dirty.unpushed_commits, 0);
 
         std::fs::remove_file(a.join("untracked.txt")).unwrap();
         let first = commit_file(&a, "README.md", "changed\n");
         commit_file(&a, "second.txt", "2\n");
-        let committed = status(&f.git, &a, WORK_A).await.unwrap();
+        let committed = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(
             committed,
             StatusCounts {
@@ -836,7 +870,7 @@ mod tests {
             head
         );
         assert_eq!(f.remote.head(WORK_A), head);
-        let pushed = status(&f.git, &a, WORK_A).await.unwrap();
+        let pushed = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(
             pushed,
             StatusCounts {
@@ -849,7 +883,7 @@ mod tests {
         );
 
         commit_file(&a, "third.txt", "3\n");
-        let ahead = status(&f.git, &a, WORK_A).await.unwrap();
+        let ahead = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(
             (ahead.ahead, ahead.behind, ahead.unpushed_commits),
             (1, 0, 1)
@@ -858,7 +892,7 @@ mod tests {
 
         // Rewinding below the pushed head: one commit behind the remote branch.
         git_cmd(&a, &["reset", "-q", "--hard", &first]);
-        let behind = status(&f.git, &a, WORK_A).await.unwrap();
+        let behind = status(&f.git, &a, WORK_A, None).await.unwrap();
         assert_eq!(
             (behind.ahead, behind.behind, behind.unpushed_commits),
             (0, 1, 0)
@@ -867,7 +901,10 @@ mod tests {
         // A rename is one changed file, not two.
         git_cmd(&a, &["mv", "README.md", "README.rst"]);
         assert_eq!(
-            status(&f.git, &a, WORK_A).await.unwrap().uncommitted_files,
+            status(&f.git, &a, WORK_A, None)
+                .await
+                .unwrap()
+                .uncommitted_files,
             1
         );
     }

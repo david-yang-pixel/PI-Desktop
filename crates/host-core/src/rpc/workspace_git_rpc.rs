@@ -739,9 +739,22 @@ async fn status(
         && !record.recovery.checkout_creation_pending
         && is_real_dir(path)
     {
-        worktree::status(&context.git, path, &record.work_branch).await?
+        worktree::status(
+            &context.git,
+            path,
+            &record.work_branch,
+            record.last_pushed_commit.as_deref(),
+        )
+        .await?
     } else {
-        worktree::branch_status(&context.git, main, &record.work_branch, 0).await?
+        worktree::branch_status(
+            &context.git,
+            main,
+            &record.work_branch,
+            0,
+            record.last_pushed_commit.as_deref(),
+        )
+        .await?
     };
     let ahead_of_base = worktree::commits_ahead_of_base(
         &context.git,
@@ -800,6 +813,7 @@ async fn remove(
         Path::new(&record.path),
         &record.work_branch,
         params.force,
+        record.last_pushed_commit.as_deref(),
     )
     .await?;
     if removed {

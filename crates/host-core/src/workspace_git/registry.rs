@@ -93,6 +93,12 @@ pub struct WorktreeRecord {
     pub setup_status: SetupStatus,
     #[serde(default)]
     pub setup_log_tail: Option<String>,
+    /// The commit this host's last successful push of the work branch sent.
+    /// Commits up to it are on GitHub even after the remote branch is gone
+    /// (a squash merge deletes it, and fetch prunes its tracking ref), so
+    /// they do not count as unpushed. Absent in records of older builds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_pushed_commit: Option<String>,
     #[serde(default, flatten)]
     pub recovery: Recovery,
 }
@@ -270,6 +276,7 @@ mod tests {
             setup_script: Some("true".into()),
             setup_status: SetupStatus::None,
             setup_log_tail: None,
+            last_pushed_commit: None,
             recovery: Recovery::default(),
         }
     }
@@ -299,6 +306,35 @@ mod tests {
         assert_eq!(raw["setupStatus"], "none");
         assert_eq!(raw["setupScript"], "true");
         assert_eq!(raw["variables"][0]["name"], "MY_VAR");
+    }
+
+    #[test]
+    fn the_last_pushed_commit_is_optional_and_additive() {
+        let (_dir, db) = database();
+        // A record an older host-core wrote has no such field.
+        let mut raw = serde_json::to_value(record(INSTALLATION_A, "s-1", "/w/a")).unwrap();
+        raw.as_object_mut().unwrap().remove("lastPushedCommit");
+        db.kv_set(NAMESPACE, &format!("{INSTALLATION_A}:s-1"), &raw)
+            .unwrap();
+        let old = get(&db, INSTALLATION_A, "s-1").unwrap().unwrap();
+        assert_eq!(old.last_pushed_commit, None);
+        // Absent stays absent on the way back out, so an older host-core
+        // reads exactly what it wrote.
+        insert(&db, &old).unwrap();
+        let raw = db
+            .kv_get(NAMESPACE, &format!("{INSTALLATION_A}:s-1"))
+            .unwrap()
+            .unwrap();
+        assert!(raw.get("lastPushedCommit").is_none(), "{raw}");
+        let mut pushed = old;
+        pushed.last_pushed_commit = Some("c".repeat(40));
+        insert(&db, &pushed).unwrap();
+        let raw = db
+            .kv_get(NAMESPACE, &format!("{INSTALLATION_A}:s-1"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(raw["lastPushedCommit"], "c".repeat(40));
+        assert_eq!(get(&db, INSTALLATION_A, "s-1").unwrap(), Some(pushed));
     }
 
     #[test]

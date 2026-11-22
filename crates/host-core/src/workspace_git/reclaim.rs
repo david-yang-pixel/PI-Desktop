@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use super::layout::{short_id, work_branch, Layout};
 use super::registry::{ReclaimIntent, SetupStatus, WorktreeRecord};
-use super::{repository, WorkspaceGitError};
+use super::{repository, worktree::pushed_floor, WorkspaceGitError};
 use crate::db::{ms_to_ts, now_ms};
 use crate::session_worktrees::{git::GitRunner, repo_lock};
 use crate::workspace::simple_canonicalize;
@@ -682,9 +682,10 @@ async fn status_without_filters(git: &GitRunner, checkout: &Path) -> Result<Stri
 async fn check(
     git: &GitRunner,
     paths: &RegisteredPaths,
-    branch: &str,
+    record: &WorktreeRecord,
     mut extra_dirs: Vec<String>,
 ) -> Result<VerifiedReclaim> {
+    let branch = record.work_branch.as_str();
     verify_main(git, paths).await?;
     let admin = checkout_admin(git, paths, branch).await?;
     for dir in [&admin, &paths.common] {
@@ -711,12 +712,10 @@ async fn check(
     extra_dirs.extend(project_dirs(git, &paths.checkout, &commit).await?);
     let output = status_without_filters(git, &paths.checkout).await?;
     let mut counts = count_status(&paths.checkout, &output, &extra_dirs)?;
-    let unpushed = inspect(
-        git,
-        &paths.main,
-        &["rev-list", "--count", &commit, "--not", "--remotes=origin"],
-    )
-    .await?;
+    let floor = pushed_floor(git, &paths.main, record.last_pushed_commit.as_deref()).await;
+    let mut args = vec!["rev-list", "--count", commit.as_str(), "--not"];
+    args.extend(["--remotes=origin"].into_iter().chain(floor.as_deref()));
+    let unpushed = inspect(git, &paths.main, &args).await?;
     counts.unpushed = output_line(&unpushed)?.parse().map_err(|_| uncertain())?;
     if counts.uncommitted == 0 && counts.unpushed == 0 && counts.protected == 0 {
         verify_removal_tree(&paths.checkout, true)?;
@@ -892,7 +891,7 @@ where
         admin,
         counts,
         allowed_dirs,
-    } = match check(git, &paths, &record.work_branch, extra_dirs).await {
+    } = match check(git, &paths, &record, extra_dirs).await {
         Ok(checked) => checked,
         Err(error) => {
             tracing::debug!(%error, "could not verify workspace reclaim safety");

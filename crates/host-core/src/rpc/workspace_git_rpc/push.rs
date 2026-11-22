@@ -27,11 +27,12 @@ pub(super) async fn start_push(
         (jobs, job_id, cancel, record, access)
     };
     tokio::spawn(run_push(
+        state.clone(),
         context.clone(),
         jobs,
         job_id.clone(),
-        record,
         PushRequest {
+            record,
             proxy_url,
             force_with_lease: params.force_with_lease,
         },
@@ -41,21 +42,23 @@ pub(super) async fn start_push(
     Ok(json!({ "jobId": job_id }))
 }
 
-/// What the caller asked of one push.
+/// One push: the registration it is for and what the caller asked.
 struct PushRequest {
+    record: WorktreeRecord,
     proxy_url: String,
     force_with_lease: bool,
 }
 
 async fn run_push(
+    state: SharedState,
     context: Arc<WorkspaceGitContext>,
     jobs: SharedJobs,
     job_id: String,
-    record: WorktreeRecord,
     request: PushRequest,
     mut cancel: watch::Receiver<bool>,
     access: tokio::sync::OwnedRwLockWriteGuard<()>,
 ) {
+    let record = &request.record;
     lock(&jobs).set_phase(&job_id, JobPhase::Pushing);
     let path = Path::new(&record.path);
     // The exclusive guard covers only resolving what to send. The transfer
@@ -70,7 +73,6 @@ async fn run_push(
                 &context,
                 &jobs,
                 &job_id,
-                &record,
                 &repository,
                 &request,
                 &plan,
@@ -80,10 +82,18 @@ async fn run_push(
             {
                 None => Outcome::Cancelled,
                 Some(Err(error)) => Outcome::Failed(error),
-                Some(Ok(remote_head)) => Outcome::Pushed(Pushed {
-                    branch: record.work_branch.clone(),
-                    remote_head,
-                }),
+                Some(Ok(remote_head)) => {
+                    // Before the job ends, while nothing else can rewrite
+                    // the record: what this push sent stays "pushed" even
+                    // after GitHub deletes the branch.
+                    if let Err(error) = remember_push(&state, record, &remote_head).await {
+                        tracing::warn!(%error, "could not record the pushed commit");
+                    }
+                    Outcome::Pushed(Pushed {
+                        branch: record.work_branch.clone(),
+                        remote_head,
+                    })
+                }
             }
         }
     };
@@ -91,12 +101,10 @@ async fn run_push(
 }
 
 /// The network step; `None` when the job was cancelled.
-#[allow(clippy::too_many_arguments)]
 async fn transfer(
     context: &WorkspaceGitContext,
     jobs: &SharedJobs,
     job_id: &str,
-    record: &WorktreeRecord,
     repository: &Repository,
     request: &PushRequest,
     plan: &PushPlan,
@@ -118,6 +126,25 @@ async fn transfer(
     tokio::select! {
         biased;
         _ = jobs::cancelled(cancel) => None,
-        result = push::push(&network, Path::new(&record.path), &record.work_branch, plan, request.force_with_lease) => Some(result),
+        result = push::push(&network, Path::new(&request.record.path), &request.record.work_branch, plan, request.force_with_lease) => Some(result),
     }
+}
+
+/// Store the commit a push sent in the session's registration.
+async fn remember_push(
+    state: &SharedState,
+    record: &WorktreeRecord,
+    commit: &str,
+) -> Result<(), WorkspaceGitError> {
+    let st = state.lock().await;
+    let Some(mut current) = registry::get(&st.db, &record.installation_id, &record.session_id)?
+    else {
+        return Ok(());
+    };
+    if current.work_branch != record.work_branch {
+        return Ok(());
+    }
+    current.last_pushed_commit = Some(commit.to_string());
+    registry::insert(&st.db, &current)?;
+    Ok(())
 }

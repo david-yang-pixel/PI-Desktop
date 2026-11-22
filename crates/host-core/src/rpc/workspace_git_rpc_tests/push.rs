@@ -115,3 +115,83 @@ async fn a_rebased_work_branch_needs_an_explicit_force_with_lease() {
     let error = f.call("workspaceGit.push", bad).await.unwrap_err();
     assert_eq!(code(&error), "INVALID_ARGUMENT");
 }
+
+/// GitHub deletes a pull request's head branch after a squash merge, and the
+/// next fetch prunes its remote-tracking ref. The commits are on GitHub (in
+/// the squash) but on no remote branch: the last push still vouches for them.
+#[tokio::test]
+async fn work_pushed_by_the_host_stays_pushed_after_its_remote_branch_is_deleted() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "one.txt", "1\n");
+    let pushed = commit_file(&path, "two.txt", "2\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    // Merged and deleted on "GitHub"; the host fetches with prune.
+    git_cmd(&f.remote.bare, &["branch", "-D", "--", &branch]);
+    git_cmd(&f.main_path(), &["fetch", "-q", "--prune", "origin"]);
+    let status = f
+        .call("workspaceGit.status", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(status["pushedOnce"], false);
+    assert_eq!(status["unpushedCommits"], 0, "{status}");
+    {
+        let state = f.state.lock().await;
+        let record = crate::workspace_git::registry::get(&state.db, INSTALLATION, "session-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.last_pushed_commit.as_deref(), Some(pushed.as_str()));
+    }
+    // A commit made after the push is still unpushed.
+    commit_file(&path, "three.txt", "3\n");
+    let status = f
+        .call("workspaceGit.status", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(status["unpushedCommits"], 1, "{status}");
+    git_cmd(&path, &["reset", "-q", "--hard", "HEAD~1"]);
+    // Reclaim and safe removal agree: nothing would be lost.
+    let reclaimed = f
+        .call("workspaceGit.reclaim", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(reclaimed["reclaimed"], true, "{reclaimed}");
+    let removed = f
+        .call("workspaceGit.removeSafely", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        removed,
+        json!({ "removed": true, "uncommittedFiles": 0, "unpushedCommits": 0 })
+    );
+}
+
+#[tokio::test]
+async fn a_checkout_removed_with_its_branch_tip_pushed_needs_no_force_even_offline() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "one.txt", "1\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    f.wait(started["jobId"].as_str().unwrap()).await;
+    git_cmd(&f.remote.bare, &["branch", "-D", "--", &branch]);
+    git_cmd(&f.main_path(), &["fetch", "-q", "--prune", "origin"]);
+    // The checkout directory is gone; counting falls back to the branch.
+    std::fs::remove_dir_all(&path).unwrap();
+    let removed = f
+        .call("workspaceGit.removeSafely", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+}
