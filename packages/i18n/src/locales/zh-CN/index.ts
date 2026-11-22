@@ -1799,6 +1799,8 @@ sklm: {
       sshSucceeded: "已安装 {{label}}。",
       sshFailed: "安装失败：{{message}}",
       transportSsh: "SSH",
+      hostVersion: "主机版本 {{version}}",
+      updatePending: "待更新",
       experimental: "实验性",
     },
     importTitle: "从其他工具导入",

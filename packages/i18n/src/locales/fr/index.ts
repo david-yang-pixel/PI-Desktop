@@ -1809,6 +1809,8 @@ sklm: {
       "sshSucceeded": "{{label}} installé.",
       "sshFailed": "Échec de l'installation : {{message}}",
       "transportSsh": "SSH",
+      "hostVersion": "Version de l’hôte {{version}}",
+      "updatePending": "mise à jour en attente",
       "experimental": "Expérimental"
     },
     "importTitle": "Importer à partir d'autres outils",

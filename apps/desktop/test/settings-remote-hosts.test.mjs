@@ -128,3 +128,9 @@ test("remote host inventory renders non-binary connection states with localized 
   assert.match(page, /statusActionRequired/);
   assert.match(page, /statusOffline/);
 });
+
+test("each connected host shows its version and whether an update is pending", () => {
+  assert.match(page, /host\.hostVersion && \(/);
+  assert.match(page, /t\("settings\.remoteHosts\.hostVersion", \{ version: host\.hostVersion \}\)/);
+  assert.match(page, /host\.updateAvailable && ` · \$\{t\("settings\.remoteHosts\.updatePending"\)\}`/);
+});

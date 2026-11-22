@@ -940,6 +940,18 @@ before `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE`, and the transport rules;
 `apps/desktop/test/remote-session-workspace-git.test.mjs` covers only a ready
 repository session's commands asking for the token.
 
+## E2E-REMOTE-host-on-older-patch-updates-when-idle
+
+Not covered by an end-to-end run: a realignment needs a real SSH Host and a
+published release (D695). `apps/desktop/test/remote-host-patch-update.test.mjs`
+covers the version comparison, one realignment per run for an idle Host on an
+older patch, a busy Host waiting and updating once idle, and an unreadable
+activity counting as busy; `apps/desktop/test/remote-workspace-git-boot.test.mjs`
+covers the Host summary's `hostVersion` and `updateAvailable` and a Host with
+unknown activity staying connected;
+`apps/desktop/test/repository-session-recovery.test.mjs` covers what makes a
+Host busy.
+
 ## E2E-REMOTE-agent-pushes-session-branch-through-connector
 
 Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Desktop has no

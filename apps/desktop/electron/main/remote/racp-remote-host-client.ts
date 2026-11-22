@@ -103,6 +103,8 @@ export type RacpRemoteHostClient = {
    * same-version mismatch the desktop must realign (ADR 0327).
    */
   workspaceCapabilities?(): RemoteWorkspaceCapabilities | undefined;
+  /** The release the Host reported in its live handshake, or `undefined` before one. */
+  serverVersion?(): string | undefined;
   /** Close the transport; safe to call before {@link connect} and after failure. */
   close(): Promise<void>;
 };
@@ -269,6 +271,7 @@ export function createRacpRemoteHostClient(
     client,
     state: () => visibleState,
     workspaceCapabilities,
+    serverVersion: () => racp.initialized?.server.version,
     async connect() {
       closed = false;
       await racp.connect();

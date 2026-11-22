@@ -615,4 +615,7 @@ workspace's base branch through the built-in connector, whether or not GitHub
 Agent tools are enabled. Both are high-risk tool calls that ask for approval
 outside Auto mode, and Plan and Goal turns cannot publish.
 Remote Hosts settings includes environment editing and leftover
-worktree management when a Host is paired.
+worktree management when a Host is paired. Each connected Host shows the
+release it reported, for example "Host version 0.23.0", followed by
+"· update pending" while it is older than the desktop and waiting to be
+updated.

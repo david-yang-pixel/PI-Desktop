@@ -348,13 +348,14 @@ function reversibleEncryption() {
   };
 }
 
-function fakeAdapter(capabilities) {
+function fakeAdapter(capabilities, serverVersion) {
   const requests = [];
   const stateListeners = new Set();
   let state = "disconnected";
   return {
     requests,
     state: () => state,
+    ...(serverVersion ? { serverVersion: () => (state === "connected" ? serverVersion : undefined) } : {}),
     emitState(next) { state = next; for (const listener of stateListeners) listener(next); },
     workspaceCapabilities: () => capabilities,
     async connect() { state = "connected"; },
@@ -595,4 +596,25 @@ test("a sign-out during a delivery still clears the token that delivery left beh
   await Promise.all([pushed, refreshed]);
   assert.deepEqual(f.requests.map(({ method }) => method).filter((method) => method !== "workspace/gitPush"),
     ["workspace/gitCredentialSet", "workspace/gitCredentialClear"]);
+});
+
+test("a host summary reports the host's release and a pending update, and a busy host is not restarted", async () => {
+  const behind = fakeAdapter(ALL, "0.23.0");
+  const current = fakeAdapter(ALL, "0.23.2");
+  const { boot, logs, cleanup } = await hostsBoot({ behind, current }, { clientInfo: { name: "test", version: "0.23.2" } });
+  try {
+    await boot.addHost({ hostKey: "behind", label: "Behind", url: "wss://behind", deviceToken: "t" });
+    await boot.addHost({ hostKey: "current", label: "Current", url: "wss://current", deviceToken: "t" });
+    const summaries = Object.fromEntries((await boot.list()).map((host) => [host.hostKey, host]));
+    assert.equal(summaries.behind.hostVersion, "0.23.0");
+    assert.equal(summaries.behind.updateAvailable, true);
+    assert.equal(summaries.current.hostVersion, "0.23.2");
+    assert.equal(summaries.current.updateAvailable, false);
+    // Without repository session state the Host's activity is unknown, so it
+    // counts as busy and keeps running.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.match(logs.join("\n"), /remote host update waits until nothing runs on it/);
+    assert.equal(summaries.behind.status, "connected");
+    assert.equal((await boot.list()).find((host) => host.hostKey === "behind").status, "connected");
+  } finally { await cleanup(); }
 });

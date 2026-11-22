@@ -85,3 +85,42 @@ test("registering the IPC no longer resumes before host-core is up; the post-boo
   assert.deepEqual(recovered, []);
 });
 
+
+test("a host counts as busy while repository work or any turn runs", async (t) => {
+  let bindings = [];
+  let activeWork = false;
+  const busySessions = new Set();
+  const queued = new Set();
+  registerRemoteRepositorySessions({
+    registrar: { handleWithEvent() {}, assertMainWindowSender() {} },
+    call: async (method) => {
+      if (method === "sessionWorkspace.list") return { bindings };
+      throw new Error(`unexpected host-core call ${method}`);
+    },
+    connector: { onChange: () => () => {}, token: async () => null, status: async () => ({ connected: false }) },
+    emit() {}, log() {},
+    runWhileIdle: async (_id, operation) => operation(),
+    acquireSessionOperation: async () => () => {},
+    hasQueuedPrompt: (sessionId) => queued.has(sessionId),
+    isBusy: (sessionId) => busySessions.has(sessionId),
+    hasActiveWork: () => activeWork,
+  });
+  const sessions = getRemoteRepositorySessions();
+  t.after(() => sessions.reclaimer.dispose());
+  const binding = (sessionId, state, hostKey = "h1") => ({ sessionId, state, hostKey });
+
+  bindings = [binding("s-1", "ready"), binding("s-2", "preparing", "h2")];
+  assert.equal(await sessions.hostBusy("h1"), false);
+  assert.equal(await sessions.hostBusy("h2"), true, "a preparation runs on h2");
+  bindings = [binding("s-1", "reclaiming")];
+  assert.equal(await sessions.hostBusy("h1"), true);
+  bindings = [binding("s-1", "ready")];
+  busySessions.add("s-1");
+  assert.equal(await sessions.hostBusy("h1"), true, "the session's turn runs there");
+  busySessions.clear();
+  queued.add("s-1");
+  assert.equal(await sessions.hostBusy("h1"), true, "a queued prompt is about to run there");
+  queued.clear();
+  activeWork = true;
+  assert.equal(await sessions.hostBusy("h1"), true, "any running turn defers the update");
+});

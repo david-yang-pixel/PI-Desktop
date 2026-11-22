@@ -1627,6 +1627,8 @@ export const ptBR = {
       sshSucceeded: "{{label}} instalado.",
       sshFailed: "Falha na conexão SSH: {{message}}",
       transportSsh: "SSH",
+      hostVersion: "Versão do host {{version}}",
+      updatePending: "atualização pendente",
       experimental: "Experimental"
     },
     configSync: {

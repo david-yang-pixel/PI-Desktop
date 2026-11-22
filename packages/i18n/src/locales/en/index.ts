@@ -1659,6 +1659,8 @@ sklm: {
       sshSucceeded: "{{label}} installed.",
       sshFailed: "Install failed: {{message}}",
       transportSsh: "SSH",
+      hostVersion: "Host version {{version}}",
+      updatePending: "update pending",
       experimental: "Experimental",
     },
     configSync: {

@@ -1815,6 +1815,8 @@ sklm: {
       sshSucceeded: "{{label}} 설치됨.",
       sshFailed: "설치 실패: {{message}}",
       transportSsh: "SSH",
+      hostVersion: "호스트 버전 {{version}}",
+      updatePending: "업데이트 대기 중",
       experimental: "실험적",
     },
     importTitle: "다른 도구에서 가져오기",

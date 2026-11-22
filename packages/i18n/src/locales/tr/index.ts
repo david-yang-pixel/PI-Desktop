@@ -1809,6 +1809,8 @@ sklm: {
       sshSucceeded: "{{label}} kuruldu.",
       sshFailed: "Kurulum başarısız: {{message}}",
       transportSsh: "SSH",
+      hostVersion: "Ana bilgisayar sürümü {{version}}",
+      updatePending: "güncelleme bekliyor",
       experimental: "Deneysel",
     },
     importTitle: "Diğer araçlardan içe aktar",

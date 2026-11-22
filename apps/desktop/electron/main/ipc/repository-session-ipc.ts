@@ -16,6 +16,7 @@ let active: {
   git: ReturnType<typeof createSessionWorkspaceGit>;
   connector: GitHubConnector;
   reclaimer: ReturnType<typeof createIdleWorkspaceReclaimer>;
+  hostBusy(hostKey: string): Promise<boolean>;
 } | null = null;
 
 export function getRemoteRepositorySessions() { return active; }
@@ -81,6 +82,8 @@ export function registerRemoteRepositorySessions(deps: {
   acquireSessionOperation(sessionId: string): Promise<() => void>;
   hasQueuedPrompt(sessionId: string): boolean;
   isBusy(sessionId: string): boolean;
+  /** Any local turn, scheduled run, or approved execution is running. */
+  hasActiveWork?(): boolean;
 }) {
   const { registrar, call, connector, emit, log } = deps;
   const workspaces = createSessionWorkspaces({ call, hosts: getActiveRemoteHostsBoot, connector, emit, log, hasQueuedPrompt: deps.hasQueuedPrompt });
@@ -105,7 +108,19 @@ export function registerRemoteRepositorySessions(deps: {
       return result;
     },
   });
-  active = { workspaces, git, connector, reclaimer };
+  /**
+   * Whether restarting this Host's `pi-host` would interrupt repository work:
+   * a preparation, reclamation, or removal, a push or pull request in flight,
+   * a queued prompt, or any running turn. Turns are not tied to Hosts here, so
+   * any running turn counts; an update can wait.
+   */
+  const hostBusy = async (hostKey: string) => {
+    if (deps.hasActiveWork?.()) return true;
+    return (await workspaces.listBindings()).some((binding) => binding.hostKey === hostKey
+      && (["preparing", "reclaiming", "removing"].includes(binding.state)
+        || git.isOperating(binding.sessionId) || deps.isBusy(binding.sessionId) || deps.hasQueuedPrompt(binding.sessionId)));
+  };
+  active = { workspaces, git, connector, reclaimer, hostBusy };
   const boot = getActiveRemoteHostsBoot();
   boot?.workspaceGit.setCredentialProvider(() => connector.token());
   void boot?.workspaceGit.refreshCredential();
