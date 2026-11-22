@@ -4,6 +4,7 @@ import type { SessionRemoteRepository } from "@pi-desktop/shared";
 import { Button } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { useAppStore } from "../../../stores/app-store";
+import { remoteTargetErrorText, remoteTargetErrorTextForCode } from "./remote-target-error-message";
 
 export function WorkspacePreparationStatus({ sessionId, workspace }: { sessionId: string; workspace: SessionRemoteRepository }) {
   const { t } = useTranslation();
@@ -17,7 +18,7 @@ export function WorkspacePreparationStatus({ sessionId, workspace }: { sessionId
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     try { await action(); }
-    catch (cause) { toast(cause instanceof Error ? cause.message : String(cause), { variant: "error" }); }
+    catch (cause) { toast(remoteTargetErrorText(t, cause), { variant: "error" }); }
     finally { setBusy(false); }
   }
   if (workspace.state === "preparing") {
@@ -51,7 +52,9 @@ export function WorkspacePreparationStatus({ sessionId, workspace }: { sessionId
     <pre className="worktree-setup-log">{workspace.setup.logTail}</pre>
   </details>;
   if (workspace.state === "failed") return <div className="composer-status" role="alert">
-    {t("sessionTarget.preparation.failed", { message: workspace.error?.message })}
+    {t("sessionTarget.preparation.failed", {
+      message: workspace.error && remoteTargetErrorTextForCode(t, workspace.error.code, workspace.error.message),
+    })}
     {setupLog}
     <Button variant="secondary" disabled={busy} onClick={() => void run(() => api.retryRemoteSessionWorkspace(sessionId))}>{t("sessionTarget.preparation.retry")}</Button>
     <Button variant="secondary" disabled={busy} onClick={() => void run(() => remove(sessionId))}>{t("sessionTarget.preparation.deleteSession")}</Button>

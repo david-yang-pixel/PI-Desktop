@@ -3,9 +3,29 @@ import { isGlobalPermissionMode, normalizeGlobalPermissionMode } from "@pi-deskt
 import { safeSessionSummary } from "../../lib/remote-session-safety";
 import { api } from "../../lib/api";
 import { useSessionTargetStore } from "../../features/chat/session-target/session-target-store";
+import { remoteTargetErrorText } from "../../features/chat/session-target/remote-target-error-message";
 import type { PersistSessionOptions } from "./session-coordination";
 import type { SessionRuntime } from "./session-runtime";
 import type { StoreAccess } from "../slices/types";
+
+/**
+ * Start the draft's remote session for its first send, and tell the user why
+ * when it cannot start. A failure resolves to `null`, like a superseded start,
+ * so `sendPrompt` keeps its `false` result and the composer restores the draft.
+ */
+export async function startRemoteTargetSession(
+  access: StoreAccess,
+  runtime: SessionRuntime,
+  persist: (options?: PersistSessionOptions) => Promise<string | null>,
+): Promise<string | null> {
+  try {
+    return await materializeRemoteTargetSession(access, runtime, persist);
+  } catch (error) {
+    const reason = remoteTargetErrorText((key, options) => i18n.t(key, options), error);
+    access.get().showToast(i18n.t("sessionTarget.startFailed", { message: reason }), { variant: "error" });
+    return null;
+  }
+}
 
 export async function materializeRemoteTargetSession(
   { get, set }: StoreAccess,

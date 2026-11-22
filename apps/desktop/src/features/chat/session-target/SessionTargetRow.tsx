@@ -7,6 +7,7 @@ import { Button, Input } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { filterSwitcherProjects, listSwitcherProjects, normalizeProjectPath } from "../../../lib/sidebar-preferences";
 import { useAppStore } from "../../../stores/app-store";
+import { githubErrorText } from "../../settings/connectors/github-error-message";
 import { useGitHubConnector } from "../../settings/connectors/use-github-connector";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { useSessionTargetStore } from "./session-target-store";
@@ -48,7 +49,8 @@ export function SessionTargetRow() {
   const [branches, setBranches] = useState<GitHubBranchList>();
   const [query, setQuery] = useState("");
   const [revision, setRevision] = useState(0);
-  const [error, setError] = useState<string>();
+  // The rejection itself, so its text follows the current language.
+  const [error, setError] = useState<{ cause: unknown }>();
   const close = useCallback(() => setMenu(null), []);
   const closeEditor = useCallback(() => setEditorOpen(false), []);
   const environment = environments.find((entry) => entry.id === target.environmentId);
@@ -76,7 +78,7 @@ export function SessionTargetRow() {
     let current = true;
     void api.listGithubRepositories({ refresh: revision > 0 }).then(
       (value) => { if (current) setRepositories(value); },
-      (cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); },
+      (cause) => { if (current) setError({ cause }); },
     );
     return () => { current = false; };
   }, [menu, connected, revision]);
@@ -85,7 +87,7 @@ export function SessionTargetRow() {
     let current = true;
     void api.listGithubBranches({ owner: repository.owner, name: repository.name }).then(
       (value) => { if (current) setBranches(value); },
-      (cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); },
+      (cause) => { if (current) setError({ cause }); },
     );
     return () => { current = false; };
   }, [menu, repository, connected]);
@@ -105,7 +107,7 @@ export function SessionTargetRow() {
 
   const matches = (value: string) => value.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
   const search = (label: string) => <Input aria-label={label} placeholder={label} value={query} onChange={(event) => setQuery(event.target.value)} />;
-  const errorRow = <>{error && <p role="alert">{t("sessionTarget.loadFailed", { message: error })}</p>}</>;
+  const errorRow = <>{error && <p role="alert">{t("sessionTarget.loadFailed", { message: githubErrorText(t, error.cause) })}</p>}</>;
   return <div className="session-target-row session-target-controls">
     <Picker label={environment?.name ?? t(target.environmentId === "local"
       ? "sessionTarget.thisComputer" : "sessionTarget.environmentUnavailable")} title={t("sessionTarget.environmentHost")}
