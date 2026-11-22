@@ -10,8 +10,8 @@ The original design and seven implementation plans are in
 | 2. Host Git workspaces | Worktree recovery preserves existing branches and refuses unknown files. Non-forced removal checks for local commits even if the checkout disappeared. Tool Git uses the registry-backed proxy scope and fails closed without credentials. Job conflicts return the active job id. |
 | 3. GitHub connector | Personal access tokens and configured device authorization. Navigation or renderer teardown stops device polling, and repeated unreadable client errors end the attempt. |
 | 4. Environments and session targets | Home composer target selection, repository projects, scoped bindings, resumable preparation, and durable prompt admission. |
-| 5. Git operations and cleanup | Push, idempotent PR creation, deletion preflight, deferred cleanup, and manual removal of leftover worktrees. |
-| 6. GitHub tools for the Agent | A built-in issues and pull requests MCP record with connector credentials and user-configured server precedence. |
+| 5. Git operations and cleanup | Agent-driven push and idempotent PR creation (no manual controls, D693), deletion preflight, deferred cleanup, and manual removal of leftover worktrees. |
+| 6. GitHub tools for the Agent | A built-in issues and pull requests MCP record with connector credentials and user-configured server precedence. Repository sessions publish only through the Agent's push and pull request connector tools, which do not depend on the GitHub Agent tools switch (D693). |
 | 7. Setup scripts and variables | Per-environment configuration, worktree setup, tool environment injection, and failure logs. |
 
 For implementation details, see the [decisions log](../spec/08-meta/decisions-log.md)

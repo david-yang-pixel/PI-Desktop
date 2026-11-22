@@ -15,7 +15,8 @@ Electron main adds an in-memory record for the GitHub-hosted MCP endpoint
 with the `issues,pull_requests` toolsets. The MCP OAuth hook supplies the
 connector token only to that specific built-in record. An existing server
 named `github` takes precedence. Connectors settings can disable the built-in
-server. A credential change closes its cached connections and refreshes the
+server. That switch does not cover the repository session push and pull
+request tools, which stay available while the connector is signed in (D693). A credential change closes its cached connections and refreshes the
 workspaces' tool lists. Calls use the existing MCP tool permission rules.
 
 ## Consequences

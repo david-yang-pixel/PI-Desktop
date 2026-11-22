@@ -116,14 +116,6 @@ export function registerRemoteRepositorySessions(deps: {
     return { remoteRepository: await workspaces.start({ ...selection, baseBranch: branch, sessionId: string(data.sessionId) }) };
   });
   handle(IPC.invoke.remoteSessionWorkspaceRetry, async (id) => ({ remoteRepository: await workspaces.retry(string(id)) }));
-  handle(IPC.invoke.remoteSessionGitStatus, async (id) => ({ status: await git.status(string(id)) }));
-  handle(IPC.invoke.remoteSessionPush, async (id) => ({ status: await git.push(string(id)) }));
-  handle(IPC.invoke.remoteSessionPullRequestFind, async (id) => ({ pullRequest: await git.find(string(id)) }));
-  handle(IPC.invoke.remoteSessionPullRequestCreate, async (input) => {
-    const { sessionId, title, body, draft } = object(input);
-    if (typeof body !== "string" || body.length > 65_536 || typeof draft !== "boolean") throw invalid();
-    return { pullRequest: await git.create(string(sessionId), { title: string(title, 256).trim(), body, draft }) };
-  });
   handle(IPC.invoke.remoteSessionDeletePreflight, async (id) => git.preflight(string(id)));
   handle(IPC.invoke.remoteLeftoverWorktreesList, async (hostKey) => ({ worktrees: await git.leftovers(string(hostKey)) }));
   handle(IPC.invoke.remoteLeftoverWorktreesRemove, async (hostKey, id) => ({ ok: await git.removeLeftover(string(hostKey), string(id)) }));

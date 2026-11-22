@@ -33,7 +33,7 @@ const { createRemoteHostsBoot } = await import("../apps/desktop/electron/main/bo
 const { createBackendRouter } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
 const { createSessionWorkspaces } = await import("../apps/desktop/electron/main/remote/session-workspaces.ts");
 const { createSessionWorkspaceGit } = await import("../apps/desktop/electron/main/remote/session-workspace-git.ts");
-const { createGitHubSessionPullRequestTool, githubSessionPullRequestTool } = await import("../apps/desktop/electron/main/github/session-pr-tool.ts");
+const { createGitHubSessionTools, githubSessionPullRequestTool, githubSessionPushTool } = await import("../apps/desktop/electron/main/github/session-github-tools.ts");
 const { createHostRuntime } = await import("../apps/desktop/electron/main/runtime/host.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
 const { saveComposerPasteFiles } = await import("../apps/desktop/electron/main/composer-paste.ts");
@@ -431,7 +431,7 @@ try {
     const workspaces = createSessionWorkspaces({ call, hosts: hostPort, connector, emit, log: (message, error) => hostLogs.push(`${message}: ${error}`) });
     repositorySessions = workspaces;
     const repositoryGit = createSessionWorkspaceGit({ call, workspaces, connector, emit });
-    const githubSessionPullRequest = createGitHubSessionPullRequestTool(() => ({ workspaces, connector, git: repositoryGit }));
+    const githubSessionTools = createGitHubSessionTools(() => ({ workspaces, connector, git: repositoryGit }));
     const pluginHost = {
       call,
       onNotification(handler) {
@@ -443,7 +443,7 @@ try {
     };
     createHostRuntime({
       runtimeState: { host: pluginHost }, logger: { app() {} }, sessionProjects: new Map(),
-      plugins: { getTools: () => [], drainToasts: () => [] }, githubSessionPullRequest,
+      plugins: { getTools: () => [], drainToasts: () => [] }, githubSessionTools,
       isTurnDispatchable: (_sessionId, turnId) => isPullRequestTurnActive && turnId === "agent-pr-turn",
     }).wireHost(pluginHost);
     const environment = await workspaces.upsert({
@@ -515,8 +515,8 @@ try {
       await workspaces.waitUntilReady(session.id);
       assert.equal(git(ready.remoteWorkspace.path, "rev-parse", "HEAD"), head);
 
-      assert.equal(await githubSessionPullRequest.available(unbound.id), false);
-      assert.equal(await githubSessionPullRequest.available(session.id), true);
+      assert.equal(await githubSessionTools.available(unbound.id), false);
+      assert.equal(await githubSessionTools.available(session.id), true);
       const publishByAgent = (args) => call("tools.execute", {
         sessionId: session.id, turnId: "agent-pr-turn", toolCallId: "publish-pr",
         toolName: githubSessionPullRequestTool.name, mode: "agent", declaredRisk: "high", args,
@@ -527,6 +527,31 @@ try {
       assert.equal(remoteHasBranch((await workspaces.binding(session.id)).workBranch), false);
       cancelOnLookup = false;
       isPullRequestTurnActive = true;
+      // E2E-REMOTE-agent-pushes-session-branch-through-connector: the Agent
+      // pushes without a pull request, Plan turns cannot, and an up-to-date
+      // branch answers with its counts instead of failing.
+      const pushByAgent = (mode) => call("tools.execute", {
+        sessionId: session.id, turnId: "agent-pr-turn", toolCallId: `push-${mode}`,
+        toolName: githubSessionPushTool.name, mode, declaredRisk: "high", args: {},
+      });
+      // Host-core authorizes with the durable session mode, so the session
+      // itself must be in Plan for the refusal to be real.
+      await call("session.configure", { id: session.id, mode: "plan" });
+      const planPush = await pushByAgent("plan");
+      assert.equal(planPush.errorCode, "PLUGIN_DISABLED_IN_PLAN", JSON.stringify(planPush));
+      assert.equal(remoteHasBranch((await workspaces.binding(session.id)).workBranch), false);
+      await call("session.configure", { id: session.id, mode: "agent" });
+      const pushed = await pushByAgent("agent");
+      assert.equal(pushed.ok, true, JSON.stringify(pushed));
+      assert.equal(pushed.content.pushed, true);
+      assert.equal(pushed.content.workBranch, (await workspaces.binding(session.id)).workBranch);
+      assert.equal(pushed.content.unpushedCommits, 0);
+      assert.equal(remoteHasBranch(pushed.content.workBranch), true);
+      assert.equal(events.filter(({ channel, payload }) => channel === IPC.event.remoteSessionPushProgress
+        && payload.sessionId === session.id).at(-1)?.payload.active, false, "the composer must clear push progress");
+      const upToDate = await pushByAgent("agent");
+      assert.equal(upToDate.ok, true, JSON.stringify(upToDate));
+      assert.equal(upToDate.content.pushed, false);
       const published = await publishByAgent({ title: "Fixture PR", draft: true });
       assert.equal(published.ok, true, JSON.stringify(published));
       const pushEvents = events.filter(({ channel, payload }) => channel === IPC.event.remoteSessionPushProgress && payload.sessionId === session.id);

@@ -912,6 +912,22 @@ percentage when available. Updates are scoped to the session and clear when
 polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
 
+## E2E-REMOTE-agent-pushes-session-branch-through-connector
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Desktop has no
+manual push or pull request controls (D693); the Agent publishes. With the
+session switched to Plan, `plugin_pi_github_PushSessionBranch` is refused with
+`PLUGIN_DISABLED_IN_PLAN` and the work branch stays absent from the Git server.
+Back in Agent mode the tool pushes the work branch through the Host's push job:
+the result reports `pushed: true`, the session's work branch and zero unpushed
+commits, the branch exists on the Git server, and the session's push progress
+ends cleared. A second call answers `pushed: false` with the current counts
+instead of failing. The pull request tool then opens the PR without another
+push. `apps/desktop/test/github-session-tools.test.mjs` covers the tools'
+availability (offered whenever the connector is signed in, regardless of the
+GitHub Agent tools switch), the Agent-turn requirement, argument validation and
+turn cancellation.
+
 ## E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree
 
 Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Start a

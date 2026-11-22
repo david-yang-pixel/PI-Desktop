@@ -472,6 +472,7 @@ section mirrors only marketplace/catalog items still blocking nothing.
 | D689 | Repository session targets | The local Host persists environments, repository projects, and workspace bindings. The composer queues input until the paired Host reports a ready worktree. | [ADR](../../adr/environments-and-session-targets.md) |
 | D690 | Repository session publication and cleanup | The desktop publishes commits, deduplicates pull requests, and keeps unconfirmed local work for explicit cleanup. | [ADR](../../adr/remote-session-push-and-pull-requests.md) |
 | D691 | Built-in GitHub MCP tools | The connector supplies OAuth only to the built-in issues and pull requests server, with user-configured servers taking precedence. | [ADR](../../adr/github-agent-tools.md) |
+| D693 | Agent-owned publication for repository sessions | **Amend D690: Desktop has no manual push or pull request controls; the Agent pushes the work branch and opens its pull request through two high-risk connector tools that are offered whenever the GitHub connector is signed in, independent of the GitHub Agent tools switch, and are refused in Plan and Goal.** | [ADR](../../adr/remote-session-push-and-pull-requests.md#amendment-agent-owned-publication) |
 | D692 | Environment setup | Setup scripts and variables apply before the first prompt in a new worktree. Script failures leave an inspectable workspace. | [ADR](../../adr/remote-environment-setup.md) |
 
 ## R. Decision rules going forward

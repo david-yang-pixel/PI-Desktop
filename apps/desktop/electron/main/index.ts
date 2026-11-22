@@ -60,7 +60,7 @@ import { getStorageBootstrap } from "./storage/bootstrap";
 import { createPlanUiProbe } from "./plan-ui-probe";
 import { registerIpcHandlers } from "./ipc/register";
 import { getRemoteRepositorySessions } from "./ipc/repository-session-ipc";
-import { createGitHubSessionPullRequestTool } from "./github/session-pr-tool";
+import { createGitHubSessionTools } from "./github/session-github-tools";
 import { createVoiceService } from "./voice-service";
 import { MicrophoneLeaseRegistry } from "./live-voice/microphone-lease";
 import { createLiveCallService } from "./live-voice/runtime";
@@ -386,9 +386,9 @@ const {
   listRuntimeProviders,
 } = providerCatalogRuntime;
 
-const githubSessionPullRequest = createGitHubSessionPullRequestTool(getRemoteRepositorySessions);
+const githubSessionTools = createGitHubSessionTools(getRemoteRepositorySessions);
 const createdSessionLaunchRuntime = createSessionLaunchRuntime({
-  githubSessionPullRequest,
+  githubSessionTools,
   runtimeState,
   logger,
   userMcp,
@@ -845,7 +845,7 @@ emitAgentEvent = sidecarRuntime.emitAgentEvent;
 const { startSidecar } = sidecarRuntime;
 
 const { startHost } = createHostRuntime({
-  githubSessionPullRequest,
+  githubSessionTools,
   onBackgroundTasksChanged: backgroundContinuations.wake,
   runtimeState,
   dataDir,

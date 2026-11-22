@@ -437,6 +437,12 @@ becomes `failed` and retryable.
 
 ### Part 5 — Push, pull request, cleanup
 
+> **Superseded in part (2026-11-22, D693):** the top bar has no Push branch or
+> Create PR actions. The Agent pushes and opens the pull request through the
+> `plugin_pi_github_PushSessionBranch` and
+> `plugin_pi_github_CreateSessionPullRequest` connector tools. The cleanup rules
+> below still apply.
+
 - The conversation top bar of a repository session shows the host, repository,
   work branch, and two actions.
 - **Push branch** starts `workspace/gitPush` and shows its progress.
