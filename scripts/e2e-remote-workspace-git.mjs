@@ -733,6 +733,53 @@ try {
     }
   });
 
+  // ---- Push lease, typed rejection, squash-merged work, SSH rewrite, and
+  // redacted tool output (fix/cloud-host-git, D694). Scenarios
+  // `E2E-REMOTE-git-push-rebased-branch-with-lease`,
+  // `E2E-REMOTE-git-squash-merged-work-counts-as-pushed`, and
+  // `E2E-REMOTE-git-ssh-url-uses-proxy`. Kept as one separate block.
+  await step("10 a rebased work branch replaces its remote only under a lease (E2E-REMOTE-git-push-rebased-branch-with-lease)", async () => {
+    token = FIXTURE_TOKEN;
+    await boot.workspaceGit.refreshCredential();
+    const before = remoteHead(workB);
+    // The Agent rewrites its branch, as a rebase onto a moved base would.
+    const rewrite = await bash("session-b", b.path, "git reset -q --hard HEAD~1 && printf 'rebased\\n' > rebased.txt && git add rebased.txt && git -c user.name='PI E2E' -c user.email=pi-e2e@example.invalid commit -q -m rebased");
+    assert.equal(rewrite.exitCode, 0, rewrite.output);
+    const rebased = git(b.path, "rev-parse", "HEAD");
+    const plain = await pollJob((await boot.workspaceGit.push(HOST, "session-b")).jobId);
+    assert.deepEqual([plain.job.state, plain.job.error?.code], ["failed", "WORKSPACE_GIT_PUSH_REJECTED"], JSON.stringify(plain.job));
+    assert.equal(remoteHead(workB), before, "a plain push never replaces the remote branch");
+    const leased = await pollJob((await boot.workspaceGit.push(HOST, "session-b", { forceWithLease: true })).jobId);
+    assert.deepEqual([leased.job.state, leased.job.pushed], ["succeeded", { branch: workB, remoteHead: rebased }], JSON.stringify(leased.job));
+    assert.equal(remoteHead(workB), rebased);
+    assert.equal(remoteHead("develop"), developHead, "the lease names the work branch only");
+  });
+
+  await step("11 squash-merged work does not count as unpushed after its branch is deleted (E2E-REMOTE-git-squash-merged-work-counts-as-pushed)", async () => {
+    // "GitHub" merged the pull request and deleted its head branch.
+    git(bare, "branch", "-D", "--", workB);
+    const fetched = await bash("session-b", b.path, "git fetch --prune 2>&1");
+    assert.equal(fetched.exitCode, 0, fetched.output);
+    const status = await boot.workspaceGit.status(HOST, "session-b");
+    assert.deepEqual([status.pushedOnce, status.unpushedCommits, status.uncommittedFiles], [false, 0, 0]);
+  });
+
+  await step("12 the session repository's SSH URLs go through the proxy, and tool output names no handle (E2E-REMOTE-git-ssh-url-uses-proxy)", async () => {
+    const receivePacks = () => fixture.requests.filter((request) => request.method === "POST" && request.path.endsWith("/git-receive-pack")).length;
+    const before = receivePacks();
+    const foreign = await bash("session-b", b.path, "git push git@github.com:octo/repo.git HEAD:main 2>&1");
+    assert.notEqual(foreign.exitCode, 0, foreign.output);
+    assert.match(foreign.output, /403/, "the proxy, not the host user's SSH key, answered");
+    assert.equal(receivePacks(), before);
+    assert.equal(remoteHead("main"), mainHead);
+    const own = await bash("session-b", b.path, `git push ssh://git@github.com/octo/repo.git HEAD:refs/heads/${workB} 2>&1`);
+    assert.equal(own.exitCode, 0, own.output);
+    assert.equal(remoteHead(workB), git(b.path, "rev-parse", "HEAD"));
+    const printed = await bash("session-b", b.path, 'printf "%s" "$GIT_CONFIG_KEY_0"');
+    assert.match(printed.output, /url\.https:\/\/github\.com\/octo\/repo\.git\.insteadOf/);
+    assert.equal(/[0-9a-f]{64}/.test(printed.output) || printed.output.includes("127.0.0.1"), false, printed.output);
+  });
+
   await boot.removeHost(HOST);
   console.log("PASS remote git worktrees: clone, isolated worktrees, proxied push, guarded removal, idle reclaim, exact-commit restore, and queued input after setup retry");
 } catch (error) {

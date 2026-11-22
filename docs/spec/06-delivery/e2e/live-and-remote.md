@@ -794,6 +794,73 @@ The same refusals, a gzip-encoded foreign push, and a push whose ref updates
 do not end within 64 KiB are pinned byte-for-byte in
 `apps/pi-host/src/git-credential-proxy.test.ts`.
 
+## E2E-REMOTE-git-push-rebased-branch-with-lease
+
+Covered by step 10 of `scripts/e2e-remote-workspace-git.mjs`. After the
+Agent's Bash rewrites session B's pushed work branch (as a rebase would), a
+host push job fails with `WORKSPACE_GIT_PUSH_REJECTED` and leaves the remote
+branch as it was; the same push with `forceWithLease: true` succeeds and
+reports the rewritten commit, and no other branch moves. host-core tests
+(`workspace_git/push.rs`, `workspace_git_rpc_tests/push.rs`) also show that
+a lease never overwrites a commit someone else pushed, that a lease on a
+branch never pushed requires it to be absent, and that the arguments never
+contain a bare `--force` or a `+` refspec. The real-git proxy test
+(`git-credential-proxy.real-git.test.ts`) forwards a forced update of the
+work branch and refuses a forced push to any other ref.
+`apps/desktop/test/github-session-tools.test.mjs` covers the
+`forceWithLease` parameter of `plugin_pi_github_PushSessionBranch`.
+
+## E2E-REMOTE-git-squash-merged-work-counts-as-pushed
+
+Covered by step 11 of the same script. After the host pushed session B's
+branch, the fixture deletes it (as GitHub does after a squash merge) and a
+fetch prunes the tracking ref: status reports `pushedOnce: false` and
+`unpushedCommits: 0`. `workspace_git_rpc_tests/push.rs` adds that a commit
+made after the push still counts, and that reclaim and removal without
+`force` (with or without the checkout directory) go ahead.
+
+## E2E-REMOTE-git-ssh-url-uses-proxy
+
+Covered by step 12 of the same script. From session B's Bash, a push of
+`HEAD:main` to `git@github.com:octo/repo.git` fails with HTTP 403 from the
+proxy and reaches no fixture, and a push of the work branch to
+`ssh://git@github.com/octo/repo.git` lands on the fixture through the proxy.
+Printing `GIT_CONFIG_KEY_0` shows the GitHub URL and no proxy address or
+handle. `workspace_git::environment` tests run `git ls-remote` on both SSH
+spellings (rewritten) and on another repository's (left alone).
+
+## E2E-REMOTE-git-prepare-adopts-legacy-work-branch
+
+Covered by host-core tests in
+`crates/host-core/src/rpc/workspace_git_rpc_tests/adoption.rs`. A work
+branch with no registration is adopted by the next prepare and checked out
+at its own commit, with `baseCommit` at its merge base with the base branch.
+A foreign directory at the worktree path still fails the prepare and both
+survive; a cancelled setup keeps the branch; an adoption whose checkout
+creation fails keeps the branch registered with `checkoutPresent: false`,
+and the next prepare finishes it.
+
+## E2E-REMOTE-git-transfer-keeps-sessions-usable
+
+Covered by host-core tests. While a push transfers
+(`workspace_git_rpc_tests/push.rs`), the session's tool guard and the
+repository lock are free, status works, and prepare, push, and remove of
+the same session answer `WORKSPACE_GIT_BUSY` with the push job's id. While
+a fetch transfers (`workspace_git_rpc_tests/locking.rs`), another session's
+removal completes; removal against a held repository answers
+`WORKSPACE_GIT_BUSY` within seconds and changes nothing.
+
+## E2E-REMOTE-git-stalled-transfer-and-interrupted-clone
+
+Covered by host-core and `pi-host` tests. git output for a low-speed abort
+or a proxy 504 maps to `WORKSPACE_GIT_STALLED` (`workspace_git/repository.rs`);
+the proxy answers 504 to an upstream that stops answering and cuts a
+response whose body stalls (`git-credential-proxy.test.ts`). A clone cut
+short, or failed after its transfer, is completed by the next prepare from
+the kept `<repo>.cloning-partial.git`, and a partial clone of another URL is
+discarded (`workspace_git/clone.rs`). A fetch fast-forwards a clean main
+checkout on its default branch and leaves a changed one alone.
+
 ## E2E-REMOTE-interrupted-prepare-leaves-no-orphan-branch
 
 Covered by host-core tests in

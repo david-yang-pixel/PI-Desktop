@@ -294,6 +294,7 @@ identify the platform validation still needed.
 | Post-MVP remote control (repository session controls and GitHub visibility, D696) | E2E-REMOTE-local-send-failure-explains-and-keeps-draft, E2E-REMOTE-preparing-workspace-can-be-cancelled-and-retried, E2E-REMOTE-preparation-progress-survives-renderer-reload, E2E-REMOTE-sidebar-marks-preparing-failed-and-deleting-sessions, E2E-REMOTE-environment-editor-checks-variables-and-confirms-removal, E2E-REMOTE-offline-host-is-marked-and-reconnected-on-send, E2E-REMOTE-target-pickers-find-unlisted-repositories-and-branches, E2E-REMOTE-details-link-pushed-branch-and-show-pr-checks |
 | Post-MVP remote control (idle repository checkout reclamation and recovery) | E2E-REMOTE-idle-reclaim-restores-the-original-commit |
 | Security (git credential proxy on a paired Host) | E2E-REMOTE-git-proxy-rejects-foreign-ref |
+| Security / Post-MVP remote control (push lease, SSH rewrite, squash-merged work, legacy branches, locks, stalls) | E2E-REMOTE-git-push-rebased-branch-with-lease, E2E-REMOTE-git-ssh-url-uses-proxy, E2E-REMOTE-git-squash-merged-work-counts-as-pushed, E2E-REMOTE-git-prepare-adopts-legacy-work-branch, E2E-REMOTE-git-transfer-keeps-sessions-usable, E2E-REMOTE-git-stalled-transfer-and-interrupted-clone |
 | E — Tools & permissions (capability level move) | E2E-CAPABILITY-move-across-levels |
 | F — Persistence (capability level move) | E2E-CAPABILITY-move-across-levels |
 | Quality (capability level move) | E2E-CAPABILITY-move-across-levels |

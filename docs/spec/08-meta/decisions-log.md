@@ -474,6 +474,7 @@ section mirrors only marketplace/catalog items still blocking nothing.
 | D691 | Built-in GitHub MCP tools | The connector supplies OAuth only to the built-in issues and pull requests server, with user-configured servers taking precedence. | [ADR](../../adr/github-agent-tools.md) |
 | D693 | Agent-owned publication for repository sessions | **Amend D690: Desktop has no manual push or pull request controls; the Agent pushes the work branch and opens its pull request through two high-risk connector tools that are offered whenever the GitHub connector is signed in, independent of the GitHub Agent tools switch, and are refused in Plan and Goal.** | [ADR](../../adr/remote-session-push-and-pull-requests.md#amendment-agent-owned-publication) |
 | D692 | Environment setup | Setup scripts and variables apply before the first prompt in a new worktree. Script failures leave an inspectable workspace. | [ADR](../../adr/remote-environment-setup.md) |
+| D694 | Remote git workspace hardening | **Amend D687: a refused push has its own codes (`WORKSPACE_GIT_PUSH_REJECTED`, `WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED`), and a rebased work branch is published only through an opt-in `forceWithLease` whose lease is the commit the Host last pushed or fetched, never a bare force; a stalled transfer is abandoned as `WORKSPACE_GIT_STALLED`; the session repository's SSH URLs go through the proxy; `pi-host` offers `workspaceGit` only where the proxy can check the connecting user.** See RACP §6.2.1. | Rebased branches could not be published, and refused or stalled pushes were indistinguishable from broken hosts; the work-branch rule and the handle had gaps. |
 | D695 | Repository session reliability | **Amend D687 / D690 / D693: a session's pull request link keeps the request's state (open, draft, closed, merged) and the pull request tool opens a new request only when the last one is not open; a Host connection receives the GitHub token only when an operation there first needs it, and a prepare or push fails with `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE` instead of running without a token that could not be delivered; connect-time recovery phases and items fail independently and also run once host-core is ready; a connected Host on an older release than the desktop is realigned once per run while nothing runs on it; a running turn cannot publish after a connector sign-out.** | [ADR](../../adr/remote-session-push-and-pull-requests.md#amendment-merged-and-closed-pull-requests-stay-linked), [remote-git-workspaces](../../adr/remote-git-workspaces.md), [ADR 0327](../../adr/0327-remote-host-version-realignment.md#amendment-older-patch-releases) |
 | D696 | Repository session controls and GitHub visibility | **A preparing workspace can be cancelled into a retryable failure; main keeps its last preparation progress for renderer reloads; New task keeps the remembered environment, repository, and branch; the first send reconnects an offline Host; the pickers look up an exact repository or branch beyond the capped lists; and conversation details link a pushed work branch's compare page and show its pull request checks. New renderer channels take session ids or exact names, keep the token in main, and are blocked on the MCP control plane.** | See the 2026-11-22 entry below. |
 
@@ -5487,6 +5488,35 @@ See ADR 0344.
 - Settings gains a sixteenth destination, Connectors, in the Agent cluster
   after MCP. Until the OAuth App's client id is set in the build, sign-in is
   by pasted token only.
+
+## 2026-11-22 — Remote git workspace hardening (D694)
+
+- A push GitHub does not take is `WORKSPACE_GIT_PUSH_REJECTED`, and its
+  refusal to change a workflow file without the `workflow` scope is
+  `WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED`, so the Agent can rebase or the
+  user can sign in again instead of facing a generic failure.
+- After a rebase the Agent may set `forceWithLease`. The Host pushes with
+  `--force-with-lease=refs/heads/<work>:<expected>`, where `<expected>` is
+  the remote-tracking commit it last pushed or fetched. The lease, not the
+  Agent's word, decides: commits someone else pushed are refused, and there
+  is no bare force. Chosen over a capability flag: an older Host refuses the
+  field, which fails safe.
+- A transfer below one byte per second for five minutes is abandoned
+  (`http.lowSpeedLimit`/`http.lowSpeedTime`), with a six-minute idle limit on
+  the proxy's upstream connection behind it, as `WORKSPACE_GIT_STALLED`.
+- A push and a fetch no longer hold the repository lock across the network,
+  a push no longer holds the session's worktree guard, and removal answers
+  `WORKSPACE_GIT_BUSY` after a few seconds instead of outliving its request.
+- The session repository's `git@github.com:` and `ssh://git@github.com/`
+  URLs are rewritten to the proxy too. The host user's own credentials can
+  still reach GitHub; the recommendation is a dedicated host user without
+  any.
+- Without a peer-user check on the proxy (anywhere but Linux) `pi-host` does
+  not offer `workspaceGit`: failing closed beats a handle any local user
+  could use.
+- Variable names that redirect interpreter module search or shell startup
+  (`PYTHONPATH`, `PERL5OPT`, `SHELLOPTS`, `PS4`, `XDG_CONFIG_HOME`, and
+  similar) are refused. Environments that already use one must drop it.
 
 ## 2026-11-22 — Repository session controls and GitHub visibility (D696)
 
