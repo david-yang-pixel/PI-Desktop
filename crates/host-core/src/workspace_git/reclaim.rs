@@ -730,7 +730,7 @@ async fn check(
     })
 }
 
-fn quarantine_path(checkout: &Path, intent: &ReclaimIntent) -> Result<PathBuf> {
+pub fn quarantine_path(checkout: &Path, intent: &ReclaimIntent) -> Result<PathBuf> {
     let id = uuid::Uuid::parse_str(&intent.quarantine_id).map_err(|_| interrupted())?;
     Ok(checkout.with_file_name(format!(".pi-reclaim-{id}")))
 }
