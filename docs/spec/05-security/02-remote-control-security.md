@@ -329,6 +329,16 @@ bundles target Linux, so this affects development setups only. A token set
 with an unchanged value keeps the installation's handles; a new token
 replaces them.
 
+**What the proxy does not confine.** The rewrite covers the session
+repository's HTTPS URL and its two SSH spellings
+(`git@github.com:<owner>/<repo>.git`, `ssh://git@github.com/<owner>/<repo>.git`)
+and nothing else. The Agent's Bash runs as the Host user, so an SSH key, a
+credential helper, or a token file of that user that GitHub accepts still
+reaches GitHub directly, under another URL spelling or another repository's
+name, without the work-branch rule. Run `pi-host` as a dedicated user that
+holds no GitHub credentials of its own; the proxy is then the only way to
+GitHub with a credential.
+
 **Names and paths.** Repository owner, repository name, base branch, and
 environment variable names are validated by the shared schema, by the RACP
 server, and again by host-core before a directory is created or git is

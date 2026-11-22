@@ -862,6 +862,14 @@ drops it on `workspace/gitCredentialClear` and when that connection closes
 Host prepared, Bash receives the worktree's saved variables, `PI_WORKTREE_ROOT`,
 `PI_PROJECT_ROOT`, and the Git configuration for the repository credential
 proxy. A registered Git worktree does not accept caller-supplied variables.
+The configuration rewrites the session repository's HTTPS URL and both of
+its SSH spellings, `git@github.com:<owner>/<repo>.git` and
+`ssh://git@github.com/<owner>/<repo>.git`, to the proxy, so each is held to
+the work-branch rule. Nothing else is rewritten. This does not confine the
+Agent: Bash runs as the Host user, and any SSH key or credential helper of
+that user that GitHub accepts can still reach GitHub under another URL or
+another repository's name. Run `pi-host` as a dedicated user with no GitHub
+credentials of its own (security spec §3.7).
 
 ### 6.3 Deferred operations
 

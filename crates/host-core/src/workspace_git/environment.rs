@@ -13,25 +13,36 @@ use super::layout::{validate_variable_name, Layout, Repository};
 use super::{registry, WorkspaceGitError};
 use crate::db::Database;
 
-/// The one git configuration pair that sends a repository's traffic through
-/// the credential proxy: `url.<proxy><owner>/<repo>.git.insteadOf` set to the
-/// repository's GitHub URL. It is scoped to that repository, so every other
-/// URL behaves as if there were no proxy.
-pub fn proxy_rewrite(proxy_url: &str, repository: &Repository) -> (String, String) {
-    (
-        format!(
-            "url.{proxy_url}{}/{}.git.insteadOf",
-            repository.owner, repository.name
-        ),
+/// The git configuration pairs that send a repository's traffic through the
+/// credential proxy: `url.<proxy><owner>/<repo>.git.insteadOf`, once for the
+/// repository's HTTPS URL (the one host-core clones, so it comes first) and
+/// once for each SSH spelling of it, `git@github.com:<owner>/<repo>.git` and
+/// `ssh://git@github.com/<owner>/<repo>.git`. A push that names the
+/// repository over SSH is therefore held to the same work-branch rule
+/// instead of reaching GitHub with the host user's own keys. The pairs are
+/// scoped to that repository, so every other URL behaves as if there were no
+/// proxy.
+pub fn proxy_rewrites(proxy_url: &str, repository: &Repository) -> Vec<(String, String)> {
+    let key = format!(
+        "url.{proxy_url}{}/{}.git.insteadOf",
+        repository.owner, repository.name
+    );
+    let path = format!("{}/{}.git", repository.owner, repository.name);
+    [
         Layout::github_url(repository),
-    )
+        format!("git@github.com:{path}"),
+        format!("ssh://git@github.com/{path}"),
+    ]
+    .into_iter()
+    .map(|url| (key.clone(), url))
+    .collect()
 }
 
 /// The git configuration for traffic to GitHub from this host, as key and
 /// value pairs for `GIT_CONFIG_COUNT`. host-run git and the Agent's Bash get
 /// the same pairs:
 ///
-/// - the proxy rewrite for the session's repository;
+/// - the proxy rewrites for the session's repository (`proxy_rewrites`);
 /// - an empty `credential.helper` and `core.askPass`, so git neither asks the
 ///   host user's own helpers for a credential nor offers them one to store.
 ///   The only credential in play is the one the proxy adds;
@@ -40,9 +51,9 @@ pub fn proxy_rewrite(proxy_url: &str, repository: &Repository) -> (String, Strin
 ///
 /// Without a proxy address only the two credential pairs apply.
 pub fn network_config(proxy_url: Option<&str>, repository: &Repository) -> Vec<(String, String)> {
-    let mut config = Vec::with_capacity(4);
+    let mut config = Vec::with_capacity(6);
     if let Some(proxy_url) = proxy_url {
-        config.push(proxy_rewrite(proxy_url, repository));
+        config.extend(proxy_rewrites(proxy_url, repository));
     }
     config.push(("credential.helper".to_string(), String::new()));
     config.push(("core.askPass".to_string(), String::new()));
@@ -191,10 +202,10 @@ mod tests {
         let env = for_tool(&db, Path::new(root), None);
         assert!(pairs(&env).starts_with(&expected));
         assert!(pairs(&env).contains(&(
-            "GIT_CONFIG_KEY_4",
+            "GIT_CONFIG_KEY_6",
             "protocol.pi-workspace-no-credential.allow"
         )));
-        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_4", "never")));
+        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_6", "never")));
         let nested = Path::new(root).join("packages/app");
         assert_eq!(for_tool(&db, &nested, None), env);
     }
@@ -216,19 +227,26 @@ mod tests {
                 ("PI_PROJECT_ROOT", "/w/repos/github.com/octo/repo.js"),
                 ("GIT_ASKPASS", ""),
                 ("GIT_TERMINAL_PROMPT", "0"),
-                ("GIT_CONFIG_COUNT", "4"),
+                ("GIT_CONFIG_COUNT", "6"),
                 ("GIT_CONFIG_KEY_0", key.as_str()),
                 ("GIT_CONFIG_VALUE_0", "https://github.com/octo/repo.js.git"),
-                ("GIT_CONFIG_KEY_1", "credential.helper"),
-                ("GIT_CONFIG_VALUE_1", ""),
-                ("GIT_CONFIG_KEY_2", "core.askPass"),
-                ("GIT_CONFIG_VALUE_2", ""),
-                ("GIT_CONFIG_KEY_3", no_proxy.as_str()),
+                ("GIT_CONFIG_KEY_1", key.as_str()),
+                ("GIT_CONFIG_VALUE_1", "git@github.com:octo/repo.js.git"),
+                ("GIT_CONFIG_KEY_2", key.as_str()),
+                (
+                    "GIT_CONFIG_VALUE_2",
+                    "ssh://git@github.com/octo/repo.js.git"
+                ),
+                ("GIT_CONFIG_KEY_3", "credential.helper"),
                 ("GIT_CONFIG_VALUE_3", ""),
+                ("GIT_CONFIG_KEY_4", "core.askPass"),
+                ("GIT_CONFIG_VALUE_4", ""),
+                ("GIT_CONFIG_KEY_5", no_proxy.as_str()),
+                ("GIT_CONFIG_VALUE_5", ""),
             ]
         );
         assert_eq!(
-            proxy_rewrite(&proxy, &Repository::parse("octo", "repo.js").unwrap()),
+            proxy_rewrites(&proxy, &Repository::parse("octo", "repo.js").unwrap())[0],
             (
                 key.clone(),
                 "https://github.com/octo/repo.js.git".to_string()
@@ -245,6 +263,16 @@ mod tests {
             (
                 format!("url.{proxy}octo/repo.js.git.insteadOf"),
                 "https://github.com/octo/repo.js.git".to_string(),
+            ),
+            // The SSH spellings of the same repository, so the host user's
+            // own keys never carry a push of it past the proxy.
+            (
+                format!("url.{proxy}octo/repo.js.git.insteadOf"),
+                "git@github.com:octo/repo.js.git".to_string(),
+            ),
+            (
+                format!("url.{proxy}octo/repo.js.git.insteadOf"),
+                "ssh://git@github.com/octo/repo.js.git".to_string(),
             ),
             // An empty value resets the list: no helper of the host user is
             // asked for a credential, and none is offered a token to store.
@@ -263,6 +291,63 @@ mod tests {
                 ("core.askPass".to_string(), String::new()),
             ]
         );
+    }
+
+    /// `git ls-remote <url>` with the session's network configuration, and
+    /// `ssh` refused, so nothing leaves the machine.
+    fn ls_remote(config: &[(String, String)], url: &str) -> String {
+        let mut command = std::process::Command::new("git");
+        for (name, _) in std::env::vars() {
+            if name.starts_with("GIT_") {
+                command.env_remove(name);
+            }
+        }
+        command
+            .args(["-c", "protocol.ssh.allow=never", "ls-remote", "--", url])
+            .env("GIT_CONFIG_COUNT", config.len().to_string())
+            .env("GIT_TERMINAL_PROMPT", "0");
+        for (index, (key, value)) in config.iter().enumerate() {
+            command
+                .env(format!("GIT_CONFIG_KEY_{index}"), key)
+                .env(format!("GIT_CONFIG_VALUE_{index}"), value);
+        }
+        let output = command.output().unwrap();
+        assert!(!output.status.success());
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+
+    #[test]
+    fn every_spelling_of_the_session_repository_goes_through_the_proxy() {
+        let repository = Repository::parse("octo", "repo.js").unwrap();
+        let mut config = network_config(Some("pi-workspace-no-credential:///"), &repository);
+        config.push((
+            "protocol.pi-workspace-no-credential.allow".to_string(),
+            "never".to_string(),
+        ));
+        // The host user's own SSH keys never see the session's repository:
+        // all three spellings land on the (here disabled) proxy transport.
+        for url in [
+            "https://github.com/octo/repo.js.git",
+            "git@github.com:octo/repo.js.git",
+            "ssh://git@github.com/octo/repo.js.git",
+        ] {
+            let stderr = ls_remote(&config, url);
+            assert!(
+                stderr.contains("transport 'pi-workspace-no-credential' not allowed"),
+                "{url}: {stderr}"
+            );
+        }
+        // Any other repository is left alone, as if there were no proxy.
+        for url in [
+            "git@github.com:octo/other.git",
+            "ssh://git@github.com/elsewhere/repo.js.git",
+        ] {
+            let stderr = ls_remote(&config, url);
+            assert!(
+                stderr.contains("transport 'ssh' not allowed"),
+                "{url}: {stderr}"
+            );
+        }
     }
 
     #[test]

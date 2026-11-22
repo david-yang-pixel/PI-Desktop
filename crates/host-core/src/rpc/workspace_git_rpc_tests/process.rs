@@ -133,6 +133,8 @@ fn production_network_git_uses_the_proxy_rewrite_and_no_host_credentials() {
         keys(&WorkspaceGitContext::default()),
         [
             format!("url.{proxy}octo/repo.git.insteadOf=https://github.com/octo/repo.git"),
+            format!("url.{proxy}octo/repo.git.insteadOf=git@github.com:octo/repo.git"),
+            format!("url.{proxy}octo/repo.git.insteadOf=ssh://git@github.com/octo/repo.git"),
             "credential.helper=".to_string(),
             "core.askPass=".to_string(),
             format!("http.{proxy}.proxy="),

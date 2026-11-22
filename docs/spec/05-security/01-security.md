@@ -495,3 +495,13 @@ private repository the user can reach. Its boundary:
 
 A later decision record covers handing this token to a paired remote host;
 nothing in this boundary sends it anywhere but GitHub.
+
+On a paired remote host the token stays in `pi-host` memory and git reaches
+GitHub through its loopback credential proxy, which restricts a session's
+pushes to its work branch
+([remote-control security §3.7](02-remote-control-security.md)). The proxy
+rewrite covers the session repository's HTTPS URL and its two SSH spellings
+only. It does not confine the Agent's Bash: that runs as the host user, so
+any SSH key or credential helper of that user that GitHub accepts can still
+push elsewhere. Run `pi-host` as a dedicated user with no GitHub credentials
+of its own.

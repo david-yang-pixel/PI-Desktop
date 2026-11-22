@@ -500,7 +500,7 @@ mod worktree_environment {
 
     const PROBE: &str = "printf '%s|%s|%s|%s|%s|%s|%s' \"${MY_VAR-unset}\" \"${PI_WORKTREE_ROOT-unset}\" \"${PI_PROJECT_ROOT-unset}\" \"${GIT_CONFIG_COUNT-unset}\" \"${GIT_CONFIG_KEY_0-unset}\" \"${GIT_CONFIG_VALUE_0-unset}\" \"${GIT_DIR-unset}\"";
     /// The rest of the environment-carried git configuration.
-    const HARDENING_PROBE: &str = "printf '%s=[%s]|%s=[%s]|%s=[%s]|%s' \"${GIT_CONFIG_KEY_1-unset}\" \"${GIT_CONFIG_VALUE_1-unset}\" \"${GIT_CONFIG_KEY_2-unset}\" \"${GIT_CONFIG_VALUE_2-unset}\" \"${GIT_CONFIG_KEY_3-unset}\" \"${GIT_CONFIG_VALUE_3-unset}\" \"${GIT_TERMINAL_PROMPT-unset}\"";
+    const HARDENING_PROBE: &str = "printf '%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s' \"${GIT_CONFIG_KEY_1-unset}\" \"${GIT_CONFIG_VALUE_1-unset}\" \"${GIT_CONFIG_KEY_2-unset}\" \"${GIT_CONFIG_VALUE_2-unset}\" \"${GIT_CONFIG_KEY_3-unset}\" \"${GIT_CONFIG_VALUE_3-unset}\" \"${GIT_CONFIG_KEY_4-unset}\" \"${GIT_CONFIG_VALUE_4-unset}\" \"${GIT_CONFIG_KEY_5-unset}\" \"${GIT_CONFIG_VALUE_5-unset}\" \"${GIT_TERMINAL_PROMPT-unset}\"";
 
     fn proxy() -> String {
         format!("http://127.0.0.1:4321/{}/", "ab".repeat(32))
@@ -618,7 +618,7 @@ mod worktree_environment {
         assert_eq!(
             plain,
             format!(
-                "from-record|{root_text}|/w/repos/github.com/octo/repo|5|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "from-record|{root_text}|/w/repos/github.com/octo/repo|7|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
@@ -628,7 +628,7 @@ mod worktree_environment {
         assert_eq!(
             proxied,
             format!(
-                "from-record|{root_text}|/w/repos/github.com/octo/repo|4|url.{proxy}octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "from-record|{root_text}|/w/repos/github.com/octo/repo|6|url.{proxy}octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
@@ -645,7 +645,7 @@ mod worktree_environment {
         .await;
         assert_eq!(
             hardening,
-            format!("credential.helper=[]|core.askPass=[]|http.{proxy}.proxy=[]|0")
+            format!("url.{proxy}octo/repo.git.insteadOf=[git@github.com:octo/repo.git]|url.{proxy}octo/repo.git.insteadOf=[ssh://git@github.com/octo/repo.git]|credential.helper=[]|core.askPass=[]|http.{proxy}.proxy=[]|0")
         );
     }
 
@@ -692,7 +692,7 @@ mod worktree_environment {
         assert_eq!(
             probe(&state, &tx, &root, "forbidden", None).await,
             format!(
-                "kept|{root_text}|/w/repos/github.com/octo/repo|5|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "kept|{root_text}|/w/repos/github.com/octo/repo|7|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
