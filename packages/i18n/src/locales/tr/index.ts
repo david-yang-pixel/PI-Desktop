@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const tr = {
+  conversationDetails: {
+    title: "Sohbet ayrıntıları",
+    environment: "Ortam ve depo",
+    location: "Çalıştırma konumu",
+    environmentId: "Ortam kimliği",
+    workspace: "Çalışma alanı",
+    repository: "Depo",
+    branch: "Dal",
+    noUsage: "Henüz bağlam kullanımı bildirilmedi.",
+    tools: "Kullanılan araçlar",
+    unknownTool: "Araç",
+    noTools: "Yüklenen sohbet geçmişinde araç çağrısı yok.",
+    changes: "Değişiklikler",
+    openInReview: "İncelemede aç",
+    width: "Sohbet genişliği (px)",
+    widthDescription: "Sohbet geçmişi ve giriş alanının azami genişliği. Varsayılan {{defaultWidth}} px, en az {{minWidth}} px.",
+    widthSaveError: "Sohbet genişliği kaydedilemedi.",
+  },
   sessionTarget: {
     thisComputer: "Bu bilgisayar",
     environments: "Ortamlar",

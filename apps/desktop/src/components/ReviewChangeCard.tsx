@@ -155,6 +155,7 @@ export const ReviewChangeCard = memo(function ReviewChangeCard({
   compact = false,
   asToolRow = false,
   openRequest,
+  readOnly = false,
 }: {
   message: UiMessage;
   compact?: boolean;
@@ -162,6 +163,7 @@ export const ReviewChangeCard = memo(function ReviewChangeCard({
   asToolRow?: boolean;
   /** Each new value expands the diff once; the user can collapse it again. */
   openRequest?: number;
+  readOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const change = reviewChangeFromMessage(message);
@@ -235,7 +237,7 @@ export const ReviewChangeCard = memo(function ReviewChangeCard({
       </button>
       {open ? (
         <div className="review-change-card-body" id={detailsId}>
-          <ReviewChangeDetails message={message} compact={compact} />
+          <ReviewChangeDetails message={message} compact={compact} actions={!readOnly} />
         </div>
       ) : null}
     </section>

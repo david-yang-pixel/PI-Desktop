@@ -7,6 +7,7 @@
  * does — the Display card says so once, so no row has to repeat it.
  */
 import type { AppSettings } from "@pi-desktop/shared";
+import { ConversationWidthRow } from "../components/ConversationWidthRow";
 import { useTranslation } from "react-i18next";
 import { SettingsToggle } from "../../../components/ui";
 import { ShowThinkingRow } from "../../../components/settings/ShowThinkingRow";
@@ -38,6 +39,7 @@ export function ConversationSettings({
         <AutoCollapseThinkingRow settings={settings} saveSettings={saveSettings} />
         <TranscriptDisplayModeRow settings={settings} saveSettings={saveSettings} />
         <AutoCollapseSettledGroupsRow settings={settings} saveSettings={saveSettings} />
+        <ConversationWidthRow settings={settings} saveSettings={saveSettings} />
         <ContextUsageDisplayRow settings={settings} saveSettings={saveSettings} />
         <SettingsRow
           title={t("settings.smoothStreaming")}

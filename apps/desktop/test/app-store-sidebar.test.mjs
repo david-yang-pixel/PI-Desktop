@@ -83,10 +83,11 @@ test("sidebar hover refreshes the active project branch without activating a pro
   assert.match(sidebarSource, /projectEntriesByPath\.get\(normalizedProjectPath \?\? ""\)/);
 });
 
-test("closed projects are not recreated from historical sidebar sessions", () => {
-  assert.doesNotMatch(sidebarSource, /add\(session\.projectPath\)/);
-  assert.match(sidebarSource, /const entry = byPath\.get\(sessionPath\)/);
-  assert.match(sidebarSource, /if \(entry\) entry\.sessions\.push\(session\)/);
+test("closed projects are not recreated from historical sidebar sessions", async () => {
+  const organization = await readFile(new URL("../src/lib/sidebar-session-organization.ts", import.meta.url), "utf8");
+  assert.match(sidebarSource, /sidebarSessionOrganization\(/);
+  assert.doesNotMatch(organization, /add\(session\.projectPath\)/);
+  assert.match(organization, /byPath\.get\(path\)\?\.sessions\.push\(session\)/);
 });
 
 test("opening a project task draft uses one store-owned navigation transaction", () => {
@@ -141,12 +142,10 @@ test("collapsing a project resets its expanded session history", () => {
   );
 });
 
-test("global search stays on the conversation topbar, not the sidebar header", () => {
-  assert.doesNotMatch(sidebarSource, /onOpenSearch|IconSearch|nav\.search/);
+test("global search is wired through sidebar primary navigation", () => {
+  assert.match(sidebarSource, /<SidebarPrimaryNav[\s\S]*?onOpenSearch=\{onOpenSearch\}/);
   assert.doesNotMatch(sidebarSource, /sidebar-session-search|toggleSearch/);
-  assert.match(topbarSource, /onOpenSearch/);
-  assert.match(topbarSource, /<IconSearch/);
-  assert.match(topbarSource, /ariaLabel=\{t\("nav\.search"\)\}/);
+  assert.doesNotMatch(topbarSource, /onOpenSearch|IconSearch/);
 });
 
 test("project rows expose press-and-move title drag and keyboard reorder behavior", () => {

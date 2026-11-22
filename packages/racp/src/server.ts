@@ -176,6 +176,7 @@ export class RacpServer {
       hostEvents: true,
       history: true,
       remoteHostProfile: true,
+      ...(options.operations.sessions.models ? { sessionModels: true } : {}),
       toolRelay: false,
       terminal: Boolean(options.operations.terminal),
       workspaceTools: Boolean(options.operations.workspaceTools),

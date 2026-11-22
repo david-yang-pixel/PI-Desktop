@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const fr = {
+  conversationDetails: {
+    title: "Détails de la conversation",
+    environment: "Environnement et dépôt",
+    location: "Emplacement",
+    environmentId: "ID de l’environnement",
+    workspace: "Espace de travail",
+    repository: "Dépôt",
+    branch: "Branche",
+    noUsage: "Aucune donnée d’utilisation du contexte pour le moment.",
+    tools: "Outils utilisés",
+    unknownTool: "Outil",
+    noTools: "Aucun appel d’outil dans l’historique chargé.",
+    changes: "Modifications",
+    openInReview: "Ouvrir dans la revue",
+    width: "Largeur de la conversation (px)",
+    widthDescription: "Largeur maximale de l’historique et du champ de saisie. Par défaut : {{defaultWidth}} px, minimum : {{minWidth}} px.",
+    widthSaveError: "Impossible d’enregistrer la largeur de la conversation.",
+  },
   sessionTarget: {
     thisComputer: "Cet ordinateur",
     environments: "Environnements",

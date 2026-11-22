@@ -6,6 +6,7 @@ import {
   type RacpEventEnvelope, type RacpItemSummary, type RacpProjectSummary, type RacpSession,
   type RemoteHostBootstrapRequest, type RemoteHostBootstrapResult,
   type RemoteHostCreateSessionRequest, type RemoteHostSummary, type RemoteHostBrowseProjectsResult,
+  type RacpHostModelsResult,
   type RemoteHostConnectionStatus, type RemoteHostSyncProvidersRequest, type RemoteHostSyncProvidersResult, type SessionSummary,
   type CommandShellOption, isCommandShellOption,
   type WorkspaceFilesRequest,
@@ -68,6 +69,7 @@ export interface RemoteHostsBoot {
   removeHost(hostKey: string): Promise<void>;
   sessionSummaries(): SessionSummary[];
   sessions(hostKey: string): Promise<SessionSummary[]>;
+  models(hostKey: string): Promise<RacpHostModelsResult>;
   projects(hostKey: string): Promise<RacpProjectSummary[]>;
   browseProjects(hostKey: string, path?: string): Promise<RemoteHostBrowseProjectsResult>;
   registerProject(hostKey: string, path: string): Promise<RacpProjectSummary & { path?: string }>;
@@ -485,6 +487,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     async list() { return (await registry.list()).map(summaryOf); },
     sessionSummaries: () => catalog.summaries(),
     sessions: catalog.sessions,
+    models: catalog.models,
     projects: catalog.projects,
     async browseProjects(hostKey, path) {
       await ensureReady(hostKey);

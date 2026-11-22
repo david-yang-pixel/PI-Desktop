@@ -194,7 +194,7 @@
   color: var(--ds-text-primary);
 }
 
-/* Primary destinations above the session lists (new task, scheduled, plugins). */
+/* Primary navigation and actions above the session lists. */
 .sidebar-primary-nav {
   display: flex;
   flex: 0 0 auto;

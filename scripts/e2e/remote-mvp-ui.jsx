@@ -81,6 +81,10 @@ window.piDesktop = {
     else if (channel === IPC.invoke.remoteHostPair) data = { host: { ...host, hostKey: "paired-fixture", label: input.label, url: input.url, transport: "direct" } };
     else if (channel === IPC.invoke.remoteHostProjects) data = { projects: [] };
     else if (channel === IPC.invoke.remoteHostSessions) data = { sessions: [session] };
+    else if (channel === IPC.invoke.remoteHostModels) data = { models: input.hostKey === secondHost.hostKey
+      ? [{ providerId: "second-host-provider", providerName: "Second Host provider", modelId: "second-host-model" }]
+      : [{ providerId: "first-host-provider", providerName: "First Host provider", modelId: "first-host-model" }],
+    };
     else if (channel === IPC.invoke.remoteHostSyncProviders) data = { imported: [{ sourceId: provider.id, providerId: "remote-provider" }], skipped: [], defaultSet: true };
     else if (channel === IPC.invoke.remoteHostRegisterProject) data = { project: { id: "project", label: "Project" } };
     else if (channel === IPC.invoke.projectGroupList) data = { groups: [{
@@ -101,6 +105,7 @@ window.piDesktop = {
           ...session, id: `remote:${input.hostKey}:scratch`, remoteHostKey: input.hostKey,
           remoteHostLabel: secondHost.label, remoteProjectId: undefined, remoteWorkspaceLabel: undefined,
           title: "Cloud scratch session",
+          ...input.model,
         };
       }
       data = { session: scratchSession ?? session };
@@ -183,11 +188,10 @@ function ProjectFixture({ onOpenSearch }) {
   const openTaskDraft = () => void useAppStore.getState().openTaskDraft();
   const ignore = () => {};
   return <div style={{ display: "flex", height: "100vh" }}>
-    {!sidebarCollapsed && <Sidebar onNewTask={openTaskDraft} onToggleSidebar={toggleSidebar}
+    {!sidebarCollapsed && <Sidebar onNewTask={openTaskDraft} onToggleSidebar={toggleSidebar} onOpenSearch={onOpenSearch}
       sidebarToggleShortcut="" sidebarWidth={260} onWidthChange={ignore} onWidthCommit={ignore} onResizeCollapse={ignore} />}
     <div style={{ flex: 1, minWidth: 0, anchorName: "--main-pane" }}>
-      <ConversationTopbar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar}
-        onNewTask={openTaskDraft} onOpenSearch={onOpenSearch} />
+      <ConversationTopbar sidebarCollapsed={sidebarCollapsed} onToggleSidebar={toggleSidebar} />
       <ChatSurface />
     </div>
   </div>;
@@ -452,7 +456,23 @@ globalThis.remoteMvpProbe = async () => {
     workspace: cloudWorkspace, activeProjectPath: cloudWorkspace.path,
     openProjectPaths: [cloudWorkspace.path, localWorkspace.path],
     openProjects: [cloudWorkspace, localWorkspace], settings: { defaultMode: "agent" },
-    selectingSessionId: undefined, messages: [], retainedSessionIds: [], retainedTranscripts: {},
+    selectingSessionId: undefined,
+    messages: [
+      { id: "fixture-tool", role: "tool", toolName: "Read", toolStatus: "success", content: "Fixture tool output", createdAt: session.createdAt },
+      {
+        id: "fixture-edit", role: "tool", toolName: "Edit", toolStatus: "success", content: "", createdAt: session.createdAt,
+        toolResult: { details: { root: "workspace", review: {
+          version: 1, snapshotId: "fixture-change", messageId: "fixture-edit", path: "src/changed.ts",
+          operation: "edit", status: "modified", state: "active", additions: 1, deletions: 1,
+          reversible: true, hunks: [{ header: "@@ -1 +1 @@", lines: [
+            { type: "del", text: "before" }, { type: "add", text: "after" },
+          ] }],
+        } } },
+      },
+      { id: "fixture-reply", role: "assistant", content: "Fixture assistant reply", createdAt: session.createdAt,
+        usage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } },
+    ],
+    retainedSessionIds: [], retainedTranscripts: {},
   });
   const projectRoot = createRoot(mount);
   let searchOpened = false;
@@ -479,44 +499,113 @@ globalThis.remoteMvpProbe = async () => {
   const region = (element) => getComputedStyle(element).getPropertyValue("-webkit-app-region").trim();
   function checkCloudCaption(sidebarCollapsed) {
     const caption = topbar();
-    const blank = caption.querySelector(".ct-left");
+    const titleLane = caption.querySelector(".ct-left");
     const band = caption.getBoundingClientRect();
-    const space = blank.getBoundingClientRect();
-    assert(!caption.textContent.trim(), "the cloud caption displays session or repository text");
-    assert(region(blank) === "drag" && space.height === band.height && space.width > 0,
+    assert(caption.querySelector(".ct-title")?.textContent === cloudSession.title,
+      "the cloud caption does not show the current session title");
+    assert(region(titleLane) === "drag" && titleLane.getBoundingClientRect().height === band.height,
       "the cloud caption has no full-height drag space");
-    assert(document.elementFromPoint(space.left + space.width / 2, space.top + space.height / 2) === blank,
-      "the cloud caption is covered by another element");
-    for (const label of [catalogs.en.nav.newTask, catalogs.en.nav.search]) {
-      const action = topbarAction(label);
-      assert(action && region(action.closest(".ct-right")) === "no-drag"
-        && action.getBoundingClientRect().right <= band.right, `caption action is obscured: ${label}`);
-    }
+    assert(!topbarAction(catalogs.en.nav.newTask) && !topbarAction(catalogs.en.nav.search),
+      "the old caption shortcuts are still rendered");
+    const details = topbarAction(catalogs.en.conversationDetails.title);
+    assert(details && region(details.closest(".ct-right")) === "no-drag"
+      && details.getBoundingClientRect().right <= band.right, "the details entry is obscured");
     const toggle = topbarAction(catalogs.en.nav.toggleSidebar);
     assert(toggle.closest(".ct-lead").getAttribute("aria-hidden") === String(!sidebarCollapsed),
       "the caption sidebar toggle does not follow sidebar visibility");
   }
 
   checkCloudCaption(false);
+  const primaryRows = [...document.querySelectorAll(".sidebar-primary-nav > button")];
+  assert(primaryRows[1]?.dataset.nav === "search", "Search is not the second sidebar action");
+  primaryRows[1].click();
+  assert(searchOpened, "sidebar search could not be activated");
   mount.style.width = "600px";
   checkCloudCaption(false);
   document.querySelector('.sidebar [data-nav="toggle-sidebar"]').click();
   await until(() => !document.querySelector(".sidebar"), "the sidebar did not collapse");
   checkCloudCaption(true);
-  topbarAction(catalogs.en.nav.search).click();
-  assert(searchOpened, "the cloud caption search could not be activated");
+  const more = topbar().querySelector('[data-nav="conversation-more"]');
+  assert(more, "the collapsed sidebar hid the conversation actions");
+  more.focus();
+  more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+  const currentMenu = () => document.querySelector(".conversation-more-menu");
+  await until(currentMenu, "the titlebar menu did not open");
+  assert(currentMenu().contains(document.activeElement), "opening More did not focus a menu item");
+  const pin = [...currentMenu().querySelectorAll('[role="menuitem"]')]
+    .find((item) => item.textContent.trim() === catalogs.en.nav.pinTask);
+  assert(pin, "More did not expose the sidebar's pin action");
+  pin.click();
+  await until(() => !currentMenu() && useAppStore.getState().sessionMeta[cloudSession.id]?.pinned,
+    "pinning from More did not update the active session");
+  more.click();
+  await until(currentMenu, "More did not reopen");
+  const unpin = [...currentMenu().querySelectorAll('[role="menuitem"]')]
+    .find((item) => item.textContent.trim() === catalogs.en.nav.unpinTask);
+  assert(unpin, "More did not reflect the pinned state");
+  unpin.click();
+  await until(() => !currentMenu() && !useAppStore.getState().sessionMeta[cloudSession.id]?.pinned,
+    "unpinning from More did not update the active session");
+  more.click();
+  await until(currentMenu, "More did not reopen after unpinning");
+  document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  await until(() => !currentMenu(), "Escape did not close More");
+  assert(document.activeElement === more, "closing More did not restore trigger focus");
   topbarAction(catalogs.en.nav.toggleSidebar).click();
   await until(() => rowIn("sidebar-cloud-projects", cloudSession.id), "the caption could not reopen the sidebar");
   checkCloudCaption(false);
   mount.style.removeProperty("width");
 
-  useAppStore.setState({ activeSessionId: localSession.id });
-  await until(() => topbar().querySelector(".ct-title-trigger")?.textContent === localSession.title,
-    "switching to a local session did not restore its title");
-  useAppStore.setState({ activeSessionId: cloudSession.id });
-  await until(() => !topbar().querySelector(".ct-title-wrap"), "the local title persisted into the cloud session");
+  const detailsButton = topbarAction(catalogs.en.conversationDetails.title);
+  detailsButton.focus();
+  detailsButton.click();
+  const details = () => document.querySelector(".conversation-details");
+  await until(() => details()?.querySelector("meter"), "the conversation details did not show context usage");
+  await until(() => details().textContent.includes(environment.name), "details did not resolve the named environment");
+  for (const label of [repository.fullName, "pi-desktop/fixture", "Read"]) {
+    assert(details().textContent.includes(label), `details omitted ${label}`);
+  }
+  const changes = details().querySelector(".conversation-details-changes");
+  assert(changes?.querySelector("h3")?.textContent === "Changes", "the details sheet has no Changes section");
+  const pullRequest = changes.querySelector("a");
+  assert(pullRequest?.textContent === "View PR #7" && pullRequest.href === "https://github.com/example/repo/pull/7",
+    "the saved pull request is not linked");
+  const changeRow = () => changes.querySelector('[data-snapshot-id="fixture-change"]');
+  await until(() => changeRow()?.textContent.includes("src/changed.ts"), "the session change is missing");
+  const change = changeRow();
+  change.querySelector("button").click();
+  await until(() => change.querySelector(".diff-line.add")?.textContent.includes("after"), "the recorded diff could not be expanded");
+  assert(!change.querySelector(".review-change-card-actions"), "details offer a file mutation action");
+  assert(!details().textContent.includes("Recent output"), "the output section is still visible");
+  document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  await until(() => !details(), "Escape did not close conversation details");
+  assert(document.activeElement === detailsButton, "details did not restore focus");
+  detailsButton.click();
+  await until(details, "conversation details did not reopen");
+  const openReview = [...details().querySelectorAll("button")]
+    .find(button => button.textContent.trim() === "Open in Review");
+  assert(openReview, "recorded changes have no Open in Review action");
+  openReview.click();
+  await until(() => !details() && useAppStore.getState().activeWorkPanelTabId === "review",
+    "Open in Review did not close details and select the Review tab");
+  assert(useAppStore.getState().workPanelContexts[cloudSession.id]?.open,
+    "Review did not open in the owning session");
+  detailsButton.click();
+  await until(details, "conversation details did not reopen after opening Review");
 
-  topbarAction(catalogs.en.nav.newTask).click();
+  useAppStore.setState({ activeSessionId: localSession.id, messages: [] });
+  await until(() => !details() && topbar().querySelector(".ct-title-trigger")?.textContent === localSession.title,
+    "switching to a local session did not close details and restore its title");
+  topbarAction(catalogs.en.conversationDetails.title).click();
+  await until(() => details()?.querySelector(".conversation-details-changes")?.textContent.includes(catalogs.en.panel.review.noChanges),
+    "a session without changes did not show the empty state");
+  assert(!details().querySelector(".conversation-details-changes a"), "another session's PR appeared in details");
+  assert(!details().querySelector(".conversation-details-changes button"), "empty changes offer a review action");
+  useAppStore.setState({ activeSessionId: cloudSession.id });
+  await until(() => topbar().querySelector(".ct-title")?.textContent === cloudSession.title,
+    "the local title persisted into the cloud session");
+
+  newTask().click();
   await until(() => picker(labels.environmentHost)?.textContent.trim() === labels.thisComputer, "global task inherited cloud environment");
   assert(!useAppStore.getState().activeSessionId && !useAppStore.getState().workspace, "global draft inherited project or session");
 
@@ -542,6 +631,14 @@ globalThis.remoteMvpProbe = async () => {
   noRepo().click();
   await until(() => picker(labels.chooseRepository).textContent.trim() === labels.noRepository, "repository was not cleared");
   assert(!picker(labels.chooseBranch), "no-repository draft displays a branch");
+  const hostModelPicker = () => document.querySelector('[data-nav="host-session-model"]');
+  await until(() => hostModelPicker() && !hostModelPicker().disabled, "the no-repository model picker is disabled");
+  hostModelPicker().click();
+  const hostModel = "second-host-model · Second Host provider";
+  await until(() => button(hostModel), "the selected Host's model was not listed");
+  assert(!button("first-host-model · First Host provider"), "the old Host's models remained visible");
+  button(hostModel).click();
+  await until(() => hostModelPicker()?.textContent.includes("second-host-model"), "the picker did not show the selected model");
   const cloudEditor = document.querySelector(".composer-input");
   cloudEditor.textContent = "Say hello from the second host";
   cloudEditor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "Say hello from the second host" }));
@@ -550,6 +647,8 @@ globalThis.remoteMvpProbe = async () => {
   await until(() => calls.some(({ channel, input }) => channel === IPC.invoke.agentPrompt && input.sessionId === scratchSession?.id), "first prompt did not reach the new cloud session");
   const createScratch = calls.slice(beforeProjectFlow).find(({ channel }) => channel === IPC.invoke.remoteHostCreateSession);
   assert(createScratch?.input.hostKey === secondHost.hostKey && createScratch.input.projectId === undefined, "scratch session used the old host or project");
+  assert(createScratch.input.model?.providerId === "second-host-provider" && createScratch.input.model.modelId === "second-host-model",
+    "the chosen Host model did not reach the create request");
   assert(!calls.slice(beforeProjectFlow).some(({ channel }) => channel === IPC.invoke.remoteSessionWorkspaceStart), "scratch session started a Git worktree");
   await until(() => rowIn("sidebar-cloud-temporary-sessions", scratchSession.id), "cloud scratch session was not grouped under Cloud projects");
   const temporaryLabel = catalogs.en.permission.temporarySession;

@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const ptBR = {
+  conversationDetails: {
+    title: "Detalhes da conversa",
+    environment: "Ambiente e repositório",
+    location: "Local de execução",
+    environmentId: "ID do ambiente",
+    workspace: "Área de trabalho",
+    repository: "Repositório",
+    branch: "Branch",
+    noUsage: "Ainda não há dados de uso do contexto.",
+    tools: "Ferramentas usadas",
+    unknownTool: "Ferramenta",
+    noTools: "Nenhuma chamada de ferramenta no histórico carregado.",
+    changes: "Alterações",
+    openInReview: "Abrir na revisão",
+    width: "Largura da conversa (px)",
+    widthDescription: "Largura máxima do histórico e do campo de entrada. Padrão: {{defaultWidth}} px, mínimo: {{minWidth}} px.",
+    widthSaveError: "Não foi possível salvar a largura da conversa.",
+  },
   sessionTarget: {
     thisComputer: "Este computador",
     environments: "Ambientes",

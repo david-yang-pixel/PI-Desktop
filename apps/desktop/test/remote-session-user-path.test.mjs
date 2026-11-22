@@ -29,8 +29,9 @@ function fixture() {
         case "project/list": return { projects: [{ id: "p1", label: "app", archived: false }] };
         case "project/browse": return { path: "/home/pi", entries: [{ name: "app", path: "/home/pi/app" }] };
         case "project/register": return { project: { id: "p1", label: "app", archived: false, path: params.path } };
+        case "session/models": return { models: [{ providerId: "host-p", providerName: "Host provider", modelId: "host-m" }] };
         case "session/create": return {
-          session: { ...session(), projectId: params.projectId, workspaceLabel: params.projectId ? "app" : undefined },
+          session: { ...session(), projectId: params.projectId, workspaceLabel: params.projectId ? "app" : undefined, ...params.model },
         };
         case "session/get": return { session: session() };
         case "session/list": return { sessions: [session()] };
@@ -87,11 +88,18 @@ test("remote user path: project, session, prompt, approval, files, reconnect wit
 
 test("a projectless cloud session uses the paired host without a project or local workspace", async () => {
   const { calls, catalog, router } = fixture();
-  const created = await catalog.createSession({ hostKey: "h1", mode: "agent" });
+  const handlers = new Map();
+  registerRemoteSessionIpc({ handle: (channel, handler) => handlers.set(channel, handler) }, () => catalog);
+  const { models: [{ providerId, modelId }] } = await handlers.get("pi-desktop/remoteHost/models")({ hostKey: "h1" });
+  const { session: created } = await handlers.get(IPC.invoke.remoteHostCreateSession)({ hostKey: "h1", mode: "agent", model: { providerId, modelId } });
   assert.equal(created.id, "remote:h1:s1");
   assert.equal(created.remoteProjectId, undefined);
   assert.equal(created.projectPath, undefined);
-  assert.deepEqual(calls[0], { method: "session/create", params: { mode: "agent" } });
+  assert.equal(created.modelId, "host-m");
+  assert.deepEqual(calls.slice(0, 2), [
+    { method: "session/models", params: undefined },
+    { method: "session/create", params: { mode: "agent", model: { providerId, modelId } } },
+  ]);
 
   const result = await router.route(IPC.invoke.agentPrompt, [{ sessionId: created.id, content: "Hello from the cloud" }]);
   assert.equal(result.value.accepted, true);

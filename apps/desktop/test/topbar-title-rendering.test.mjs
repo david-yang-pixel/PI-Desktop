@@ -49,8 +49,6 @@ async function withTopbar(work) {
           createElement(ConversationTopbar, {
             sidebarCollapsed,
             onToggleSidebar() {},
-            onNewTask() {},
-            onOpenSearch() {},
           }),
         ),
       );
@@ -137,7 +135,7 @@ test("an empty chat names the active workspace and stays read-only", async () =>
   });
 });
 
-test("cloud sessions leave the conversation topbar clear in both sidebar states", async () => {
+test("cloud sessions show their read-only title on the left in both sidebar states", async () => {
   await withTopbar(async ({ render }) => {
     const cloud = { id: "cloud", source: "desktop", title: "Remote build" };
     const projectPath = "remote-project:cloud-fixture";
@@ -171,9 +169,10 @@ test("cloud sessions leave the conversation topbar clear in both sidebar states"
         const state = { activeSessionId: session.id, sessions: [session, local] };
         const html = render(state, sidebarCollapsed);
 
-        assert.doesNotMatch(html, /remote-project:|Remote build|Remote workspace|builder|octo\/repo|pi-desktop\/fixture|View PR|ct-title-wrap/);
-        assert.ok(html.includes(`aria-label="${catalogs.en.nav.newTask}"`));
-        assert.ok(html.includes(`aria-label="${catalogs.en.nav.search}"`));
+        assert.match(html, /class="ct-left"[\s\S]*?<h1 class="ct-title">Remote build<\/h1>/);
+        assert.doesNotMatch(html, /remote-project:|Remote workspace|builder|octo\/repo|pi-desktop\/fixture|View PR|ct-project|ct-title-trigger/);
+        assert.ok(!html.includes(`aria-label="${catalogs.en.nav.newTask}"`));
+        assert.ok(!html.includes(`aria-label="${catalogs.en.nav.search}"`));
         assert.match(html, new RegExp(`class="ct-lead" aria-hidden="${!sidebarCollapsed}"`));
 
         const reopened = render({ ...state, activeSessionId: local.id }, sidebarCollapsed);

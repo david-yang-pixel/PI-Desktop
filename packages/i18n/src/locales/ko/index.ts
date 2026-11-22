@@ -1,6 +1,24 @@
 import { en, type EnglishCatalog } from "../en/index.js";
 
 export const ko = {
+  conversationDetails: {
+    title: "대화 세부 정보",
+    environment: "환경 및 저장소",
+    location: "실행 위치",
+    environmentId: "환경 ID",
+    workspace: "작업 공간",
+    repository: "저장소",
+    branch: "브랜치",
+    noUsage: "아직 컨텍스트 사용량 정보가 없습니다.",
+    tools: "사용한 도구",
+    unknownTool: "도구",
+    noTools: "불러온 대화 기록에 도구 호출이 없습니다.",
+    changes: "변경 사항",
+    openInReview: "검토에서 열기",
+    width: "대화 너비 (px)",
+    widthDescription: "대화 기록과 입력창의 최대 너비입니다. 기본값 {{defaultWidth}} px, 최솟값 {{minWidth}} px.",
+    widthSaveError: "대화 너비를 저장하지 못했습니다.",
+  },
   sessionTarget: {
     thisComputer: "이 컴퓨터",
     environments: "환경",

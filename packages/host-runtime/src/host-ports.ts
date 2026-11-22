@@ -29,6 +29,8 @@ export type HostSessionRecord = {
   title?: string;
   projectId?: string;
   projectPath?: string;
+  providerId?: string;
+  modelId?: string;
   mode?: string;
   permissionMode?: string;
   planningState?: string;
@@ -78,6 +80,8 @@ export function toSessionSummary(record: HostSessionRecord): SessionSummary {
     title: record.title ?? "",
     ...(record.projectId ? { projectId: record.projectId } : {}),
     workspaceIdentity: sessionWorkspaceIdentity(record),
+    ...(record.providerId ? { providerId: record.providerId } : {}),
+    ...(record.modelId ? { modelId: record.modelId } : {}),
     ...(record.projectPath
       ? { workspaceLabel: basename(record.projectPath) }
       : {}),

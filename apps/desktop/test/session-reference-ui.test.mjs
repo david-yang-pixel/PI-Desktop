@@ -322,16 +322,16 @@ test("a referenced conversation never reaches the file-attachment resolver", asy
 });
 
 test("the session Copy submenu exposes the link to every reader", () => {
-  const sidebar = read("../src/components/Sidebar.tsx");
+  const sidebar = read("../src/components/useSessionMenuContent.tsx");
   assert.match(
     sidebar,
     /id: "session-copy"[\s\S]*?id: "copy-conversation-id"[\s\S]*?id: "copy-session-link"/,
   );
-  assert.match(sidebar, /navigator\.clipboard\.writeText\(formatSessionLink\(session\.id\)\)/);
+  assert.match(sidebar, /copyText\(\(\) => formatSessionLink\(session\.id\)\)/);
   assert.doesNotMatch(sidebar, /pi-desktop:\/\/session\//, "the scheme stays in shared");
 
   const developerBlock = sidebar.slice(
-    sidebar.indexOf("settings?.developerMode === true"),
+    sidebar.indexOf("...(developerMode && !remote"),
     sidebar.indexOf('id: "session-danger"'),
   );
   assert.match(developerBlock, /id: "open-session-path"/);

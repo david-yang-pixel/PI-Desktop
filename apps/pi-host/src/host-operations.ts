@@ -19,6 +19,7 @@ import {
   toSessionSummary,
   withSessionProjectIds,
   type HostRpc,
+  type HostProviderRecord,
   type HostSessionRecord,
   type RuntimeService,
 } from "@pi-desktop/host-runtime";
@@ -28,7 +29,10 @@ import type {
   RacpSessionCatalog,
   RacpWorkspaceAccess,
 } from "@pi-desktop/racp";
-import type { RacpProjectSummary } from "@pi-desktop/shared";
+import {
+  OAUTH_AUTH_KIND, RACP_MAX_HOST_MODELS, isRacpHostModel, modelSupportsConversation,
+  type RacpHostModel, type RacpProjectSummary,
+} from "@pi-desktop/shared";
 
 /** A project row as host-core lists it. */
 type ProjectRow = { id: number; path: string; name: string; pinned?: boolean };
@@ -141,6 +145,27 @@ export function createSessionCatalog(
     return (await withProjectIds(host, [result.session]))[0]!;
   }
   return {
+    async models() {
+      const host = requireHost(getHost);
+      const { providers } = await host.call<{ providers: HostProviderRecord[] }>("providers.list", { includeDisabled: false }).catch(hostError);
+      const models: RacpHostModel[] = [];
+      for (const provider of providers) {
+        if (!provider.enabled || provider.authKind === OAUTH_AUTH_KIND || !(provider.hasSecret || provider.authKind === "none")) continue;
+        const bindings = provider.models?.length ? provider.models : [{ id: provider.defaultModelId, alias: undefined }];
+        for (const binding of bindings) {
+          if (!binding.id?.trim() || !modelSupportsConversation(binding.id)) continue;
+          const row = {
+            providerId: provider.id,
+            providerName: provider.name,
+            modelId: binding.id,
+            ...(binding.alias?.trim() ? { alias: binding.alias } : {}),
+          };
+          if (isRacpHostModel(row)) models.push(row);
+          if (models.length === RACP_MAX_HOST_MODELS) return models;
+        }
+      }
+      return models;
+    },
     async list() {
       const host = requireHost(getHost);
       const result = await host

@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { TFunction } from "i18next";
 import {
   keybindingDisplayParts,
@@ -52,6 +52,7 @@ export type ComposerToolbarProps = {
   showToast: AppState["showToast"];
   modelMenu: ModelMenuController;
   modelLabel: string;
+  hostModelPicker?: ReactNode;
   thinkingLabel: string;
   /** The selected model asks for OpenAI's priority tier (ADR 0334). */
   modelFastMode?: boolean;
@@ -95,6 +96,7 @@ export function ComposerToolbar({
   showToast,
   modelMenu,
   modelLabel,
+  hostModelPicker,
   thinkingLabel,
   modelFastMode = false,
   contextUsage,
@@ -193,7 +195,7 @@ export function ComposerToolbar({
       <div className="composer-right">
         {localToolsAllowed ? <ComposerControlSlots side="right" /> : null}
         {contextUsage ? <ContextUsageInspector {...contextUsage} /> : null}
-        <ComposerModelPicker
+        {hostModelPicker ?? <ComposerModelPicker
           t={t}
           controller={modelMenu}
           modelLabel={modelLabel}
@@ -205,7 +207,7 @@ export function ComposerToolbar({
           controlsBlocked={controlsBlocked}
           onCloseOtherMenus={() => setPermissionOpen(false)}
           onOpenModelSettings={() => useAppStore.getState().setSettingsTab("agent")}
-        />
+        />}
         {composerTransforms.map((transform) => {
           const key = `${transform.pluginId}/${transform.id}`;
           const isActive = activeTransformKey === key;

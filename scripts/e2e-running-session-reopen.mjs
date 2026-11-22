@@ -33,7 +33,7 @@ try {
         api.onUpdateState = () => noop;
         await useAppStore.getState().bootstrap();
         if (!useAppStore.getState().healthOk) throw new Error(useAppStore.getState().error);
-        flushSync(() => reactRoot.render(<Sidebar onToggleSidebar={noop} sidebarToggleShortcut=""
+        flushSync(() => reactRoot.render(<Sidebar onToggleSidebar={noop} onNewTask={noop} onOpenSearch={noop} sidebarToggleShortcut=""
           sidebarWidth={260} onWidthChange={noop} onWidthCommit={noop} onResizeCollapse={noop} />));
         const row = document.querySelector('[data-sidebar-session-row="running"]');
         if (!row) throw new Error("the restored session is missing from the sidebar");

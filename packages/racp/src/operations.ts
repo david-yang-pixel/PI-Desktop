@@ -8,6 +8,7 @@ import {
   WorkspaceGitPrepareSchema, WorkspaceGitReclaimSchema, WorkspaceGitRemoveSchema, WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitSessionRefSchema,
   isEnvironmentVariableName, isGitBranchName, isGitHubOwner, isGitHubRepositoryName,
+  RacpHostModelSelectionSchema,
   RacpCursorSchema,
   RacpInputResponseSchema,
   RacpRequestContextSchema,
@@ -79,6 +80,7 @@ const SessionCreateParams = Type.Object({
   providerId: Type.Optional(Type.String()),
   modelId: Type.Optional(Type.String()),
   thinkingLevel: Type.Optional(Type.String()),
+  model: Type.Optional(RacpHostModelSelectionSchema),
   permissionMode: Type.Optional(Type.Union([Type.Literal("ask"), Type.Literal("accept-edits"), Type.Literal("auto")])),
   environment: Type.Optional(WorkspaceGitEnvironmentSchema),
 });
@@ -287,11 +289,27 @@ export function createOperations(): Map<RacpOperation, OperationHandler> {
     if (!summary) throw new RacpError("NOT_FOUND", `session ${input.sessionId} is unknown`);
     return { session: context.agentHost.describeSession(summary) };
   });
+  handlers.set("session/models", async (context, params) => {
+    check(Type.Object({}, { additionalProperties: false }), params);
+    const models = context.operations.sessions.models;
+    if (!models) throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer a session model catalog");
+    return { models: await models() };
+  });
   handlers.set("session/create", async (context, params) => {
-    const input = check(SessionCreateParams, params);
+    const { model, ...input } = check(SessionCreateParams, params);
     if (input.environment) {
       if (!context.principal.roles.includes("owner")) throw new RacpError("FORBIDDEN", "workspace environments require an owner");
       if (!context.capabilities.workspaceEnvironment) throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer workspace environments");
+    }
+    if (model) {
+      if (!context.principal.roles.includes("owner")) throw new RacpError("FORBIDDEN", "selecting from the Host model catalog requires an owner");
+      const models = context.operations.sessions.models;
+      if (!models) throw new RacpError("CAPABILITY_UNAVAILABLE", "this Host does not offer a session model catalog");
+      if (input.providerId !== undefined || input.modelId !== undefined) throw new RacpError("INVALID_ARGUMENT", "provide one model selection");
+      if (!(await models()).some((entry) => entry.providerId === model.providerId && entry.modelId === model.modelId)) {
+        throw new RacpError("INVALID_ARGUMENT", "the selected model is no longer available on this Host");
+      }
+      Object.assign(input, model);
     }
     const { setup, ...summary } = await context.operations.sessions.create(input, context.principal);
     context.agentHost.publishSessionChange("session.created", summary);

@@ -1,4 +1,5 @@
-import { useSessionTargetStore } from "../features/chat/session-target/session-target-store";
+import { HostSessionModelPicker } from "../features/chat/session-target/HostSessionModelPicker";
+import { isHostSessionTarget, useSessionTargetStore } from "../features/chat/session-target/session-target-store";
 import { SessionTargetRow } from "../features/chat/session-target/SessionTargetRow";
 import { WorkspacePreparationStatus } from "../features/chat/session-target/WorkspacePreparationStatus";
 import { isRemoteSession, sessionAllows } from "../lib/remote-session-safety";
@@ -103,9 +104,8 @@ export function Composer({
     (session) => session.id === activeSessionId,
   );
   const capabilitySession = activeSessionSummary ?? (activeSessionId?.startsWith("remote:") ? { id: activeSessionId } : undefined);
-  const useHostModel = useSessionTargetStore(
-    (target) => target.environmentId !== "local" && !target.repository && !target.folderProject,
-  );
+  const useHostModel = useSessionTargetStore(isHostSessionTarget);
+  const environmentId = useSessionTargetStore((target) => target.environmentId);
   const targetEditable = variant === "home" && !isRemoteSession(capabilitySession)
     && !activeSessionSummary?.remoteRepository && !activeSessionSummary?.projectPath?.startsWith("remote-project:");
   const hostDraft = targetEditable && useHostModel;
@@ -406,9 +406,9 @@ export function Composer({
     configuredThinkingLevel,
   );
   const thinkingLabel = thinkingLevel;
-  const modelLabel = hostDraft ? t("sessionTarget.hostDefaultModel") : modelId
-    ? composerModelDisplayName(provider, modelId)
-    : t("chat.model");
+  const modelLabel = hostDraft || remoteSession
+    ? activeSession?.modelId ?? t("sessionTarget.hostDefaultModel")
+    : modelId ? composerModelDisplayName(provider, modelId) : t("chat.model");
   const modelMenu = useComposerModelMenu({
     configureActiveSession,
     mode,
@@ -661,6 +661,9 @@ export function Composer({
             configureActiveSession={configureActiveSession}
             showToast={showToast}
             modelMenu={modelMenu}
+            hostModelPicker={hostDraft && !remoteSession ? (
+              <HostSessionModelPicker key={environmentId} environmentId={environmentId} disabled={approvalPending} />
+            ) : undefined}
             modelLabel={modelLabel}
             thinkingLabel={thinkingLabel}
             modelFastMode={sessionFastModeActive(provider, modelId, activeSession ?? draftConfiguration)}

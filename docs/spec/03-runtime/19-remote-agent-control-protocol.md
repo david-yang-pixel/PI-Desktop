@@ -583,6 +583,7 @@ session root as working directory and stream through `terminal.output`.
 
 | Operation | Role | Behavior |
 |---|---|---|
+| `session/models` | owner | When `sessionModels` is advertised, list up to 256 configured conversation bindings with provider id, provider name, model id and optional alias. Endpoints and credentials stay on the Host. |
 | `session/configure` | controller | Change mode, provider/model, thinking level, or permission mode while idle; same rules as `pi-desktop/session/configure` |
 | `session/fork` | controller | Fork an idle session, optionally through a message id, into a new idle session |
 | `session/rename` | controller | Rename a session |
@@ -599,6 +600,12 @@ session root as working directory and stream through `terminal.output`.
 | `connection/pair` | authenticated | Exchange the single-use pairing token presented on the upgrade for a device credential (security §3.4); only valid on a pairing connection (D448) |
 | `project/register` | owner | Register a Host directory as a project: the Host canonicalizes and validates the path and returns the project id (D448) |
 | `project/browse` | owner | List directories under a Host path, bounded, for the remote folder picker (D448) |
+
+A Host advertising `sessionModels` accepts `model: { providerId, modelId }`
+from owners on `session/create`. It validates the pair against the current
+catalog before creating the session. Session summaries optionally include the
+configured ids so the client can confirm which model was saved. Clients can
+omit `model` for Host defaults, including against older Hosts.
 
 ### 6.2.1 Local-Agent workspace services
 

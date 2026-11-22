@@ -1,7 +1,7 @@
 import { useRepositoryProjects } from "../features/chat/session-target/use-repository-projects";
 import { RemoteProjectGroups } from "./remote/RemoteProjectGroups";
 import { groupRemoteProjectSessions } from "../lib/remote-project-catalog";
-import { isRemoteSession, sessionAllows } from "../lib/remote-session-safety";
+import { isRemoteSession } from "../lib/remote-session-safety";
 import {
   useCallback,
   useEffect,
@@ -28,12 +28,13 @@ import { api } from "../lib/api";
 import { formatSessionLastReplyDate } from "../lib/sidebar-session-date";
 import { SessionHoverCard } from "../features/sessions/SessionHoverCard";
 import { useSessionHoverCard } from "../features/sessions/useSessionHoverCard";
-import { isDefaultSessionTitle, useAppStore } from "../stores/app-store";
+import { useAppStore } from "../stores/app-store";
 import {
   normalizeProjectPath,
   sessionArchived,
   sessionPinned,
 } from "../lib/sidebar-session-groups";
+import { sidebarProjectName as projectName, sidebarSessionOrganization, sidebarTaskTitle, type ProjectEntry } from "../lib/sidebar-session-organization";
 import {
   getVisibleProjectSessions,
   updateProjectSessionExpansion,
@@ -43,7 +44,6 @@ import {
   nextRecentSessionsLimit,
   RECENT_SESSIONS_INITIAL_COUNT,
 } from "../lib/sidebar-recent-sessions";
-import { listableSessions } from "../lib/session-origin";
 import {
   composerDropItems,
   hasComposerFileDrag,
@@ -68,11 +68,9 @@ import {
   ProjectRunCount,
   ProjectRunRail,
 } from "./ProjectRunIndicator";
-import { ErrorCodes, formatSessionLink, sidebarModuleVisible } from "@pi-desktop/shared";
+import { sidebarModuleVisible } from "@pi-desktop/shared";
 import type { SessionSummary } from "@pi-desktop/shared";
 import type {
-  ProjectMeta,
-  ProjectSort,
   SessionSort,
 } from "../lib/sidebar-preferences";
 import {
@@ -89,10 +87,7 @@ import { BrandLogo } from "./BrandLogo";
 import { SidebarFooter, SidebarPrimaryNav } from "./SidebarNavigation";
 import {
   WorktreeBadge,
-  WorktreeDialogs,
-  useWorktreeDeleteLossText,
   useWorktreeProjectMenuItems,
-  useWorktreeSessionMenuItems,
 } from "../features/worktree/WorktreeSidebarParts";
 import { WorktreeBehindWatcher } from "../features/worktree/WorktreeBehind";
 import { SidebarMenuPanel, sidebarMenuKeyDown } from "./SidebarMenuPanel";
@@ -108,6 +103,7 @@ import { useArmedDelete } from "../hooks/use-armed-delete";
 import { ProjectDeleteDialog } from "./ProjectDeleteDialog";
 import { ProjectEditDialog } from "./ProjectEditDialog";
 import { SessionRenameDialog } from "./SessionRenameDialog";
+import { focusSessionComposer as focusComposer, useSessionMenuContent } from "./useSessionMenuContent";
 import {
   IconArchive,
   IconArchiveRestore,
@@ -126,22 +122,7 @@ import {
   IconSidebar,
   IconStar,
   IconTrash,
-  IconX,
 } from "./icons";
-
-type ProjectEntry = {
-  path: string;
-  displayPath?: string;
-  cloud: boolean;
-  key: string;
-  name: string;
-  sessions: SessionSummary[];
-  open: boolean;
-  active: boolean;
-  meta: ProjectMeta;
-  /** Best-effort git branch from the project workspace, if known. */
-  branch?: string;
-};
 
 function canReorderWithinGroup(source: ProjectEntry, target: ProjectEntry) {
   return source.cloud === target.cloud && sameProjectReorderBucket(source.meta, target.meta);
@@ -180,30 +161,6 @@ function clearSidebarResizeStyles(): void {
   document.documentElement.removeAttribute("data-sidebar-resizing");
 }
 
-function projectName(path: string, fallback?: string) {
-  if (fallback?.trim()) return fallback.trim();
-  const clean = path.replace(/[\\/]+$/, "");
-  const parts = clean.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] || path;
-}
-
-function timestamp(value?: string) {
-  const parsed = value ? Date.parse(value) : 0;
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function optionalTimestamp(value?: string): number | null {
-  const parsed = value ? Date.parse(value) : NaN;
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function projectMetaFor(
-  path: string,
-  projectMeta: Record<string, ProjectMeta>,
-): ProjectMeta {
-  return projectMeta[normalizeProjectPath(path) || path] ?? projectMeta[path] ?? {};
-}
-
 function projectDomId(path: string): string {
   let hash = 2166136261;
   for (let index = 0; index < path.length; index += 1) {
@@ -213,40 +170,10 @@ function projectDomId(path: string): string {
   return `sidebar-project-${(hash >>> 0).toString(36)}`;
 }
 
-function firstSessionDate(
-  sessions: SessionSummary[],
-  field: "createdAt" | "updatedAt",
-): number | null {
-  const values = sessions
-    .map((session) => timestamp(session[field]))
-    .filter((value) => value > 0);
-  return values.length ? Math.min(...values) : null;
-}
-
-function lastSessionDate(
-  sessions: SessionSummary[],
-  field: "createdAt" | "updatedAt",
-): number | null {
-  const values = sessions
-    .map((session) => timestamp(session[field]))
-    .filter((value) => value > 0);
-  return values.length ? Math.max(...values) : null;
-}
-
-function compareOptionalDate(
-  a: number | null,
-  b: number | null,
-  descending: boolean,
-): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return descending ? b - a : a - b;
-}
-
 export function Sidebar({
   onToggleSidebar,
   onNewTask,
+  onOpenSearch,
   sidebarToggleShortcut,
   sidebarWidth,
   widthMax = SIDEBAR_WIDTH_MAX,
@@ -258,6 +185,7 @@ export function Sidebar({
 }: {
   onToggleSidebar: () => void;
   onNewTask: () => void;
+  onOpenSearch: () => void;
   sidebarToggleShortcut: string;
   sidebarWidth: number;
   widthMax?: number;
@@ -306,15 +234,12 @@ export function Sidebar({
   const prefetchSession = useAppStore((s) => s.prefetchSession);
   const selectSession = useAppStore((s) => s.selectSession);
   const newSession = useAppStore((s) => s.newSession);
-  const forkSessionAction = useAppStore((s) => s.forkSession);
   const openProject = useAppStore((s) => s.openProject);
   const refreshProject = useAppStore((s) => s.refreshProject);
   const clearProject = useAppStore((s) => s.clearProject);
   const activateProject = useAppStore((s) => s.activateProject);
   const renameProject = useAppStore((s) => s.renameProject);
-  const toggleSessionPinned = useAppStore((s) => s.toggleSessionPinned);
   const archiveSessionAction = useAppStore((s) => s.archiveSession);
-  const restoreSession = useAppStore((s) => s.restoreSession);
   const renameSession = useAppStore((s) => s.renameSession);
   const deleteSessionAction = useAppStore((s) => s.deleteSession);
   const setSessionSort = useAppStore((s) => s.setSessionSort);
@@ -532,16 +457,8 @@ export function Sidebar({
   const sessionSort = sessionView.sort;
   const displaySessionSort: Exclude<SessionSort, "manual"> =
     sessionSort === "manual" ? "recent" : sessionSort;
-  const displayProjectSort: ProjectSort = projectSort;
   const activeProjectPath = normalizeProjectPath(activeProjectPathState ?? workspace?.path);
   const selectedSessionId = selectingSessionId ?? activeSessionId;
-  const openProjectPaths = useMemo(
-    () =>
-      openProjectPathsState
-        .map((path) => normalizeProjectPath(path))
-        .filter((path): path is string => Boolean(path)),
-    [openProjectPathsState],
-  );
 
   const closeMenus = useCallback((restoreFocus = true) => {
     const trigger = menuTriggerRef.current;
@@ -683,155 +600,23 @@ export function Sidebar({
     sortOpen,
   ]);
 
-  const taskTitle = useCallback((title?: string | null) => {
-    const value = (title || "").trim();
-    return isDefaultSessionTitle(value) ? t("chat.untitledTask") : value;
-  }, [t]);
-
-  const filtered = useMemo(() => {
-    // A scheduled run's transcript belongs to the Scheduled page, not to the
-    // project groups: that page's task column and run history are its entry
-    // point (issue #1291). The session stays in the store so the chat surface
-    // can still resolve its title, source, and capabilities when it is opened
-    // from there.
-    const candidates = listableSessions(sessions)
-      .filter((session) => showArchived || !sessionArchived(session, sessionMeta[session.id]));
-    return candidates;
-  }, [sessions, showArchived, sessionMeta]);
-
-  const compareSessions = useCallback((a: SessionSummary, b: SessionSummary) => {
-    const aMeta = sessionMeta[a.id] ?? {};
-    const bMeta = sessionMeta[b.id] ?? {};
-    const archiveOrder = Number(sessionArchived(a, aMeta)) - Number(sessionArchived(b, bMeta));
-    if (archiveOrder !== 0) return archiveOrder;
-    const pinOrder = Number(sessionPinned(b, bMeta)) - Number(sessionPinned(a, aMeta));
-    if (pinOrder !== 0) return pinOrder;
-    if (displaySessionSort === "name") {
-      const byName = taskTitle(a.title).localeCompare(taskTitle(b.title), undefined, {
-        sensitivity: "base",
-      });
-      if (byName !== 0) return byName;
-    } else if (displaySessionSort === "oldest") {
-      const byCreated = compareOptionalDate(
-        optionalTimestamp(a.createdAt),
-        optionalTimestamp(b.createdAt),
-        false,
-      );
-      if (byCreated !== 0) return byCreated;
-    } else if (displaySessionSort === "created") {
-      const byCreated = compareOptionalDate(
-        optionalTimestamp(a.createdAt),
-        optionalTimestamp(b.createdAt),
-        true,
-      );
-      if (byCreated !== 0) return byCreated;
-    } else {
-      const byRecent = compareOptionalDate(
-        optionalTimestamp(a.updatedAt),
-        optionalTimestamp(b.updatedAt),
-        true,
-      );
-      if (byRecent !== 0) return byRecent;
-    }
-    return a.id.localeCompare(b.id);
-  }, [displaySessionSort, sessionMeta, taskTitle]);
-
-  const projectEntries = useMemo(() => {
-    const byPath = new Map<string, ProjectEntry>();
-    const add = (rawPath: string, name?: string, branch?: string, open = false) => {
-      const normalized = normalizeProjectPath(rawPath);
-      if (!normalized) return;
-      const existing = byPath.get(normalized);
-      if (existing) {
-        existing.open ||= open;
-        if (name && existing.name === projectName(existing.path)) existing.name = name;
-        if (branch && !existing.branch) existing.branch = branch;
-        return;
-      }
-      const meta = projectMetaFor(rawPath, projectMeta);
-      const remote = openProjects.find((project) => normalizeProjectPath(project.path) === normalized)?.remote
-        ?? (normalizeProjectPath(workspace?.path) === normalized ? workspace?.remote : undefined);
-      byPath.set(normalized, {
-        path: rawPath,
-        displayPath: remote?.path,
-        cloud: Boolean(remote) || rawPath.startsWith("remote-project:"),
-        key: normalized,
-        name: projectName(rawPath, meta.name ?? name),
-        sessions: [],
-        open,
-        active: normalized === activeProjectPath,
-        meta,
-        branch,
-      });
-    };
-    for (const path of openProjectPaths) {
-      const record = openProjects.find(
-        (project) => normalizeProjectPath(project.path) === path,
-      );
-      add(path, record?.name, record?.branch, true);
-    }
-    if (workspace?.path) add(workspace.path, workspace.name, workspace.branch, true);
-    for (const session of filtered) {
-      const sessionPath = normalizeProjectPath(session.projectPath);
-      if (!sessionPath) continue;
-      // A closed project remains discoverable in Projects, but its historical
-      // sessions must not recreate a sidebar tab that the user just closed.
-      const entry = byPath.get(sessionPath);
-      if (entry) entry.sessions.push(session);
-    }
-    const result = [...byPath.values()].filter(
-      (entry) => showArchived || !entry.meta.archived,
-    );
-    for (const entry of result) entry.sessions.sort(compareSessions);
-    result.sort((a, b) => {
-      if (a.cloud !== b.cloud) return Number(a.cloud) - Number(b.cloud);
-      const archiveOrder = Number(!!a.meta.archived) - Number(!!b.meta.archived);
-      if (archiveOrder !== 0) return archiveOrder;
-      const pinOrder = Number(!!b.meta.pinned) - Number(!!a.meta.pinned);
-      if (pinOrder !== 0) return pinOrder;
-      if (displayProjectSort === "manual") {
-        const byOrder =
-          (a.meta.order ?? Number.MAX_SAFE_INTEGER) -
-          (b.meta.order ?? Number.MAX_SAFE_INTEGER);
-        if (byOrder !== 0) return byOrder;
-      } else if (displayProjectSort === "name") {
-        const byName = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-        if (byName !== 0) return byName;
-      } else if (
-        displayProjectSort === "oldest" ||
-        displayProjectSort === "created"
-      ) {
-        const dateForProject =
-          displayProjectSort === "oldest" ? firstSessionDate : lastSessionDate;
-        const aCreated = dateForProject(a.sessions, "createdAt");
-        const bCreated = dateForProject(b.sessions, "createdAt");
-        const byCreated = compareOptionalDate(
-          aCreated,
-          bCreated,
-          displayProjectSort === "created",
-        );
-        if (byCreated !== 0) return byCreated;
-      } else {
-        const aRecent = lastSessionDate(a.sessions, "updatedAt");
-        const bRecent = lastSessionDate(b.sessions, "updatedAt");
-        const byRecent = compareOptionalDate(aRecent, bRecent, true);
-        if (byRecent !== 0) return byRecent;
-      }
-      return a.key.localeCompare(b.key);
-    });
-    return result;
-  }, [
-    filtered,
-    openProjectPaths,
-    openProjects,
-    workspace,
-    activeProjectPath,
-    projectMeta,
-    showArchived,
-    displayProjectSort,
-    sessionMeta,
-    compareSessions,
-  ]);
+  const untitled = t("chat.untitledTask");
+  const taskTitle = useCallback((title?: string | null) => sidebarTaskTitle(title, untitled), [untitled]);
+  const { filtered, compareSessions, projectEntries, temporarySessions } = useMemo(
+    () => sidebarSessionOrganization({
+      sessions,
+      sessionMeta,
+      sessionView,
+      openProjects,
+      openProjectPaths: openProjectPathsState,
+      workspace,
+      activeProjectPath: activeProjectPathState,
+      projectMeta,
+      projectSort,
+    }, untitled),
+    [sessions, sessionMeta, sessionView, openProjects, openProjectPathsState, workspace,
+      activeProjectPathState, projectMeta, projectSort, untitled],
+  );
 
   // Look up project entries by normalized path so session rows can fetch the
   // workspace name (and any other project metadata) for the hover card.
@@ -1027,12 +812,6 @@ export function Sidebar({
     });
   }, [projectEntriesByPath, revealSessionHoverCard, t, taskTitle]);
 
-  const temporarySessions = useMemo(
-    () => filtered
-      .filter((session) => !normalizeProjectPath(session.projectPath) && !(isRemoteSession(session) && session.remoteProjectId))
-      .sort(compareSessions),
-    [filtered, compareSessions],
-  );
   const { visibleSessions: visibleTemporarySessions, nextPageCount: temporaryNextPageCount } = useMemo(
     () => getVisibleRecentSessions(
       temporarySessions.filter((session) => !isRemoteSession(session)), temporarySessionsLimit,
@@ -1162,12 +941,6 @@ export function Sidebar({
     [showToast],
   );
 
-  const focusComposer = useCallback(() => {
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>(".composer-input")?.focus();
-    });
-  }, []);
-
   const selectProject = async (path: string): Promise<boolean> => {
     const normalized = normalizeProjectPath(path);
     if (!normalized) return false;
@@ -1236,7 +1009,7 @@ export function Sidebar({
     } catch (error) {
       reportError(error);
     }
-  }, [focusComposer, hideSessionHoverCard, reportError, selectSession, t]);
+  }, [hideSessionHoverCard, reportError, selectSession, t]);
 
   useEffect(() => cancelSessionPrefetch, []);
 
@@ -1268,120 +1041,17 @@ export function Sidebar({
     );
   };
 
-  const toggleSessionPin = (session: SessionSummary) => {
-    toggleSessionPinned(session.id);
-    closeMenus(false);
+  const focusPinnedSessionRow = (sessionId: string) => {
     // Pinning moves a row between lists, replacing its previous DOM node.
     requestAnimationFrame(() => {
       const row = document.querySelector<HTMLElement>(
-        `[data-sidebar-session-row="${CSS.escape(session.id)}"] [data-action="session-menu"]`,
+        `[data-sidebar-session-row="${CSS.escape(sessionId)}"] [data-action="session-menu"]`,
       );
       const target = row && !row.closest('[aria-hidden="true"]')
         ? row
         : document.querySelector<HTMLElement>('[data-action="session-sort"]');
       target?.focus();
     });
-  };
-
-  const archiveSession = async (session: SessionSummary) => {
-    const archived = sessionArchived(session, sessionMeta[session.id]);
-    const wasActive = activeSessionId === session.id;
-    const next =
-      !archived && wasActive
-        ? session.projectPath
-          ? projectEntries
-              .find((entry) => entry.key === normalizeProjectPath(session.projectPath))
-              ?.sessions.find(
-                (item) =>
-                  item.id !== session.id &&
-                  !sessionArchived(item, sessionMeta[item.id]),
-              )
-          : temporarySessions.find(
-              (item) =>
-                item.id !== session.id &&
-                !sessionArchived(item, sessionMeta[item.id]),
-            )
-        : undefined;
-    try {
-      closeMenus();
-      if (archived) {
-        restoreSession(session.id);
-        return;
-      }
-      if (wasActive && next) {
-        if (!(await selectProjectSession(next))) return;
-        archiveSessionAction(session.id);
-        return;
-      }
-      if (wasActive) {
-        // Archive first so an empty active slot is not reused as its own
-        // replacement. Restore it if creating the fallback slot fails.
-        archiveSessionAction(session.id);
-        try {
-          await newSession({ projectPath: session.projectPath ?? null });
-        } catch (error) {
-          restoreSession(session.id);
-          throw error;
-        }
-        return;
-      }
-      archiveSessionAction(session.id);
-    } catch (error) {
-      reportError(error);
-    }
-  };
-
-  const deleteSession = async (session: SessionSummary) => {
-    closeMenus();
-    // Same pre-check as the project-move entry: deleting a running session
-    // cascades its live rows away, so the row menu stops here with a
-    // translated notice and the main-side guard remains the race backstop.
-    if (runningSessions[session.id]) {
-      showToast(t("nav.deleteRunningSessionBlocked"), { variant: "warning" });
-      return;
-    }
-    const wasActive = activeSessionId === session.id;
-    const sameScope = session.projectPath
-      ? projectEntries.find(
-          (entry) => entry.key === normalizeProjectPath(session.projectPath),
-        )?.sessions ?? []
-      : temporarySessions;
-    const next = wasActive
-      ? sameScope.find(
-          (item) =>
-            item.id !== session.id &&
-            !sessionArchived(item, sessionMeta[item.id]),
-        ) ?? projectEntries
-          .flatMap((entry) => entry.sessions)
-          .find(
-            (item) =>
-              item.id !== session.id &&
-              !sessionArchived(item, sessionMeta[item.id]),
-          )
-      : undefined;
-    try {
-      await deleteSessionAction(session.id);
-      if (wasActive) {
-        if (next) await selectProjectSession(next);
-        else await newSession({ projectPath: session.projectPath ?? null });
-      }
-    } catch (error) {
-      reportError(error);
-    }
-  };
-
-  /**
-   * Two-step delete for one row's menu item. The first click arms the item and
-   * relabels it; only the second click runs the delete, and the arm expires on
-   * its own. The menu stays open between the two clicks.
-   */
-  const requestDeleteSession = (session: SessionSummary) => {
-    if (armedDelete !== session.id) {
-      setArmedDelete(session.id);
-      return;
-    }
-    setArmedDelete(null);
-    void deleteSession(session);
   };
 
   /** Batch delete: delete all selected sessions sequentially. */
@@ -1469,41 +1139,6 @@ export function Sidebar({
     renameProject(entry.path, name);
   };
 
-  const forkSession = async (session: SessionSummary) => {
-    if (!sessionAllows(session, "canEditMessages")) return;
-    closeMenus(false);
-    try {
-      await forkSessionAction(session.id);
-      focusComposer();
-    } catch (error) {
-      reportError(error);
-    }
-  };
-
-  const copyConversationId = async (session: SessionSummary) => {
-    try {
-      await navigator.clipboard.writeText(session.id);
-      showToast(t("chat.copied"));
-    } catch (error) {
-      reportError(error);
-    }
-    closeMenus();
-  };
-
-  /**
-   * The link another conversation references: pasting it into a Composer draft
-   * carries a bounded excerpt of this conversation into that turn (issue #1324).
-   */
-  const copySessionLink = async (session: SessionSummary) => {
-    try {
-      await navigator.clipboard.writeText(formatSessionLink(session.id));
-      showToast(t("chat.copied"));
-    } catch (error) {
-      reportError(error);
-    }
-    closeMenus();
-  };
-
   const copyTextToClipboard = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -1512,27 +1147,6 @@ export function Sidebar({
       reportError(error);
     }
     closeMenus();
-  };
-
-  const copySessionPath = async (session: SessionSummary) => {
-    if (isRemoteSession(session)) return;
-    try {
-      const { path } = await api.getSessionScratchPath(session.id);
-      await copyTextToClipboard(path);
-    } catch (error) {
-      reportError(error);
-      closeMenus();
-    }
-  };
-
-  const openSessionPath = async (session: SessionSummary) => {
-    if (isRemoteSession(session)) return;
-    closeMenus(false);
-    try {
-      await api.openSessionScratchPath(session.id);
-    } catch (error) {
-      reportError(error);
-    }
   };
 
   const toggleProjectPin = (entry: ProjectEntry) => {
@@ -1633,24 +1247,12 @@ export function Sidebar({
     sessionMenu && selectedIds.size > 1 && selectedIds.has(sessionMenu),
   );
 
-  /**
-   * Repository rows of the open menu. Both builders run every render, but they
-   * key their probes and reads to the open target, so a closed menu reads
-   * nothing; `onDone` is the sidebar's own close path.
-   */
-  const menuSession = sessionMenu
-    ? sessions.find((item) => item.id === sessionMenu)
-    : undefined;
-  const sessionWorktreeItems = useWorktreeSessionMenuItems({
-    sessionId: menuSession?.id ?? "",
-    title: taskTitle(menuSession?.title),
-    worktree: menuSession?.worktree,
-    running: Boolean(menuSession && runningSessions[menuSession.id]),
-    onDone: () => closeMenus(false),
+  const menuSession = sessionMenu ? sessions.find((item) => item.id === sessionMenu) : undefined;
+  const sessionContent = useSessionMenuContent(batchSelected ? undefined : menuSession, {
+    onClose: closeMenus,
+    onRename: setRenameFor,
+    onPin: focusPinnedSessionRow,
   });
-  const sessionDeleteLoss = useWorktreeDeleteLossText(
-    menuSession && armedDelete === menuSession.id ? menuSession.id : "",
-  );
   const menuProject = projectMenu
     ? projectEntries.find((item) => item.key === projectMenu)
     : undefined;
@@ -1673,157 +1275,6 @@ export function Sidebar({
         : value === "name"
           ? t("nav.sortName", { defaultValue: "Name" })
           : t("nav.sortCreated", { defaultValue: "Created date" });
-
-
-
-  const sessionMenuContent = useCallback(
-    (session: SessionSummary): SidebarMenuPanelContent => {
-      const meta = sessionMeta[session.id] ?? {};
-      const archived = sessionArchived(session, meta);
-      const pinned = sessionPinned(session, meta);
-      const native = session.source === "pi-native";
-      const gitItems = [
-        ...(native || !sessionAllows(session, "canEditMessages")
-          ? []
-          : [
-              sidebarMenuAction({
-                id: "fork-session",
-                label: t("nav.createBranch"),
-                icon: <IconBranch size={14} />,
-                title: t("nav.createBranch"),
-                disabled: Boolean(runningSessions[session.id]),
-                onSelect: () => void forkSession(session),
-              }),
-            ]),
-        ...sessionWorktreeItems,
-      ];
-      return {
-        label: t("nav.sessionActions", { defaultValue: "Session actions" }),
-        items: [
-          ...(native
-            ? []
-            : [
-                sidebarMenuAction({
-                  id: "rename-session",
-                  label: t("nav.renameTask", { defaultValue: "Rename task" }),
-                  icon: <IconPencil size={14} />,
-                  onSelect: () => {
-                    closeMenus(false);
-                    setRenameFor(session);
-                  },
-                }),
-              ]),
-          sidebarMenuAction({
-            id: "toggle-session-pin",
-            label: pinned
-              ? t("nav.unpinTask", { defaultValue: "Unpin" })
-              : t("nav.pinTask", { defaultValue: "Pin" }),
-            icon: <IconPin size={14} />,
-            onSelect: () => toggleSessionPin(session),
-          }),
-          sidebarMenuAction({
-            id: "toggle-session-archive",
-            label: archived
-              ? t("nav.restoreTask", { defaultValue: "Restore" })
-              : t("nav.archiveTask", { defaultValue: "Archive" }),
-            icon: archived ? <IconArchiveRestore size={14} /> : <IconArchive size={14} />,
-            onSelect: () => void archiveSession(session),
-          }),
-          ...(gitItems.length
-            ? [
-                sidebarMenuSubmenu({
-                  id: "session-git",
-                  label: t("worktree.menu.group", { defaultValue: "Git" }),
-                  icon: <IconBranch size={14} />,
-                  items: gitItems,
-                }),
-              ]
-            : []),
-          sidebarMenuSubmenu({
-            id: "session-copy",
-            label: t("chat.copy", { defaultValue: "Copy" }),
-            icon: <IconCopy size={14} />,
-            items: [
-              sidebarMenuAction({
-                id: "copy-conversation-id",
-                label: t("nav.copyConversationId"),
-                icon: <IconCopy size={14} />,
-                onSelect: () => void copyConversationId(session),
-              }),
-              ...(!isRemoteSession(session)
-                ? [
-                    sidebarMenuAction({
-                      id: "copy-session-path",
-                      label: t("nav.copySessionPath"),
-                      icon: <IconFolder size={14} />,
-                      onSelect: () => void copySessionPath(session),
-                    }),
-                  ]
-                : []),
-              sidebarMenuAction({
-                id: "copy-session-link",
-                label: t("nav.copySessionLink"),
-                icon: <IconCopy size={14} />,
-                onSelect: () => void copySessionLink(session),
-              }),
-            ],
-          }),
-          ...(settings?.developerMode === true && !isRemoteSession(session)
-            ? [
-                sidebarMenuAction({
-                  id: "open-session-path",
-                  label: t("nav.openSessionPath"),
-                  icon: <IconFolder size={14} />,
-                  onSelect: () => void openSessionPath(session),
-                }),
-              ]
-            : []),
-          ...(native
-            ? []
-            : [
-                sidebarMenuSubmenu({
-                  id: "session-danger",
-                  label: t("nav.dangerZone", { defaultValue: "Danger zone" }),
-                  icon: <IconTrash size={14} />,
-                  items: [
-                    sidebarMenuAction({
-                      id: "delete-session",
-                      label: armedDelete === session.id
-                        ? t("nav.deleteTaskConfirm", { defaultValue: "Delete?" })
-                        : t("nav.deleteTask", { defaultValue: "Delete" }),
-                      icon: <IconX size={14} />,
-                      danger: true,
-                      armed: armedDelete === session.id,
-                      onSelect: () => requestDeleteSession(session),
-                    }),
-                  ],
-                  notes: sessionDeleteLoss
-                    ? [{ id: "session-delete-loss", text: sessionDeleteLoss }]
-                    : undefined,
-                }),
-              ]),
-        ],
-      };
-    },
-    [
-      armedDelete,
-      archiveSession,
-      copyConversationId,
-      copySessionPath,
-      copySessionLink,
-      forkSession,
-      openSessionPath,
-      requestDeleteSession,
-      runningSessions,
-      sessionDeleteLoss,
-      sessionMeta,
-      sessionWorktreeItems,
-      settings?.developerMode,
-      t,
-      toggleSessionPin,
-    ],
-  );
-
   const projectMenuContent = useCallback(
     (entry: ProjectEntry): SidebarMenuPanelContent => {
       const archived = Boolean(entry.meta.archived);
@@ -2465,9 +1916,6 @@ export function Sidebar({
   const renderFloatingMenu = () => {
     if (!menuPosition || typeof document === "undefined") return null;
     const position = { top: menuPosition.top, left: menuPosition.left };
-    const session = sessionMenu
-      ? sessions.find((item) => item.id === sessionMenu)
-      : undefined;
     const entry = projectMenu
       ? projectEntries.find((item) => item.key === projectMenu)
       : undefined;
@@ -2514,18 +1962,14 @@ export function Sidebar({
         />,
       );
     }
-    if (session) {
+    if (batchSelected || sessionContent) {
       return portalToBody(
         <SidebarMenuPanel
           menuRef={floatingMenuRef}
           firstItemRef={menuFirstItemRef}
           position={position}
           onKeyDown={onMenuKeyDown}
-          content={
-            batchSelected
-              ? batchMenuContent(selectedIds.size)
-              : sessionMenuContent(session)
-          }
+          content={sessionContent ?? batchMenuContent(selectedIds.size)}
         />,
       );
     }
@@ -2582,7 +2026,11 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-body no-drag">
-        <SidebarPrimaryNav onNewTask={onNewTask} onBeforeNavigate={() => closeMenus(false)} />
+        <SidebarPrimaryNav
+          onNewTask={onNewTask}
+          onOpenSearch={onOpenSearch}
+          onBeforeNavigate={() => closeMenus(false)}
+        />
 
         {showProjectsSection ? (
           <>
@@ -2770,7 +2218,6 @@ export function Sidebar({
           registerDismissGuard={registerSessionHoverCardDismissGuard}
         />
       ) : null}
-      <WorktreeDialogs />
       <WorktreeBehindWatcher />
       {renameFor ? (
         <SessionRenameDialog

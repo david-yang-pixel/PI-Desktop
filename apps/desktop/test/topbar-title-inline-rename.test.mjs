@@ -72,7 +72,7 @@ test("an editable session renders the title as a real rename trigger", async () 
   });
 });
 
-test("cloud sessions omit the title while scheduled and empty sessions keep it read-only", async () => {
+test("cloud, scheduled, and empty sessions show read-only titles", async () => {
   await withTopbar(async ({ render }) => {
     const remote = render({
       activeSessionId: "remote:7",
@@ -86,7 +86,8 @@ test("cloud sessions omit the title while scheduled and empty sessions keep it r
         },
       ],
     });
-    assert.doesNotMatch(remote, /ct-title|Remote build/);
+    assert.match(remote, /<h1 class="ct-title">Remote build<\/h1>/);
+    assert.doesNotMatch(remote, /ct-title-trigger/);
 
     const scheduled = render({
       activeSessionId: "session-scheduled",

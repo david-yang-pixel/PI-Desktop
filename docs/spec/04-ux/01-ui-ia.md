@@ -19,6 +19,7 @@ destination, chat as the home surface, tools and permissions inline.
 | Sidebar (275px) | Main pane (active destination) | Work panel       |
 |            [⇤]   |  chat home / transcript        |  (optional,      |
 |  + New task      |  or Extensions page            |   resizable      |
+|  Search          |                                |                  |
 |  ◷ Scheduled     |                                |   ≥244px, dynamic|
 |  ⧉ Plugin market |                                | surface          |
 |  Sessions     +↕ |                                |                  |
@@ -33,15 +34,15 @@ destination, chat as the home surface, tools and permissions inline.
   **Cloud projects**. GitHub project rows show the repository name with a
   separate Host label. A session appears under its own project, including
   when pinned. Projectless local and cloud chats have their own temporary groups.
-  Above the lists, three labelled primary rows: **New task**,
+  Above the lists, four labelled primary rows: **New task**, **Search**,
   **Scheduled** (hidden while scheduled tasks are disabled) and **Plugin
   market** (opens the Extensions page on its Market tab; activating it again
   while Extensions is active performs one Back step). The footer holds only a
   labelled **Settings** entry (opens the Settings dialog) on the left and the
   version/update chip on the right. The sidebar has no notification entry
-  (issue #2431). Every module except Settings can be hidden from Settings →
-  Appearance → Sidebar modules (`AppSettings.sidebarModules`; all shown by
-  default). Hiding Projects lets the local temporary list take the freed
+  (issue #2431). Settings and Search are always available in the expanded
+  sidebar. The other modules can be hidden from Settings → Appearance →
+  Sidebar modules (`AppSettings.sidebarModules`; all shown by default). Hiding Projects lets the local temporary list take the freed
   height. Each retained project is a
   path-keyed tab/group that can be
   collapsed independently. Project and conversation rows expose
@@ -587,9 +588,11 @@ Copy rules live in [02-i18n-english-first](02-i18n-english-first.md).
 The home composer has a separate location row below the input card, with This
 computer and environments on paired Hosts. Selecting a remote environment
 reveals a repository picker with a No repository option. A selected repository
-adds the base-branch picker. A projectless cloud prompt uses the selected
-Host's default model and a session scratch directory on that Host. Setup
-scripts and environment variables apply to repository workspaces. The row wraps
+adds the base-branch picker. A projectless cloud prompt runs in a session
+scratch directory on the selected Host. The composer lets an owner choose a
+model configured on that Host, or leave Host default model selected. An older
+Host still supports the default choice. The first prompt uses the model saved
+on the Host session at creation. The row wraps
 when space is limited and sits outside the input card's background and shadow.
 The composer shows preparation and setup status. The session top bar shows
 the Host, repository, work branch, and a link to a recorded pull request.

@@ -325,20 +325,13 @@ reached from the command palette / application menu, not the top bar.)
 ### 2.2 Anatomy
 
 ```text
-[☰ Sidebar] [Folder · Project / Task title]       [＋ New] [🔍 Search]
+[☰ Sidebar] [Folder · Project / Task title]       [Conversation details] [More] [Work panel]
 ```
 
-(Icons described functionally; actual render uses Lucide SVGs. The `[☰ Sidebar]`
-toggle renders **only when the sidebar is collapsed**; when the sidebar is
-expanded it owns that control, so the top bar does not duplicate it. The
-`[🔍 Search]` control is the chrome search entry; the expanded sidebar header
-does not duplicate it. Keyboard shortcuts and the application menu remain
-available.)
-
-The conversation-topbar New task and Search tooltips append the effective,
-platform-formatted shortcut. A custom binding replaces the default; an
-explicitly unbound shortcut is omitted. The accessible name remains the
-localized action label.
+The sidebar toggle appears only while the sidebar is collapsed. The expanded
+sidebar shows New task and Search in its primary navigation, with Search
+directly after New task. Both actions remain available through their shortcuts
+and application menu commands.
 
 The conversation top bar renders for the chat route only. Scheduled, Plugins,
 and Settings keep the frameless drag band. Local chats resolve the breadcrumb
@@ -347,12 +340,25 @@ project crumb. Before the first prompt, the active workspace names the draft.
 The title follows the crumb after a `/` separator. The native tooltip retains
 the full `Project · Task title` text.
 
-For cloud sessions, the 46px band leaves the content area empty and draggable
-with the sidebar open or closed. This includes Host-owned sessions and
-Desktop-owned sessions bound to a remote workspace. The sidebar identifies the
-project and task. Workspace preparation and recovery feedback appear beside the
-composer. The window actions stay in their existing positions, and users can
-open published pull requests from links returned in the conversation.
+More opens the same session actions as the sidebar row, including rename,
+pin, archive, copy, Git and deletion where the session supports them. The
+menu stays reachable while the sidebar is collapsed.
+
+For cloud sessions, the left side displays the session title as read-only text.
+This includes Host-owned sessions and Desktop-owned sessions bound to a remote
+workspace. Workspace preparation and recovery feedback appear beside the
+composer. Users can open published pull requests from links in the conversation.
+
+Conversation details opens a right-aligned, read-only sheet for the active
+session. It shows the saved execution location and available workspace,
+repository, and branch metadata. Context occupancy follows the composer readout.
+Tools are grouped by name from the loaded conversation. Changes lists recorded
+file operations from the loaded transcript, newest first, with expandable,
+read-only diffs. A saved GitHub pull request is linked when available.
+Open in Review closes the sheet and reveals the recorded changes in the
+session's Review tab when that work panel surface is available.
+Closing the sheet returns focus to its button. Changing sessions closes
+the sheet.
 
 The Composer owns the Agent/Plan/Goal control and the combined model × reasoning
 selection (§11).
@@ -376,7 +382,7 @@ the active session changes.
   the sidebar is collapsed. Windows/Linux reserve the right 120px for native
   window controls (112px of hit targets plus an 8px visual buffer). The
   conversation titlebar follows the pane edges and keeps at least 8px
-  between its action group and the viewport-fixed work-panel
+  between its details button and the viewport-fixed work-panel
   toggle, including during dock animations and on narrow windows. The open
   panel header ends its box before the native control band so its tab strip and
   `+` stay clear of the window controls.
@@ -442,7 +448,7 @@ the active session changes.
 | Project crumb | folder glyph + session project name, quiet text scale | same | same | omitted for a temporary chat |
 | Task title | session title (or untitled); local tasks are an inline rename trigger with ellipsis only on overflow; remote/scheduled titles are plain text | same | same | same |
 | Task title editor | boxless input, focused and selected, capped at the shared title limit | same | toast on failed save; the previous title remains | same |
-| New task / Search | icon buttons | same | same | same |
+| Conversation details | labelled icon button for an active session | same | same | hidden until a session exists |
 | Composer stop control | hidden | visible only when the running composer draft is empty | hidden | hidden |
 
 ### 2.5 Accessibility
@@ -494,6 +500,10 @@ Expanded (~275px, D034/D070):
 +---------------------------+
 | [lights]             [◧] |  macOS
 | [π] PI-Desktop       [◧] |  Windows/Linux
+| New task                  |
+| Search                    |
+| Scheduled                 |
+| Plugin market             |
 | PINNED                   |
 |   • Pinned task  project-A|
 | SESSIONS         [msg+][↕]|
@@ -619,8 +629,7 @@ visually distinct from list content.
   right-aligned; clicking the chip checks for updates or opens the available
   release in Settings
 - Click Collapse sidebar at the right of the header row to collapse the sidebar.
-  Global search opens from the conversation topbar, shortcuts, and application
-  menu; the expanded sidebar header does not host a search control
+  Open global search from the Search row, its shortcut, or the application menu.
 - Drag the expanded sidebar's right edge to adjust its width. The main pane
   reflows continuously, the press position remains anchored, and the final
   width is saved on release. Focus the edge handle and use ArrowLeft/Right,
@@ -825,9 +834,8 @@ visually distinct from list content.
 
 ### 3.8 MVP constraints
 
-- Global search opens from the conversation topbar, keyboard shortcuts, and
-  the application menu; the expanded sidebar header does not host a search
-  control
+- Search remains reachable in expanded primary navigation when the configurable
+  New task, Scheduled, or Plugin market rows are hidden.
 - Project drag/manual reorder is renderer-local and changes presentation only;
   it never moves an on-disk directory or changes the host-selected workspace
 - Project tabs do not create another host workspace or a second main pane

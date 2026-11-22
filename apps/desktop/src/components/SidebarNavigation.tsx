@@ -4,19 +4,17 @@ import { useUpdateState } from "../hooks/use-update-state";
 import { api } from "../lib/api";
 import { usePluginBrowseState } from "../features/plugins/browse-state";
 import { useAppStore } from "../stores/app-store";
-import { IconClock, IconNewSession, IconPlug, IconSettings } from "./icons";
+import { IconClock, IconNewSession, IconPlug, IconSearch, IconSettings } from "./icons";
 import { cx, TooltipButton } from "./ui";
 
-/**
- * The sidebar's primary destinations, above the session lists: start a new
- * task, the Scheduled page and the plugin marketplace. Labelled rows rather
- * than footer icons, so each destination reads without a tooltip.
- */
+/** The sidebar's labelled navigation and actions above the session lists. */
 export function SidebarPrimaryNav({
   onNewTask,
+  onOpenSearch,
   onBeforeNavigate,
 }: {
   onNewTask: () => void;
+  onOpenSearch: () => void;
   /** Dismiss sidebar-owned menus before the destination changes. */
   onBeforeNavigate?: () => void;
 }) {
@@ -38,8 +36,6 @@ export function SidebarPrimaryNav({
     setPage("plugins");
   };
 
-  if (!showNewTask && !showScheduled && !showPluginMarket) return null;
-
   return (
     <nav className="sidebar-primary-nav" aria-label={t("nav.primary")}>
       {showNewTask && (
@@ -56,6 +52,19 @@ export function SidebarPrimaryNav({
           <span className="sidebar-primary-label">{t("nav.newTask")}</span>
         </button>
       )}
+      <button
+        type="button"
+        className="sidebar-primary-item"
+        data-nav="search"
+        aria-haspopup="dialog"
+        onClick={() => {
+          onBeforeNavigate?.();
+          onOpenSearch();
+        }}
+      >
+        <IconSearch size={15} aria-hidden />
+        <span className="sidebar-primary-label">{t("nav.search")}</span>
+      </button>
       {showScheduled && (
         <button
           type="button"

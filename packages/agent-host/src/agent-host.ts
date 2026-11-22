@@ -1380,6 +1380,8 @@ export class AgentHost {
       title: summary.title,
       ...(summary.projectId ? { projectId: summary.projectId } : {}),
       ...(summary.workspaceLabel ? { workspaceLabel: summary.workspaceLabel } : {}),
+      ...(summary.providerId ? { providerId: summary.providerId } : {}),
+      ...(summary.modelId ? { modelId: summary.modelId } : {}),
       mode: summary.mode,
       status: state.status,
       planningState: state.planningState,

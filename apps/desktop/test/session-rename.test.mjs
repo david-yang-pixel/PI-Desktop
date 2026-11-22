@@ -28,9 +28,13 @@ const [
   loadStyles(),
 ]);
 
-test("session rename is available from sidebar and project archive task rows", () => {
-  assert.match(sidebarSource, /id: "rename-session"/);
-  assert.match(sidebarSource, /setRenameFor\(session\)/);
+test("session rename is available from the sidebar, topbar, and project archive", async () => {
+  const sessionMenu = await read("../src/components/useSessionMenuContent.tsx");
+  const topbarMenu = await read("../src/components/ConversationMoreMenu.tsx");
+  assert.match(sessionMenu, /id: "rename-session"[\s\S]*?onRename\(session\)/);
+  assert.match(sidebarSource, /useSessionMenuContent\([\s\S]*?onRename: setRenameFor/);
+  assert.match(topbarMenu, /useSessionMenuContent\([\s\S]*?onRename: \(\) => setRename\(true\)/);
+  assert.match(topbarMenu, /rename && <SessionRenameDialog session=\{session\}/);
   assert.match(projectsDetailSource, /projects-detail-task-rename/);
   assert.match(projectsDetailSource, /onRenameSession\(session\)/);
   assert.match(projectsDetailSource, /onContextMenu=/);
