@@ -229,12 +229,13 @@ export function registerSessionIpc({
           .call<{ sessions: RuntimeSession[] }>("native.session.list", { projectPaths })
           .catch(() => ({ sessions: [] as RuntimeSession[] }))
       : { sessions: [] as RuntimeSession[] };
+    const workspaces = getRepositorySessions?.()?.workspaces;
     return {
       ...result,
       runningSessionIds: [...activeTurns.keys()],
       sessions: [
         ...result.sessions.map((session) => ({
-          ...enrichSession(session, providers, defaults),
+          ...enrichSession(workspaces?.withLiveProgress(session) ?? session, providers, defaults),
           source: "desktop",
         })),
         ...native.sessions,
@@ -409,9 +410,9 @@ export function registerSessionIpc({
         }),
         sessionCapabilityContext(),
       ]);
-      return result.session
-        ? { ...result, session: enrichSession(result.session, providers, defaults) }
-        : result;
+      if (!result.session) return result;
+      const session = getRepositorySessions?.()?.workspaces.withLiveProgress(result.session) ?? result.session;
+      return { ...result, session: enrichSession(session, providers, defaults) };
     },
   );
   handle(IPC.invoke.sessionCollaboration, async (input?: { sessionId?: unknown }) => {

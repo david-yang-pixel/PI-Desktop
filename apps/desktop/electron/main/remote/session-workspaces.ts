@@ -18,6 +18,8 @@ export type WorkspaceBinding = SessionRemoteRepository & {
   updatedAt?: string;
 };
 export type WorkspaceStart = RemoteSessionWorkspaceStart & { fromSessionId?: string };
+/** What a running prepare job last reported; host-core does not store it. */
+type JobSnapshot = Pick<WorkspaceGitJob, "phase" | "progress" | "setupLogTail">;
 
 /**
  * How long a delete waits for a cancelled Host job to stop. The Host's own
@@ -69,6 +71,12 @@ export function createSessionWorkspaces(deps: {
   const reclaiming = new Map<string, Promise<WorkspaceGitReclaimResult>>();
   const rerunSetups = new Set<string>();
   const cancelling = new Map<string, Promise<SessionRemoteRepository | null>>();
+  /**
+   * The last phase and progress of each preparing session, so a renderer that
+   * reloads mid-preparation reads them back with the binding instead of the
+   * generic status. Main memory only: a restart polls the job again.
+   */
+  const lastProgress = new Map<string, JobSnapshot>();
   let disposed = false;
   /** Ends waits that nothing else owns, such as a delete's job stop. */
   const disposal = new AbortController();
@@ -107,7 +115,7 @@ export function createSessionWorkspaces(deps: {
   async function announceEnvironments() {
     emit(IPC.event.environmentsChanged, { environments: await list() });
   }
-  function publicBinding(b: WorkspaceBinding, job?: WorkspaceGitJob): SessionRemoteRepository {
+  function publicBinding(b: WorkspaceBinding, job?: JobSnapshot): SessionRemoteRepository {
     const { environmentId, hostKey, repository, baseBranch, state, workBranch, setup, pullRequest, error, reclaimedAt, reclaimedCommit } = b;
     const liveSetup = job?.phase === "runningSetup"
       ? { status: "running" as const, ...(job.setupLogTail ? { logTail: job.setupLogTail } : {}) }
@@ -119,7 +127,16 @@ export function createSessionWorkspaces(deps: {
       ...(job ? { phase: job.phase, progress: job.progress } : {}),
     };
   }
+  function remember(b: Pick<WorkspaceBinding, "sessionId" | "state">, job?: JobSnapshot) {
+    if (b.state !== "preparing") lastProgress.delete(b.sessionId);
+    else if (job) lastProgress.set(b.sessionId, { phase: job.phase, progress: job.progress, setupLogTail: job.setupLogTail });
+  }
+  /** The binding with the progress its running job last reported. */
+  function livePublicBinding(b: WorkspaceBinding): SessionRemoteRepository {
+    return publicBinding(b, b.state === "preparing" ? lastProgress.get(b.sessionId) : undefined);
+  }
   function announce(b: WorkspaceBinding, job?: WorkspaceGitJob) {
+    remember(b, job);
     const remoteRepository = publicBinding(b, job);
     emit(IPC.event.remoteSessionWorkspaceChanged, { sessionId: b.sessionId, remoteRepository });
     return remoteRepository;
@@ -239,6 +256,8 @@ export function createSessionWorkspaces(deps: {
       await save({ state: "failed", jobId: null, error: { code: remoteCode(error) ?? "WORKSPACE_GIT_FAILED", message } });
     } finally {
       rerunSetups.delete(sessionId);
+      // No job is reporting for this session once its monitor stops.
+      lastProgress.delete(sessionId);
     }
   }
   function watch(sessionId: string) {
@@ -253,6 +272,7 @@ export function createSessionWorkspaces(deps: {
 
   async function beginPreparation(current: WorkspaceBinding, rebuild = current.requireSetupOnRetry === true) {
     const { sessionId } = current;
+    lastProgress.delete(sessionId);
     const result = announce(await update(sessionId, { state: "preparing", jobId: null, error: null, requireSetupOnRetry: rebuild }, current.state));
     watch(sessionId);
     return result;
@@ -471,7 +491,22 @@ export function createSessionWorkspaces(deps: {
     watch, stopJob, prepareTool,
     async get(sessionId: string) {
       const current = await binding(sessionId);
-      return current ? publicBinding(current) : null;
+      return current ? livePublicBinding(current) : null;
+    },
+    /**
+     * A session summary read from host-core, with the phase and progress its
+     * preparing workspace last reported. Synchronous and memory only.
+     */
+    withLiveProgress<T extends { id?: string; remoteRepository?: unknown }>(session: T): T {
+      // Host-core's public binding: `SessionRemoteRepository` without progress.
+      const current = session.remoteRepository as SessionRemoteRepository | undefined;
+      const live = session.id && current?.state === "preparing" ? lastProgress.get(session.id) : undefined;
+      if (!live || !current) return session;
+      const remoteRepository: SessionRemoteRepository = { ...current, phase: live.phase, progress: live.progress };
+      if (live.phase === "runningSetup") {
+        remoteRepository.setup = { status: "running", ...(live.setupLogTail ? { logTail: live.setupLogTail } : {}) };
+      }
+      return { ...session, remoteRepository };
     },
     async resolve(input: RemoteSessionTarget) {
       const environment = await getEnvironment(input.environmentId);
@@ -601,6 +636,7 @@ export function createSessionWorkspaces(deps: {
       disposed = true;
       disposal.abort();
       rerunSetups.clear();
+      lastProgress.clear();
       for (const task of jobs.values()) task.controller.abort();
     },
   };
