@@ -19,14 +19,32 @@ and the [remote end-to-end scenarios](../spec/06-delivery/e2e/live-and-remote.md
 
 ## Release acceptance
 
-- The fork needs a GitHub OAuth App with device flow enabled before a signed-in
-  user can authorize with a code. Put the App's public client ID in
-  `GITHUB_OAUTH_CLIENT_ID`. A personal access token is already supported.
-- Use `scripts/probe-github-mcp.mjs` with a token obtained from the fork's OAuth
-  App to verify hosted MCP compatibility for that token type.
+Done (details in
+[Device Flow acceptance](../adr/github-agent-tools.md#device-flow-acceptance)):
+
+- The fork's OAuth App public client ID is in the
+  `PI_DESKTOP_GITHUB_OAUTH_CLIENT_ID` Actions variable, and the
+  [`v0.23.1-pr.9`](https://github.com/david-yang-pixel/PI-Desktop/releases/tag/v0.23.1-pr.9)
+  macOS package carried it. On 2026-11-21 its connector obtained a token through
+  Device Flow, and GitHub REST accepted that token for `/user`. Personal access
+  tokens remain supported.
+- `scripts/probe-github-mcp.mjs` with that token reached hosted MCP:
+  `initialize`, `notifications/initialized`, and `tools/list` succeeded, and the
+  list had 20 tools from the `issues,pull_requests` toolsets.
+
+Still open:
+
+- Call a hosted MCP tool (`tools/call`) with a Device Flow token. The probe
+  stops at tool discovery, so no hosted tool call has been verified yet.
 - Verify an unsigned macOS arm64 package on a Mac, including manual update
-  routing. Cut a versioned fork release when ready so paired Hosts can install
-  matching bundles. See the [release runbook](../spec/06-delivery/06-release-runbook.md).
+  routing.
+- Run the manual acceptance on the owner's paired Host: start a session from a
+  private repository, let the Agent push its branch, and let it open the pull
+  request.
+- Cut a stable (non-prerelease) fork release with this work. `v0.23.0` is the
+  latest stable release and predates D693; later work ships only in
+  `v0.23.1-pr.N` prereleases. See the
+  [release runbook](../spec/06-delivery/06-release-runbook.md).
 
 General network policy for host commands and proxy-based GitHub upstream access
 remain outside this design. The planned host connects directly to GitHub.
