@@ -813,8 +813,9 @@ repository, and a git wrapper that stalls or fails a chosen step. No Desktop,
 3. If its work branch gained a commit, the prepare fails and keeps the
    commit and the checkout; removal without `force` reports the commit, and
    `force` removes everything.
-4. A non-empty directory already at the worktree path, and a work branch
-   without a registration, survive a failed prepare.
+4. A non-empty directory already at the worktree path survives a failed
+   prepare. A work branch without a registration is adopted instead
+   (`E2E-REMOTE-git-prepare-adopts-legacy-work-branch`).
 5. A cancelled setup whose cleanup failed stays registered and is finished
    by the next prepare.
 6. An interrupted strict restore is retried from a clean checkout, or

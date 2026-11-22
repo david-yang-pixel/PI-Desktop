@@ -61,6 +61,19 @@ pub struct Recovery {
 }
 
 impl Recovery {
+    /// A checkout creation on a branch the registration already owns (an
+    /// adopted branch, or a restore) stopped before it finished, and nothing
+    /// else is pending: rolling the checkout back and creating it again is
+    /// safe and loses nothing.
+    pub fn only_checkout_pending(&self) -> bool {
+        self.checkout_creation_pending
+            && !self.branch_creation_pending
+            && !self.strict_setup_pending
+            && self.reclaimed_at.is_none()
+            && self.reclaimed_commit.is_none()
+            && self.reclaim_intent.is_none()
+    }
+
     pub fn blocks_access(&self) -> bool {
         self.reclaimed_at.is_some()
             || self.reclaimed_commit.is_some()

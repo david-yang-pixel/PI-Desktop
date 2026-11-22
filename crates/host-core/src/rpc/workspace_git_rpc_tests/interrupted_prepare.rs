@@ -198,28 +198,6 @@ async fn files_already_at_the_worktree_path_are_never_removed() {
     assert!(listed_sessions(&f).await.is_empty());
 }
 
-#[tokio::test]
-async fn an_unregistered_work_branch_is_never_deleted() {
-    let f = Fixture::new();
-    f.prepare("session-1", "main").await;
-    // A branch with this session's name that no registration owns, for
-    // example one an older host-core left behind.
-    let branch = work_branch(INSTALLATION, "session-2");
-    let develop = rev_parse(&f.main_path(), "refs/remotes/origin/develop");
-    git_cmd(&f.main_path(), &["branch", "--", &branch, &develop]);
-
-    let job_id = f.start_prepare(f.prepare_params("session-2", "main")).await;
-    let (job, _phases) = f.wait(&job_id).await;
-    assert_eq!(job["state"], "failed", "{job}");
-    assert_eq!(job["error"]["code"], "WORKSPACE_GIT_FAILED");
-    assert_eq!(
-        rev_parse(&f.main_path(), &format!("refs/heads/{branch}")),
-        develop
-    );
-    assert!(!f.worktree_path("session-2").exists());
-    assert_eq!(listed_sessions(&f).await, ["session-1"]);
-}
-
 /// A reclaimed session whose strict restore stopped after `git worktree add`
 /// started: the registration says the checkout is being created, and a
 /// partial checkout is on disk.

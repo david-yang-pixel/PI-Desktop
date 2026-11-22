@@ -97,34 +97,33 @@ pub async fn create(
 }
 
 /// A worktree that can be created: its path is free or an empty directory,
-/// its work branch does not exist, and its start commit is resolved. It
-/// holds the repository lock until `add`, so the caller can record that it
-/// owns what `add` creates before anything exists.
+/// and its start commit is resolved. It holds the repository lock until
+/// `add`, so the caller can record that it owns what `add` creates before
+/// anything exists.
 pub struct NewWorktree {
     _lock: OwnedMutexGuard<()>,
     path: String,
     work_branch: String,
     pub base_commit: String,
+    /// The work branch already existed without a registration: `add` checks
+    /// it out as it is instead of creating it.
+    pub adopted: bool,
 }
 
 impl NewWorktree {
-    /// `git worktree add` on the new work branch; returns the start commit.
+    /// `git worktree add` on the work branch; returns the base commit.
     pub async fn add(self, git: &GitRunner, main_path: &Path) -> Result<String, WorkspaceGitError> {
-        add(
-            git,
-            main_path,
-            &self.path,
-            &self.work_branch,
-            Some(&self.base_commit),
-        )
-        .await?;
+        let start = (!self.adopted).then_some(self.base_commit.as_str());
+        add(git, main_path, &self.path, &self.work_branch, start).await?;
         Ok(self.base_commit)
     }
 }
 
-/// Check that a worktree can be created on a new `work_branch` from `start`.
-/// Nothing but the parent directory is created. Existing paths and branches
-/// are left intact: neither belongs to a prepare that did not create it.
+/// Check that a worktree can be created on `work_branch` from `start`.
+/// Nothing but the parent directory is created. An existing path is left
+/// intact. An existing work branch, which an older host-core left without a
+/// registration, is adopted: `add` checks it out as it is, and its commits
+/// are never deleted or reset. Its base commit is where it left `start`.
 pub async fn begin_create(
     git: &GitRunner,
     main_path: &Path,
@@ -166,8 +165,46 @@ pub async fn begin_create(
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    // A branch with this name that no registration owns, for example one an
-    // older host-core left behind, is not this prepare's to take or delete.
+    let adopted = local_branch_exists(git, main_path, work_branch).await?;
+    let base_commit = if adopted {
+        // git refuses a path a stale worktree entry still claims.
+        drop_admin_entry(&repository::common_dir(main_path), worktree_path)?;
+        let branch = format!("refs/heads/{work_branch}");
+        let merge_base = git
+            .output(main_path, &["merge-base", &base_commit, &branch])
+            .await
+            .map_err(git_failed("merge-base"))?;
+        match merge_base.stdout.trim() {
+            oid if merge_base.success() && super::push::is_object_id(oid) => oid.to_string(),
+            // Unrelated histories: the base is where the session would start.
+            _ => base_commit,
+        }
+    } else {
+        base_commit
+    };
+    if let Some(parent) = worktree_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(NewWorktree {
+        _lock: lock,
+        path,
+        work_branch: work_branch.to_string(),
+        base_commit,
+        adopted,
+    })
+}
+
+/// Whether `refs/heads/<work_branch>` exists; `false` before the main
+/// checkout does.
+pub async fn local_branch_exists(
+    git: &GitRunner,
+    main_path: &Path,
+    work_branch: &str,
+) -> Result<bool, WorkspaceGitError> {
+    validate_branch(work_branch)?;
+    if !main_path.join(".git").is_dir() {
+        return Ok(false);
+    }
     let branch = format!("refs/heads/{work_branch}");
     let existing = git
         .output(
@@ -177,27 +214,12 @@ pub async fn begin_create(
         .await
         .map_err(git_failed("show-ref"))?;
     match existing.status {
-        1 => {}
-        0 => {
-            return Err(WorkspaceGitError::failed(
-                "a work branch for this session already exists on the host",
-            ))
-        }
-        _ => {
-            return Err(WorkspaceGitError::failed(
-                "could not inspect the local work branch",
-            ))
-        }
+        0 => Ok(true),
+        1 => Ok(false),
+        _ => Err(WorkspaceGitError::failed(
+            "could not inspect the local work branch",
+        )),
     }
-    if let Some(parent) = worktree_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    Ok(NewWorktree {
-        _lock: lock,
-        path,
-        work_branch: work_branch.to_string(),
-        base_commit,
-    })
 }
 
 async fn add(

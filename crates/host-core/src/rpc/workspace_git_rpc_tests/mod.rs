@@ -929,6 +929,7 @@ async fn a_restore_only_request_cannot_create_a_new_registration() {
     assert!(!f.main_path().exists());
 }
 
+mod adoption;
 mod interrupted_prepare;
 mod locking;
 /// Tests that spawn real git processes and inspect the process table.

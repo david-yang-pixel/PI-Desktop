@@ -849,8 +849,16 @@ type WorkspaceGitJob = {
   and a `restoreOnly` prepare answer `WORKSPACE_GIT_NOT_FOUND`. A work branch
   that gained commits meanwhile is kept: the prepare fails, removal without
   `force` reports the commits, and `force` discards them. A non-empty
-  directory at the worktree path, or a work branch that no registration
-  owns, is never removed; the prepare fails instead.
+  directory at the worktree path is never removed; the prepare fails
+  instead.
+- A work branch `pi-desktop/<id>` that exists without a registration (older
+  Hosts created branches before registering them) is adopted when the
+  worktree path is free or an empty directory: the prepare registers it and
+  checks it out as it is, with every commit it holds, and `baseCommit` is
+  where it left the base branch. Such a branch is never deleted or reset:
+  a cancelled setup keeps it, and an adoption that fails while creating the
+  checkout keeps it registered with `checkoutPresent: false`, so status and
+  removal count its commits and the next prepare finishes the checkout.
 
 **Status and removal.** `WorkspaceGitStatus` carries the worktree, `ahead` and
 `behind` relative to the remote work branch (zero before the first push),
