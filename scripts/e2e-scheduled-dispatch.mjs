@@ -22,6 +22,7 @@ try {
   for (const title of ["First", "Second"]) {
     const { task } = await host.call("scheduled.create", {
       title, prompt: "Reply OK", cadence: "hourly",
+      showInSidebar: title === "First",
       schedule: { hour: 0, minute: 0, weekday: 0 },
     });
     // Controlled due instant in an isolated profile, without wall-clock sleeps.
@@ -63,10 +64,15 @@ try {
   runner.stop();
   assert.deepEqual(errors, []);
   await host.restart();
+  const { sessions } = await host.call("session.list");
   for (const task of tasks) {
-    assert.equal((await host.call("scheduled.listRuns", { taskId: task.id })).runs[0].status, "completed");
+    const { runs: [run] } = await host.call("scheduled.listRuns", { taskId: task.id });
+    assert.equal(run.status, "completed");
+    const session = sessions.find(({ id }) => id === run.sessionId);
+    assert.equal(session.scheduledRun, true);
+    assert.equal(session.showScheduledRunInSidebar === true, task.showInSidebar);
   }
-  console.log("PASS independent admission, overlap prevention, stop, durable completed runs after restart");
+  console.log("PASS independent admission, overlap prevention, stop, and durable completed runs and sidebar visibility after restart");
 } finally {
   clearTimeout(deadline);
   runner?.stop();

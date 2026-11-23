@@ -2465,6 +2465,7 @@ sklm: {
     "sessionModePerRun": "Nouvelle conversation à chaque exécution",
     "sessionModeReuse": "Réutiliser une conversation",
     "sessionModeHint": "Chaque exécution écrit dans la même conversation : la tâche garde un fil continu.",
+    "showInSidebar": "Afficher dans la barre latérale une fois l’exécution terminée",
     "neverRun": "Pas encore exécuté",
     "selectTask": "Sélectionnez une tâche pour voir ses exécutions.",
     "emptyRuns": "Aucune exécution",

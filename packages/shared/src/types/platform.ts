@@ -143,6 +143,8 @@ export type ScheduledTask = {
    * continues the conversation its previous run used (`reuse`).
    */
   sessionMode?: ScheduledSessionMode;
+  /** Show successfully completed per-run conversations in the sidebar. Defaults to off. */
+  showInSidebar?: boolean;
   providerId?: string;
   modelId?: string;
 };

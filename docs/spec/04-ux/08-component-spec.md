@@ -1597,11 +1597,12 @@ unpinned history for retained project tabs and path-less sessions.
 Pin/archive/collapse state is a presentation over durable host
 sessions, not a replacement persistence model.
 
-A scheduled-task run's transcript is never part of this list: the run owns its
-session (`task_runs.session_id`), the host reports that ownership as
-`scheduledRun` on every session summary, and the Scheduled route is its entry
-point. Global session search hides the same rows. Deleting the task releases the
-transcript back into the ordinary lists (issue #1291).
+Scheduled transcripts are available through their run history. A successfully
+completed, opted-in run also appears in the sidebar's usual project or
+temporary conversation group with the task title. The session keeps its
+`scheduledRun` marker and the run retains `task_runs.session_id` for navigation.
+Global session search filters scheduled transcripts by ownership. Deleting a
+task releases its transcripts into the ordinary lists (issue #1291).
 
 ### 6.2 Anatomy
 
@@ -4663,6 +4664,9 @@ TASKS (2)                     │ Nightly dependency check   [Enabled] [Run now]
 - The conversation mode decides who owns a run's transcript: `perRun` opens a
   conversation for each run, and `reuse` continues the task's previous one while
   it still exists and still belongs to the same project.
+- **Show in sidebar after completion** is available in `perRun` mode and
+  defaults to off. Each future successful run appears as a separate sidebar
+  conversation and remains available from the task's run history.
 - The task form owns the page while it is open: the task column and the task
   page are not rendered, so the draft never competes with the page it came from.
 - An interval task states a count with a minute or hour unit (5 minutes to 24

@@ -45,7 +45,8 @@ for (const [version, constrained] of [[31, true], [32, false], [32, true]]) {
     await host.call("session.endTurn", { turnId: savedTurn, status: "completed", createNotification: false });
     await host.stop();
     db = new DatabaseSync(file);
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 33);
+    const currentSchemaVersion = db.prepare("PRAGMA user_version").get().user_version;
+    assert.ok(currentSchemaVersion >= 33);
     db.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON; BEGIN;");
     if (constrained) {
       const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'").get().sql;
@@ -88,7 +89,7 @@ for (const [version, constrained] of [[31, true], [32, false], [32, true]]) {
     assert.equal(created.session.mode, "goal-3");
     await host.stop();
     db = new DatabaseSync(file, { readOnly: true });
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 33);
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, currentSchemaVersion);
     assert.deepEqual(db.prepare("SELECT * FROM turn_execution").all(), retained);
     assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='trigger' AND name='turn_execution_snapshot'").get().n, 0);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);

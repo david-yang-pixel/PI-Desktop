@@ -2460,6 +2460,7 @@ sklm: {
     sessionModePerRun: "每次新开会话",
     sessionModeReuse: "复用同一会话",
     sessionModeHint: "每次运行都会写入同一段会话，因此该任务只保留一条持续增长的记录。",
+    showInSidebar: "运行结束后显示在侧栏",
     neverRun: "尚未运行",
     selectTask: "选择一个任务以查看它的运行记录。",
     emptyRuns: "暂无运行记录",

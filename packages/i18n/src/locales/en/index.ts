@@ -2485,6 +2485,7 @@ sklm: {
     sessionModePerRun: "New conversation per run",
     sessionModeReuse: "Reuse one conversation",
     sessionModeHint: "Every run writes into the same conversation, so the task keeps one continuous record.",
+    showInSidebar: "Show in sidebar after completion",
     neverRun: "Not run yet",
     selectTask: "Select a task to see its runs.",
     emptyRuns: "No runs yet",

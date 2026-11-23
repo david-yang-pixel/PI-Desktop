@@ -803,7 +803,7 @@ export function Sidebar({
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const entry = projectEntriesByPath.get(normalizedProjectPath ?? "");
     revealSessionHoverCard({
-      session: { ...session, title: taskTitle(session.title) },
+      session: { ...session, title: session.showScheduledRunInSidebar ? session.title : taskTitle(session.title) },
       target,
       temporary,
       space: isRemoteSession(session)
@@ -1665,7 +1665,9 @@ export function Sidebar({
           {isRemoteSession(session) && <span className="thread-item-source" title={session.remoteHostLabel}>{t("remote:remote")}</span>}
           <WorktreeBadge worktree={session.worktree} sessionId={session.id} />
           <RemoteSessionBadge session={session} />
-          <span className="thread-item-title">{taskTitle(session.title)}</span>
+          <span className="thread-item-title">
+            {session.showScheduledRunInSidebar ? session.title : taskTitle(session.title)}
+          </span>
         </button>
         <div
           className={cx(

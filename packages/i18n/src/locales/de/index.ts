@@ -2465,6 +2465,7 @@ sklm: {
     "sessionModePerRun": "Neue Unterhaltung pro Ausführung",
     "sessionModeReuse": "Eine Unterhaltung wiederverwenden",
     "sessionModeHint": "Jede Ausführung schreibt in dieselbe Unterhaltung, sodass die Aufgabe einen fortlaufenden Verlauf behält.",
+    "showInSidebar": "Nach Abschluss in der Seitenleiste anzeigen",
     "neverRun": "Noch nicht ausgeführt",
     "selectTask": "Wähle eine Aufgabe, um ihre Ausführungen zu sehen.",
     "emptyRuns": "Noch keine Ausführungen",

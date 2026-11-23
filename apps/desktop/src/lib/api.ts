@@ -1246,6 +1246,8 @@ export const api = {
     thinkingLevel?: ScheduledTask["thinkingLevel"] | null;
     providerId?: string | null;
     modelId?: string | null;
+    sessionMode?: ScheduledTask["sessionMode"];
+    showInSidebar?: boolean;
   }) => invoke<{ task: ScheduledTask }>(IPC.invoke.scheduledCreate, input),
   updateScheduled: (
     input: Omit<Partial<ScheduledTask>, "providerId" | "modelId" | "thinkingLevel"> & {

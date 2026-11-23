@@ -1,7 +1,7 @@
 import type { SessionSummary } from "@pi-desktop/shared";
 import type { AppState } from "../stores/app-state";
 import { isRemoteSession } from "./remote-session-safety";
-import { listableSessions } from "./session-origin";
+import { isAutomationSession } from "./session-origin";
 import { isDefaultSessionTitle } from "./session-title-utils";
 import { normalizeProjectPath, sessionArchived, sessionPinned } from "./sidebar-session-groups";
 import type { ProjectMeta } from "./sidebar-preferences";
@@ -74,8 +74,9 @@ export function sidebarSessionOrganization({
   projectMeta,
   projectSort,
 }: SidebarOrganizationState, untitled: string) {
-  const filtered = listableSessions(sessions).filter(
-    (session) => sessionView.archived || !sessionArchived(session, sessionMeta[session.id]),
+  const filtered = sessions.filter(
+    (session) => (!isAutomationSession(session) || session.showScheduledRunInSidebar === true) &&
+      (sessionView.archived || !sessionArchived(session, sessionMeta[session.id])),
   );
   const compareSessions = (a: SessionSummary, b: SessionSummary) => {
     const aMeta = sessionMeta[a.id];

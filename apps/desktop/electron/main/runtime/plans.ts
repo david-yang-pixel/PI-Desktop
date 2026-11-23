@@ -247,14 +247,20 @@ function finishTurn(
       }
 
       if (runId && runtimeState.host) {
-        await runtimeState.host
-          .call("scheduled.finishRun", { runId, status: reason, errorCode })
-          .catch((e) =>
-            logger.app("persistence", "warn", "finishRun failed", {
-              sessionId: id,
-              data: String(e),
-            }),
-          );
+        try {
+          const { ok } = await runtimeState.host.call<{ ok: boolean }>("scheduled.finishRun", {
+            runId, status: reason, errorCode,
+          });
+          // The renderer may have refreshed on agent_end before this write.
+          if (ok && reason === "completed") {
+            sendToRenderer(IPC.event.sessionsChanged, { reason: "scheduled.run.completed" });
+          }
+        } catch (error) {
+          logger.app("persistence", "warn", "finishRun failed", {
+            sessionId: id,
+            data: String(error),
+          });
+        }
       }
     } finally {
       // Do not release local ownership until the durable endTurn request above

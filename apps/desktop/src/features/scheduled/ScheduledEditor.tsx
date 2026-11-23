@@ -7,7 +7,7 @@ import type {
   ScheduledTask,
   ScheduledTaskSchedule,
 } from "@pi-desktop/shared";
-import { Button, Field, Input, Textarea } from "../../components/ui";
+import { Button, Checkbox, Field, Input, Textarea } from "../../components/ui";
 import { SettingsMenuSelect } from "../../components/settings/SettingsMenuSelect";
 import { ScheduledWeekdaySelect } from "./ScheduledWeekdaySelect";
 import { convertInterval, intervalAmount, SCHEDULED_INTERVAL_MINUTES } from "./scheduled-format";
@@ -25,6 +25,7 @@ export type ScheduledDraft = Pick<ScheduledTask, "title" | "prompt" | "cadence" 
   modelId?: string | null;
   thinkingLevel?: ScheduledTask["thinkingLevel"] | null;
   sessionMode?: ScheduledSessionMode;
+  showInSidebar?: boolean;
 };
 
 export function ScheduledEditor({
@@ -64,6 +65,7 @@ export function ScheduledEditor({
   const [sessionMode, setSessionMode] = useState<ScheduledSessionMode>(
     task?.sessionMode ?? "perRun",
   );
+  const [showInSidebar, setShowInSidebar] = useState(task?.showInSidebar ?? false);
 
   // An interval is one number plus the unit it reads in. The stored value is
   // always minutes, which is what the host arms and what the rail reports.
@@ -179,6 +181,7 @@ export function ScheduledEditor({
           prompt: prompt.trim(),
           cadence,
           schedule: scheduleFor(),
+          showInSidebar: sessionMode === "perRun" && showInSidebar,
           ...executionSettings,
         });
       }}
@@ -234,10 +237,17 @@ export function ScheduledEditor({
         </p>
       )}
 
-      {sessionMode === "reuse" && (
+      {sessionMode === "reuse" ? (
         <p className="dest-row-meta" role="status">
           {t("scheduled.sessionModeHint")}
         </p>
+      ) : (
+        <Checkbox
+          label={t("scheduled.showInSidebar")}
+          checked={showInSidebar}
+          disabled={busy}
+          onChange={(event) => setShowInSidebar(event.target.checked)}
+        />
       )}
       <div className="scheduled-fields">
         <Field label={t("scheduled.cadence")}>

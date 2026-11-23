@@ -74,6 +74,9 @@ being fetched on every subsequent poll.
   conversation, use model tool calls to discover, create, list, update to 15:30
   and delete a task. Verify the custom time appears in the form and survives
   renaming. The model is a local deterministic fixture, not a live provider.
+  For a projectless task, enable Show in sidebar after completion in the edit
+  form, run the task twice, then open each conversation from the temporary
+  section and again from its Run history row.
 - **Expected:** Project, permission and exact provider/model persist on that task,
   reopen with the same values and reach the sidecar without changing another task.
   The project, permission and model controls remain inside the Instruction field's
@@ -82,8 +85,10 @@ being fetched on every subsequent poll.
   persists, next time is visible, paused tasks do
   not dispatch, both execution paths reach the real Agent sidecar, the task's own
   history lists each run with its status and duration and Open conversation
-  reaches the persisted transcript while the SessionList and session search never
-  list it, that conversation's top bar returns to the same task and run, an
+  reaches the persisted transcript. The sidebar shows two separate opted-in
+  conversations with the task title and both entries open their own transcript.
+  Search and default sidebar listings filter scheduled transcripts. The
+  conversation's top bar returns to the same task and run. An
   interval task arms from the span the form states and reports it in its row,
   the task form owns the page while it is open, a task that stayed idle while
   another accumulated more runs than the shared window still reports its own
@@ -97,6 +102,8 @@ being fetched on every subsequent poll.
 - **Milestone:** Post-MVP desktop automations.
 - **Status:** Automated in `node scripts/e2e-scheduled.mjs`; run against the
   request candidate per AGENTS.md, with tested head and base recorded.
+  Use `node scripts/e2e-scheduled.mjs --sidebar-only` to run the sidebar scenario
+  by itself.
 
 ### Scheduled execution-status wording (English / Simplified Chinese)
 

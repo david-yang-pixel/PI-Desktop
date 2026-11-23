@@ -2475,6 +2475,7 @@ sklm: {
     sessionModePerRun: "Her çalıştırmada yeni konuşma",
     sessionModeReuse: "Aynı konuşmayı yeniden kullan",
     sessionModeHint: "Her çalıştırma aynı konuşmaya yazar, böylece görev tek bir sürekli kayıt tutar.",
+    showInSidebar: "Tamamlandıktan sonra kenar çubuğunda göster",
     neverRun: "Henüz çalıştırılmadı",
     selectTask: "Çalıştırmalarını görmek için bir görev seçin.",
     emptyRuns: "Henüz çalıştırılmadı",

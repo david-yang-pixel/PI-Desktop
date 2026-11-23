@@ -53,6 +53,12 @@ pub fn validate_execution_input(input: &Value) -> Result<()> {
             bail!("sessionMode must be perRun, reuse, or null");
         }
     }
+    if input
+        .get("showInSidebar")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        bail!("showInSidebar must be a boolean");
+    }
     Ok(())
 }
 
@@ -89,6 +95,9 @@ pub(crate) fn configure_execution(config: &mut Value, input: &Value) {
         } else if let Some(mode) = value.as_str() {
             object.insert("sessionMode".into(), json!(mode));
         }
+    }
+    if let Some(value) = input.get("showInSidebar").and_then(Value::as_bool) {
+        object.insert("showInSidebar".into(), json!(value));
     }
 }
 
@@ -232,13 +241,13 @@ mod tests {
         let task = create_task(&db, &json!({"prompt":"check", "cadence":"hourly", "schedule":{"hour":9,"minute":0,"weekday":0}})).unwrap();
         let at = crate::db::ts_to_ms(task.next_run_at.as_ref().unwrap());
         assert_eq!(due(&db, at).unwrap(), vec![task.id.clone()]);
-        let run = begin_run(&db, &task.id, None).unwrap();
+        let run = begin_run(&db, &task, None).unwrap();
         assert!(due(&db, at).unwrap().is_empty());
         finish_run(&db, &run, "completed", None).unwrap();
         assert!(due(&db, at + 3_600_000 + 90_001).unwrap().is_empty());
         update_task(&db, &json!({"id":task.id,"enabled":false})).unwrap();
         assert!(due(&db, at + 10 * 3_600_000).unwrap().is_empty());
-        let interrupted = begin_run(&db, &task.id, None).unwrap();
+        let interrupted = begin_run(&db, &task, None).unwrap();
         drop(db);
         let db = Database::open_in_dir(dir.path()).unwrap();
         recover(&db).unwrap();

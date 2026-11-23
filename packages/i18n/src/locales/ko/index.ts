@@ -2481,6 +2481,7 @@ sklm: {
     sessionModePerRun: "실행마다 새 대화",
     sessionModeReuse: "같은 대화 재사용",
     sessionModeHint: "모든 실행이 같은 대화에 기록되어 작업은 하나의 이어지는 기록을 유지합니다.",
+    showInSidebar: "실행 완료 후 사이드바에 표시",
     neverRun: "아직 실행되지 않음",
     selectTask: "실행 기록을 보려면 작업을 선택하세요.",
     emptyRuns: "실행 기록 없음",

@@ -239,7 +239,7 @@ fn handle_with_workspace_policy(
                     session.id
                 }
             };
-            let run_id = match scheduled::begin_run(&st.db, id, Some(&session_id)) {
+            let run_id = match scheduled::begin_run(&st.db, &task, Some(&session_id)) {
                 Ok(run_id) => run_id,
                 Err(error) => {
                     // Only a conversation this dispatch opened is cleaned up.
@@ -424,6 +424,90 @@ mod tests {
             flag(&ordinary.id).is_some(),
             "the conversation itself survives the task deletion"
         );
+    }
+
+    #[tokio::test]
+    async fn opted_in_completed_runs_keep_separate_sidebar_and_history_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let st = AppState::open(dir.path()).unwrap();
+        let task = handle(
+            &st,
+            "scheduled.create",
+            json!({"title":"New task","prompt":"Summarize","cadence":"manual"}),
+        )
+        .unwrap();
+        let task = &task["task"];
+        let id = task["id"].as_str().unwrap();
+        assert_eq!(task["showInSidebar"], false);
+        let update = |value: Value| {
+            handle(
+                &st,
+                "scheduled.update",
+                json!({"id":id,"showInSidebar":value}),
+            )
+        };
+        assert!(update(json!("true")).is_err());
+        let dispatch = || handle(&st, "scheduled.run", json!({"id":id})).unwrap();
+        let finish = |run: &Value, status: &str| {
+            let result = handle(
+                &st,
+                "scheduled.finishRun",
+                json!({"runId":run["runId"],"status":status}),
+            )
+            .unwrap();
+            assert_eq!(result["ok"], true);
+        };
+        let sidebar_sessions = || {
+            sessions::list_sessions(&st.db)
+                .unwrap()
+                .into_iter()
+                .filter(|session| session.show_scheduled_run_in_sidebar)
+                .collect::<Vec<_>>()
+        };
+
+        let legacy = dispatch();
+        finish(&legacy, "completed");
+        assert!(sidebar_sessions().is_empty());
+        assert_eq!(update(json!(true)).unwrap()["task"]["showInSidebar"], true);
+        let failed = dispatch();
+        finish(&failed, "error");
+        assert!(sidebar_sessions().is_empty());
+
+        let first = dispatch();
+        assert!(sidebar_sessions().is_empty());
+        finish(&first, "completed");
+        let second = dispatch();
+        assert!(!sessions::derive_session_title(
+            &st.db,
+            first["sessionId"].as_str().unwrap(),
+            "Generated from prompt",
+        )
+        .unwrap());
+        assert_eq!(sidebar_sessions().len(), 1);
+        update(json!(false)).unwrap();
+        finish(&second, "completed");
+        assert_ne!(first["sessionId"], second["sessionId"]);
+        let visible = sidebar_sessions();
+        assert_eq!(visible.len(), 2);
+        let history = handle(&st, "scheduled.listRuns", json!({"taskId":id})).unwrap();
+        for run in [&first, &second] {
+            let session_id = run["sessionId"].as_str().unwrap();
+            let session = visible
+                .iter()
+                .find(|session| session.id == session_id)
+                .unwrap();
+            assert!(session.scheduled_run);
+            assert_eq!(session.title, "New task");
+            assert!(history["runs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["id"] == run["runId"]
+                    && entry["sessionId"] == session_id
+                    && entry["status"] == "completed"));
+            let detail = sessions::get_session(&st.db, session_id).unwrap().unwrap();
+            assert!(detail.summary.show_scheduled_run_in_sidebar);
+        }
     }
 
     /// A `reuse` task keeps one conversation; the default keeps one per run.

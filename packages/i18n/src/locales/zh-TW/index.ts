@@ -2460,6 +2460,7 @@ sklm: {
     sessionModePerRun: "每次執行另開對話",
     sessionModeReuse: "重複使用同一對話",
     sessionModeHint: "每次執行都會寫入同一段對話，因此此任務只保留一條持續累積的紀錄。",
+    showInSidebar: "執行結束後顯示於側邊欄",
     neverRun: "尚未執行",
     selectTask: "選擇一個任務以查看它的執行記錄。",
     emptyRuns: "尚無執行記錄",

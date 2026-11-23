@@ -276,7 +276,8 @@ CREATE TABLE task_runs (
   status     TEXT NOT NULL DEFAULT 'running',
   error_code TEXT,
   started_at INTEGER NOT NULL,
-  ended_at   INTEGER
+  ended_at   INTEGER,
+  show_in_sidebar INTEGER NOT NULL DEFAULT 0 CHECK (show_in_sidebar IN (0, 1))
 );
 CREATE INDEX idx_task_runs ON task_runs(task_id, started_at DESC);
 

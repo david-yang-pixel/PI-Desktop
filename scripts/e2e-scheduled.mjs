@@ -10,8 +10,10 @@ import { once } from "node:events";
 import { Host, resolveHostBinary } from "./e2e/host.mjs";
 import { resolveElectronBinary } from "./e2e/boot.mjs";
 import { waitFor } from "./e2e/wait.mjs";
+import { waitForChildExitWithEscalation } from "./e2e/wait-for-child-exit.mjs";
 import { scheduledModelFixture } from "./e2e/scheduled-model.mjs";
 import { verifyScheduledSettingsSwitch } from "./e2e/scheduled-settings.mjs";
+import { verifyScheduledSidebar } from "./e2e/scheduled-sidebar.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "pi-scheduled-e2e-"));
 const dataDir = join(root, "data"),
@@ -213,6 +215,12 @@ try {
       20_000,
       "startup splash exit",
     );
+    await click("Skip", '[data-surface="startup-guide"] button[aria-label]', true);
+    await waitFor(
+      () => evaluate(`!document.querySelector('[data-surface="startup-guide"]')`),
+      5000,
+      "startup guide exit",
+    );
   } catch (error) {
     console.log(
       await evaluate(
@@ -222,7 +230,9 @@ try {
     await screenshot("failure.png");
     throw error;
   }
-  if (process.argv.includes("--settings-switch-only")) {
+  const settingsSwitchOnly = process.argv.includes("--settings-switch-only");
+  if (!settingsSwitchOnly) await verifyScheduledSidebar({ invoke, evaluate, click, choose });
+  if (settingsSwitchOnly) {
     const { task } = await invoke("scheduledCreate", {
       title: "Project review", prompt: "Reply OK", cadence: "manual", permissionMode: "auto",
     });
@@ -230,7 +240,7 @@ try {
     await click("Run now");
     await waitFor(async () => (await invoke("scheduledListRuns")).runs[0]?.status === "completed", 30_000, "re-enabled task runs through the local model");
     console.log("PASS re-enabled task executes through real Host and agent sidecar");
-  } else {
+  } else if (!process.argv.includes("--sidebar-only")) {
   await evaluate(`document.querySelector('[data-nav="scheduled"]').click()`);
   await waitFor(
     () => evaluate(`document.querySelector('.page-title')?.textContent === 'Scheduled'`),
@@ -485,7 +495,10 @@ try {
   throw error;
 } finally {
   ws?.close();
-  child.kill();
   server.close();
+  server.closeAllConnections();
+  if (child.exitCode === null && child.signalCode === null) {
+    await waitForChildExitWithEscalation(child, { termAfterMs: 0, killAfterMs: 5000 });
+  }
   // Preserve this uniquely named fixture profile for diagnosing failures.
 }

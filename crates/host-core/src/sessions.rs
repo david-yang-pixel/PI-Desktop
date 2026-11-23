@@ -159,12 +159,13 @@ pub struct SessionSummary {
     pub updated_at: String,
     pub created_at: String,
     /// True when this session is the transcript owned by a scheduled-task run.
-    /// Automation transcripts are entered from the Scheduled page, so the
-    /// sidebar and session search hide them (issue #1291). The value is derived
-    /// from `task_runs.session_id` on read; no session column stores it, and
-    /// deleting the task frees its sessions back into the ordinary lists.
+    /// The value is derived from `task_runs.session_id` on read. Deleting the
+    /// task frees its sessions back into the ordinary lists.
     #[serde(default)]
     pub scheduled_run: bool,
+    /// The sidebar may show this successfully completed, opted-in transcript.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show_scheduled_run_in_sidebar: bool,
     /// The session's isolated worktree (ADR 0329); absent for every other
     /// session. Filled in by the list and single-summary reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1390,6 +1391,9 @@ const SUMMARY_SELECT: &str =
     "SELECT s.id, s.title, s.last_seq, p.path, s.model_id, s.provider_id, s.mode,
             s.thinking_level, s.permission_mode, s.updated_at, s.created_at,
             EXISTS (SELECT 1 FROM task_runs r WHERE r.session_id = s.id) AS scheduled_run,
+            EXISTS (SELECT 1 FROM task_runs r WHERE r.session_id = s.id
+                    AND r.show_in_sidebar = 1 AND r.status = 'completed')
+                AS show_scheduled_run_in_sidebar,
             s.fast_mode
      FROM sessions s LEFT JOIN projects p ON p.id = s.project_id
      WHERE s.deleted_at IS NULL";
@@ -1410,6 +1414,7 @@ pub(crate) fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Sess
         // Read by name: search and listing build their own column lists, so the
         // alias keeps this mapper independent of any one query's column order.
         scheduled_run: row.get("scheduled_run")?,
+        show_scheduled_run_in_sidebar: row.get("show_scheduled_run_in_sidebar")?,
         fast_mode: row.get("fast_mode")?,
         worktree: None,
     })
@@ -1597,6 +1602,7 @@ pub fn create_session_with_mode_snapshot(
         created_at: ms_to_ts(now),
         // The run row that owns this transcript is written after creation.
         scheduled_run: false,
+        show_scheduled_run_in_sidebar: false,
         // A new or forked session starts without a worktree (ADR 0329).
         worktree: None,
     })
@@ -1982,6 +1988,7 @@ pub fn fork_session_through(
         created_at,
         // A fork is the user's own conversation, not the automation's transcript.
         scheduled_run: false,
+        show_scheduled_run_in_sidebar: false,
         // A new or forked session starts without a worktree (ADR 0329).
         worktree: None,
     };
@@ -5496,6 +5503,7 @@ mod tests {
             permission_mode: "inherit".into(),
             // Ownership is derived from `task_runs`, so an import is never one.
             scheduled_run: false,
+            show_scheduled_run_in_sidebar: false,
             fast_mode: false,
             worktree: None,
             created_at: "2025-01-01T00:00:00Z".into(),
@@ -5550,6 +5558,7 @@ mod tests {
             permission_mode: "inherit".into(),
             // Ownership is derived from `task_runs`, so an import is never one.
             scheduled_run: false,
+            show_scheduled_run_in_sidebar: false,
             fast_mode: false,
             worktree: None,
             created_at: "2025-01-01T00:00:00Z".into(),
@@ -6806,6 +6815,7 @@ mod tests {
             permission_mode: "inherit".into(),
             // Ownership is derived from `task_runs`, so an import is never one.
             scheduled_run: false,
+            show_scheduled_run_in_sidebar: false,
             fast_mode: false,
             worktree: None,
             created_at: "2025-01-01T00:00:00Z".into(),

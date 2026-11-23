@@ -317,17 +317,10 @@ test("automation ownership keeps run transcripts out of the lists", async () => 
   });
 });
 
-test("the session list and search both consume the ownership rule", async () => {
+test("the sidebar uses session grouping and search filters by automation ownership", async () => {
   const { readFile } = await import("node:fs/promises");
   const sidebar = await readFile(new URL("../src/components/Sidebar.tsx", import.meta.url), "utf8");
-  const organization = await readFile(new URL("../src/lib/sidebar-session-organization.ts", import.meta.url), "utf8");
   assert.match(sidebar, /sidebarSessionOrganization\(\{/);
-  assert.match(organization, /import \{ listableSessions \} from "\.\/session-origin";/);
-  assert.match(
-    organization,
-    /listableSessions\(sessions\)/,
-    "the sidebar drops automation transcripts before grouping",
-  );
   const search = await readFile(new URL("../src/hooks/use-session-search.ts", import.meta.url), "utf8");
   assert.match(
     search,
@@ -488,7 +481,33 @@ test("the task column reads one newest run per task, not a global window", async
   assert.match(api, /latestPerTask\?: boolean/);
 });
 
-test("every session list the user can enter drops a run's transcript", async () => {
+test("the sidebar groups two visible runs as distinct temporary conversations", async () => {
+  await withVite(async (server) => {
+    const { sidebarSessionOrganization } = await server.ssrLoadModule(
+      "/src/lib/sidebar-session-organization.ts",
+    );
+    const run = { title: TASK_A.title, scheduledRun: true, projectPath: null };
+    const { temporarySessions } = sidebarSessionOrganization({
+      sessions: [
+        { ...run, id: "running" },
+        { ...run, id: "first", showScheduledRunInSidebar: true },
+        { ...run, id: "second", showScheduledRunInSidebar: true },
+        { ...run, id: "legacy", showScheduledRunInSidebar: false },
+      ],
+      sessionView: { sort: "recent", archived: false },
+      sessionMeta: {},
+      openProjects: [],
+      openProjectPaths: [],
+      projectMeta: {},
+    }, "Untitled");
+    assert.deepEqual(temporarySessions.map(({ id, title }) => [id, title]), [
+      ["first", TASK_A.title],
+      ["second", TASK_A.title],
+    ]);
+  });
+});
+
+test("session search and the tray keep scheduled transcripts out of their lists", async () => {
   await withVite(async (server) => {
     const origin = await server.ssrLoadModule("/src/lib/session-origin.ts");
     const listed = [
@@ -496,6 +515,7 @@ test("every session list the user can enter drops a run's transcript", async () 
       { id: "automation", scheduledRun: true },
       { id: "legacy" },
       { id: "explicit-false", scheduledRun: false },
+      { id: "visible-in-sidebar", scheduledRun: true, showScheduledRunInSidebar: true },
     ];
     assert.deepEqual(
       origin.listableSessions(listed).map((session) => session.id),

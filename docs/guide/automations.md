@@ -38,6 +38,9 @@ the turn using the normal conversation controls.
 
 **Run history** shows the latest 100 runs. **Run now** executes immediately and
 opens this history view; **Open conversation** opens the result transcript.
+In **New conversation per run** mode, select **Show in sidebar after completion**
+to list each future successful run as a separate conversation with the task
+title. You can open each result from the sidebar or from **Run history**.
 New tasks start with Ask permission mode and the current default model selected.
 Existing tasks created before these selectors keep their previous behavior until
 you change them. Review prompts and the configured provider's cost before enabling tasks.
@@ -53,6 +56,7 @@ configuration, per-task project/permission/model choices, editing, pause/resume,
 Existing data stays readable; old cadence-only records do not start automatically.
 The default-on Scheduled tasks switch in General settings now lets you turn
 the feature off without deleting task definitions or run history.
+Tasks can also show successful runs as separate conversations in the sidebar.
 
 ## Manage tasks in a conversation
 

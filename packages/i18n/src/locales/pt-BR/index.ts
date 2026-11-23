@@ -2435,6 +2435,7 @@ export const ptBR = {
     sessionModePerRun: "Nova conversa por execução",
     sessionModeReuse: "Reutilizar uma conversa",
     sessionModeHint: "Cada execução grava na mesma conversa, então a tarefa mantém um único histórico contínuo.",
+    showInSidebar: "Mostrar na barra lateral após a conclusão",
     neverRun: "Ainda não executado",
     selectTask: "Selecione uma tarefa para ver as execuções dela.",
     emptyRuns: "Nenhuma execução ainda",

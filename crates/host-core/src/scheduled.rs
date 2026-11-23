@@ -43,6 +43,8 @@ pub struct ScheduledTask {
     /// Whether each run continues one conversation or opens its own.
     #[serde(default = "default_session_mode")]
     pub session_mode: String,
+    #[serde(default)]
+    pub show_in_sidebar: bool,
     /// Presence distinguishes a saved project (including null) from legacy tasks.
     #[serde(skip)]
     pub(crate) workspace_bound: bool,
@@ -240,6 +242,7 @@ fn task_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScheduledTask> {
             .filter(|mode| automation::TASK_SESSION_MODES.contains(mode))
             .unwrap_or("perRun")
             .to_string(),
+        show_in_sidebar: config.get("showInSidebar").and_then(Value::as_bool) == Some(true),
     })
 }
 
@@ -433,19 +436,28 @@ pub fn import_tasks(db: &Database, tasks: &[Value]) -> Result<usize> {
 }
 
 /// Record a run start: stamps the task's last_run_at and opens a task_runs row.
-pub fn begin_run(db: &Database, task_id: &str, session_id: Option<&str>) -> Result<String> {
+pub fn begin_run(db: &Database, task: &ScheduledTask, session_id: Option<&str>) -> Result<String> {
     let conn = db.conn();
     let tx = conn.unchecked_transaction()?;
     let now = now_ms();
     tx.prepare_cached(
         "UPDATE scheduled_tasks SET last_run_at = ?1, updated_at = ?1 WHERE id = ?2",
     )?
-    .execute(params![now, task_id])?;
+    .execute(params![now, task.id])?;
     let run_id = Uuid::new_v4().to_string();
+    let show_in_sidebar = task.session_mode == "perRun" && task.show_in_sidebar;
+    if let Some(session_id) = session_id.filter(|_| show_in_sidebar) {
+        // An explicit task name can match a default conversation placeholder.
+        tx.execute(
+            "UPDATE sessions SET title_source = 'manual' WHERE id = ?1 AND title_source = 'default'",
+            [session_id],
+        )?;
+    }
     tx.prepare_cached(
-        "INSERT INTO task_runs (id, task_id, session_id, started_at) VALUES (?1, ?2, ?3, ?4)",
+        "INSERT INTO task_runs (id, task_id, session_id, started_at, show_in_sidebar)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )?
-    .execute(params![run_id, task_id, session_id, now])?;
+    .execute(params![run_id, task.id, session_id, now, show_in_sidebar])?;
     tx.commit()?;
     Ok(run_id)
 }
@@ -587,7 +599,7 @@ mod tests {
             .unwrap();
         assert!(!updated.enabled);
 
-        let run = begin_run(&db, &task.id, None).unwrap();
+        let run = begin_run(&db, &task, None).unwrap();
         assert!(finish_run(&db, &run, "completed", None).unwrap());
         assert!(!finish_run(&db, &run, "completed", None).unwrap());
         let runs = list_runs(&db, Some(&task.id), 10).unwrap();

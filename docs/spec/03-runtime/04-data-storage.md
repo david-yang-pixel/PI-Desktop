@@ -1,4 +1,4 @@
-# 04. Data Storage (Schema v33)
+# 04. Data Storage (Schema v34)
 
 ### Project path aliases (#2148)
 
@@ -1381,7 +1381,8 @@ CREATE TABLE task_runs (
   status     TEXT NOT NULL DEFAULT 'running',  -- running | completed | aborted | error
   error_code TEXT,
   started_at INTEGER NOT NULL,
-  ended_at   INTEGER
+  ended_at   INTEGER,
+  show_in_sidebar INTEGER NOT NULL DEFAULT 0 CHECK (show_in_sidebar IN (0, 1))
 );
 CREATE INDEX idx_task_runs ON task_runs(task_id, started_at DESC);
 ```
@@ -1389,10 +1390,17 @@ CREATE INDEX idx_task_runs ON task_runs(task_id, started_at DESC);
 A run that spawns a session gets its transcript for free via `session_id`.
 That transcript is identified as automation output by an `EXISTS` check against
 `task_runs` that every session summary and search hit carries as `scheduledRun`.
-The ownership is derived on read and never stored on the session row, so the
-SessionList and session search hide the transcript while it has a run, and
-deleting the task returns it to the ordinary lists instead of leaving it
-unreachable (issue #1291).
+The sidebar includes a scheduled transcript when a linked run has status
+`completed` and its `show_in_sidebar` snapshot is set. Session summaries expose
+that result as `showScheduledRunInSidebar`. The `scheduledRun` marker also
+supports the Scheduled route and global session search. Deleting the task
+returns its transcripts to the ordinary lists (issue #1291).
+
+Schema v34 adds `task_runs.show_in_sidebar` with a default of `0`, preserving
+the visibility and session links of older runs. The Host backs up the v33
+database before migration. At admission, a `perRun` task copies its optional
+`config_json.showInSidebar` flag into the run row. Later edits affect future
+runs.
 `scheduled.listRuns` answers two shapes: one task's own history (`taskId`, at most
 200 rows) and one newest run per task (`latestPerTask`, one row per task, never
 combined with `taskId`). The task column reads the second shape. A global window
@@ -1416,14 +1424,13 @@ milliseconds), `workspacePath`, and `sessionMode` (`perRun` or `reuse`, absent
 means `perRun`) for desktop automations.
 Optional `weekdays` stores 1–7 unique integers in 0–6, overriding legacy
 `weekday` for weekly schedules. Missing `weekdays` preserves the single-day
-behavior. Invalid or empty selections are rejected before mutation. No table
-migration is needed. Daily/weekly schedules use the host local timezone; hourly
+behavior. Invalid or empty selections are rejected before mutation.
+Daily/weekly schedules use the host local timezone. Hourly
 and interval schedules count elapsed time from the moment they were armed:
 hourly computes `nextRunAt = now + 3_600_000` and interval computes
 `nextRunAt = now + intervalMinutes × 60_000`, both ignoring calendar fields.
 An `interval` task whose schedule carries no `intervalMinutes` is refused rather
-than saved unarmed. Absence of `schedule` leaves legacy tasks unarmed. No
-physical schema change is made.
+than saved unarmed. Absence of `schedule` leaves legacy tasks unarmed.
 Task wire fields project `schedule`, RFC3339 `nextRunAt`, `workspacePath` and the
 optional task-owned `permissionMode` plus paired `providerId`/`modelId` values.
 These additive values stay in `config_json`; no physical migration is required.
