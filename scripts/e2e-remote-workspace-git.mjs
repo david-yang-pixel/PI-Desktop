@@ -59,6 +59,13 @@ const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, "-c", "user.name=PI E2E", "-c", "user.email=pi-e2e@example.invalid", "-c", "commit.gpgsign=false", ...args],
   { env: { ...gitEnv, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const remoteHead = (branch) => git(bare, "rev-parse", "--verify", `refs/heads/${branch}`);
+/**
+ * A receive-pack POST that can change refs. Before a pack larger than
+ * `http.postBuffer` git sends a probe whose body is only a flush packet
+ * (`0000`); the proxy lets it through because it names no ref and changes
+ * nothing, so it does not count as a push reaching "GitHub".
+ */
+const isRefUpdate = (request) => request.method === "POST" && request.path.endsWith("/git-receive-pack") && request.contentLength !== "4";
 const remoteHasBranch = (branch) => {
   try { remoteHead(branch); return true; } catch { return false; }
 };
@@ -292,7 +299,7 @@ try {
   });
 
   await step("5 a push to another ref is refused by the proxy (E2E-REMOTE-git-proxy-rejects-foreign-ref)", async () => {
-    const receivePacks = () => fixture.requests.filter((request) => request.method === "POST" && request.path.endsWith("/git-receive-pack")).length;
+    const receivePacks = () => fixture.requests.filter(isRefUpdate).length;
     const before = receivePacks();
     for (const command of ["git push origin HEAD:main 2>&1", "git push origin HEAD:refs/heads/other 2>&1", "git push origin :develop 2>&1", `git push origin HEAD:${workA} HEAD:refs/tags/v1 2>&1`]) {
       const foreign = await bash("session-a", a.path, command);
@@ -765,9 +772,11 @@ try {
   });
 
   await step("12 the session repository's SSH URLs go through the proxy, and tool output names no handle (E2E-REMOTE-git-ssh-url-uses-proxy)", async () => {
-    const receivePacks = () => fixture.requests.filter((request) => request.method === "POST" && request.path.endsWith("/git-receive-pack")).length;
+    const receivePacks = () => fixture.requests.filter(isRefUpdate).length;
     const before = receivePacks();
-    const foreign = await bash("session-b", b.path, "git push git@github.com:octo/repo.git HEAD:main 2>&1");
+    // A small post buffer makes git probe first and then stream the pack after
+    // the refusal, as it does for any large push.
+    const foreign = await bash("session-b", b.path, "git -c http.postBuffer=4096 push git@github.com:octo/repo.git HEAD:main 2>&1");
     assert.notEqual(foreign.exitCode, 0, foreign.output);
     assert.match(foreign.output, /403/, "the proxy, not the host user's SSH key, answered");
     assert.equal(receivePacks(), before);
