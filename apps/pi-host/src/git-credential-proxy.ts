@@ -73,7 +73,10 @@ const HANDLE = /^[0-9a-f]{64}$/u;
 /** Paths git builds from an owner, a repository, and a fixed endpoint need nothing else. */
 const SAFE_PATH = /^(?:\/[A-Za-z0-9._~-]+)+\/?$/u;
 const SAFE_QUERY = /^[A-Za-z0-9._~=&-]*$/u;
-const REFUSED_DRAIN_MS = 30_000;
+/** How long a refused upload may go without a byte before it is answered and cut off. */
+const REFUSED_DRAIN_IDLE_MS = 5_000;
+/** How much of a refused upload the proxy reads and discards before answering anyway. */
+const REFUSED_DRAIN_LIMIT = 1024 * 1024 * 1024;
 const INSPECTION_IDLE_MS = 30_000;
 /**
  * How long an upstream connection may carry no byte in either direction.
@@ -230,11 +233,38 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
     res.writeHead(status, { "content-type": "text/plain; charset=utf-8", connection: "close" });
     res.end(`${message}\n`);
   };
-  /** Answer now; let a client that is still uploading notice, then let go of it. */
+  /**
+   * Answer a refusal once the client has finished uploading. Answering while
+   * git is still streaming a pack lets the server close the socket under it,
+   * and git then reports a broken pipe instead of the refusal. The rest of the
+   * body is read and discarded; a client that stalls or keeps sending past the
+   * limit gets the answer anyway and is cut off.
+   */
   const refuse = (req: IncomingMessage, res: ServerResponse, status: number, message: string) => {
-    reply(res, status, message);
+    if (req.complete) return reply(res, status, message);
+    let drained = 0;
+    let answered = false;
+    const answer = (cutOff: boolean) => {
+      if (answered) return;
+      answered = true;
+      clearTimeout(idle);
+      req.off("data", onData);
+      req.off("end", onEnd);
+      reply(res, status, message);
+      if (cutOff) res.once("finish", () => req.destroy());
+    };
+    const onData = (chunk: Buffer) => {
+      idle.refresh();
+      drained += chunk.length;
+      if (drained > REFUSED_DRAIN_LIMIT) answer(true);
+    };
+    const onEnd = () => answer(false);
+    const idle = setTimeout(() => answer(true), REFUSED_DRAIN_IDLE_MS).unref();
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("aborted", () => answer(true));
+    req.once("error", () => answer(true));
     req.resume();
-    setTimeout(() => req.destroy(), REFUSED_DRAIN_MS).unref();
   };
 
   const upstreamIdleMs = options.upstreamIdleMs ?? UPSTREAM_IDLE_MS;

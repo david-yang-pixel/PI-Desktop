@@ -264,6 +264,51 @@ describe("git credential proxy", () => {
     expect(up.seen).toHaveLength(1);
   });
 
+  it("lets a refused push finish uploading so git reads the refusal instead of a broken pipe", async () => {
+    const up = await upstream();
+    const proxy = await proxyFor(up.url);
+    proxy.setToken(INSTALLATION, TOKEN);
+    const url = new URL(`${proxy.register(scope)}octo/repo.git/git-receive-pack`);
+    // The command section arrives first and is refused at once; the pack keeps
+    // streaming after that, as git's does for a large push. git reads the
+    // answer only after it has sent the whole body, so an answer sent earlier
+    // (and the socket closing behind it) reaches git as a broken pipe.
+    type Outcome = { status: number; body: string; answeredAfterUpload: boolean; uploadError: Error | null };
+    const reply = await new Promise<Outcome>((resolve) => {
+      let uploaded = false;
+      let uploadError: Error | null = null;
+      let answer: Omit<Outcome, "uploadError"> | null = null;
+      const settle = () => { if (answer && (uploaded || uploadError)) resolve({ ...answer, uploadError }); };
+      const req = request(url, { method: "POST", headers: RECEIVE_HEADERS }, (res) => {
+        const answeredAfterUpload = uploaded;
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk: Buffer) => chunks.push(chunk));
+        res.on("end", () => { answer = { status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString(), answeredAfterUpload }; settle(); });
+      });
+      req.on("finish", () => { uploaded = true; settle(); });
+      req.on("error", (error) => {
+        uploadError = error;
+        if (answer) settle();
+        else resolve({ status: 0, body: "", answeredAfterUpload: false, uploadError: error });
+      });
+      req.write(pkt(`${A} ${B} refs/heads/main\u0000report-status\n`));
+      req.write(FLUSH);
+      void (async () => {
+        await new Promise((settle) => setTimeout(settle, 200));
+        const chunk = Buffer.alloc(256 * 1024, 7);
+        for (let sent = 0; sent < 16; sent += 1) {
+          if (!req.write(chunk)) await new Promise((settle) => req.once("drain", settle));
+        }
+        req.end();
+      })();
+    });
+    expect(reply.uploadError).toBeNull();
+    expect(reply.answeredAfterUpload).toBe(true);
+    expect(reply.status).toBe(403);
+    expect(reply.body).toContain(`this session may only push refs/heads/${WORK_BRANCH}`);
+    expect(up.seen).toEqual([]);
+  });
+
   it("re-registering a scope keeps its handle and applies the new work branch", async () => {
     const up = await upstream();
     const proxy = await proxyFor(up.url);
