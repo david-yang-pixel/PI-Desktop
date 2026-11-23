@@ -1,4 +1,5 @@
 import type { WorkspaceGitEnvironment, WorkspaceGitJob, WorkspaceGitRepository, WorkspaceGitWorktree } from "../racp-workspace-git";
+import type { GitHubCommitChecks } from "./github-connector";
 
 export type RemoteEnvironmentInput = {
   id?: string;
@@ -23,6 +24,18 @@ export type RemoteEnvironment = {
 
 export type RepositoryProject = WorkspaceGitRepository & { defaultBranch: string; hostKey: string };
 
+/**
+ * The pull request recorded for a session's work branch. `state` and `draft`
+ * are additive: links recorded by older releases carry only the number and
+ * URL, and their state is unknown until GitHub is asked again.
+ */
+export type SessionPullRequestLink = {
+  number: number;
+  url: string;
+  state?: "open" | "closed" | "merged";
+  draft?: boolean;
+};
+
 export type SessionRemoteRepository = {
   environmentId: string;
   hostKey: string;
@@ -35,7 +48,7 @@ export type SessionRemoteRepository = {
   progress?: WorkspaceGitJob["progress"];
   error?: NonNullable<WorkspaceGitJob["error"]>;
   setup?: WorkspaceGitWorktree["setup"];
-  pullRequest?: { number: number; url: string };
+  pullRequest?: SessionPullRequestLink;
   lastActivityAt?: string;
   reclaimedAt?: string;
   reclaimedCommit?: string;
@@ -64,6 +77,18 @@ export type RemoteSessionGitStatus = {
   uncommittedFiles?: number;
   unpushedCommits?: number;
   pushedOnce?: boolean;
+};
+
+/**
+ * What GitHub shows for a repository session's work branch. `pushed` is true
+ * once the branch exists on GitHub. `checks` summarizes CI on its head commit
+ * while a pull request is recorded; `checksError` says why they could not be
+ * read when the branch itself could.
+ */
+export type RemoteSessionGitHubActivity = {
+  pushed: boolean;
+  checks?: GitHubCommitChecks;
+  checksError?: { code: string; message: string };
 };
 
 export type RemoteSessionDeletePreflight =

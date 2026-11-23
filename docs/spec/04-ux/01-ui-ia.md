@@ -506,8 +506,10 @@ shared capability contract:
   project. A temporary session shows dedicated temporary-chat copy with no
   project underline or switcher; and with no project open the generic welcome
   title stands.
-- The primary New task action opens a temporary chat draft on This computer.
-  The control beside This computer can switch the draft to an open local
+- The primary New task action opens a temporary chat draft on the last used
+  target: This computer, or the remembered environment, repository, and base
+  branch. It does not inherit the open session, its project, or a Host folder
+  chosen for the previous draft. The control beside This computer can switch the draft to an open local
   project or browse for a single folder. Choosing Temporary chat clears the
   draft's project before sending. A project's add button opens a draft with its project defaults. For a GitHub
   project these are the latest saved environment and base branch for that
@@ -601,10 +603,43 @@ account, or a Git failure on the Host. A failed workspace preparation uses the
 same reasons, and repository or branch list errors use the GitHub connector's
 localized messages. A failure code without a localized reason shows the
 message the Host or main process reported.
-The composer shows preparation and setup status. The session top bar shows
+The environment picker marks each environment whose Host is offline with a
+Host offline badge, and the location row then notes under the composer that
+sending reconnects the Host first. Send stays enabled: the first send
+reconnects an offline Host and reports it offline only when it still cannot
+be reached. The repository and branch pickers list at most 1000 repositories
+and 500 branches; a search that names an exact `owner/name` or branch the
+loaded list lacks is looked up on GitHub and offered, and a truncated list
+says how to find more.
+The composer shows preparation and setup status, with Cancel while preparing.
+Sidebar rows mark repository sessions that are preparing, failed, or being
+deleted. The session top bar shows
 the Host, repository, work branch, and a link to a recorded pull request.
-Ask the agent to open a pull request from a repository session with GitHub
-Agent tools enabled. The built-in connector pushes the session's committed
-branch when needed and opens the PR against the workspace's base branch.
+The link names the request's state, for example "View PR #12 · Merged"
+(Open, Draft, Closed, or Merged). A merged or closed request stays linked;
+the state is refreshed from GitHub when the session is used, at most every
+five minutes, and a link recorded before states were stored shows no state
+until then.
+Conversation details link a pushed work branch's changes on GitHub and show
+the pull request's checks.
+There are no manual push or pull request controls: ask the agent to push or to
+open a pull request. While the GitHub connector is signed in, the agent can
+push the session's committed work branch and open the PR against the
+workspace's base branch through the built-in connector, whether or not GitHub
+Agent tools are enabled. Both are high-risk tool calls that ask for approval
+outside Auto mode, and Plan and Goal turns cannot publish. Signing in or out
+of the connector applies from the session's next prompt; a turn already
+running cannot publish after a sign-out.
 Remote Hosts settings includes environment editing and leftover
-worktree management when a Host is paired.
+worktree management when a Host is paired. Each connected Host shows the
+release it reported, for example "Host version 0.23.0", followed by
+"· update pending" while it is older than the desktop and waiting to be
+updated.
+worktree management when a Host is paired. The environment editor checks
+variable names with the Host's rule, including reserved names, and flags a
+name used twice before Save. It says that variables are stored in plain text
+and are not for secrets, that changes apply to sessions created afterwards,
+and that the setup script runs before the first prompt in the new worktree,
+or without a repository in the selected folder or the session's scratch
+folder. Removing an environment asks for confirmation first, and a refusal is
+reported in the UI language.

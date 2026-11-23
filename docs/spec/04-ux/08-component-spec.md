@@ -348,12 +348,38 @@ This includes Host-owned sessions and Desktop-owned sessions bound to a remote
 workspace. Workspace preparation and recovery feedback appear beside the
 composer. Users can open published pull requests from links in the conversation.
 
+Repository session status (D696):
+
+- The composer's preparing status names the phase and Git progress and offers
+  Cancel. Cancel stops the Host job and leaves the workspace failed with a
+  localized "you cancelled" reason; Retry and Delete session stay available.
+  A renderer reload keeps the last phase and progress, which main remembers
+  for each preparing session.
+- A sidebar session row shows a neutral `Preparing` badge with a spinner while
+  its workspace prepares and an error `Failed` badge, whose tooltip gives the
+  localized reason, when preparation failed. While a delete of the session is
+  in flight the row shows `Deleting…` with a spinner instead, and the open
+  session's composer shows a busy "Deleting this session…" status in place of
+  its preparation controls. A second Delete meanwhile does nothing. The
+  spinner stops under reduced motion.
+- An unexpected failure before a send reaches the agent shows an error toast,
+  "Could not send the message:" with the localized reason, and the draft is
+  restored. Remote target failures keep their own single toast.
+
 Conversation details toggles a non-modal sidebar beside the chat for the active
 session. It shows the saved execution location and available workspace,
 repository, and branch metadata. Context occupancy follows the composer readout.
 Loaded tools lists only connector and MCP names from the session runtime catalog, including tools that have never been invoked. Changing modes can change this list. Older Hosts without an inventory show an unavailable state. Changes lists recorded
 file operations from the loaded transcript, newest first, with expandable,
 read-only diffs. A saved GitHub pull request is linked when available.
+For a repository session whose work branch exists on GitHub, an "On GitHub"
+row links "View changes on GitHub" to
+`https://github.com/<owner>/<repo>/compare/<base>...<work>`. With a recorded
+pull request the row also shows `Checks: passing`, `failing`, `pending`, or
+`none reported` for the branch head, from the commit's check runs and combined
+status. Main reads both through the connector by session id; the row reloads
+when a push finishes, when the pull request changes, and every 30 seconds
+while checks are pending, and stays hidden while GitHub is not connected.
 Open in Review closes the sidebar and reveals the recorded changes in the
 session's Review tab when that work panel surface is available.
 Closing the sidebar returns focus to its button. Changing sessions closes

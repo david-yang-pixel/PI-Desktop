@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const zhTWEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "即使主機離線或工作區仍在準備中，也可以刪除雲端專案中的對話。",
+      "雲端專案中的對話無法啟動時（例如主機離線或 GitHub 未連線），桌面端現在會說明原因，而不是看起來毫無反應。",
+      "主機上被中斷的 worktree 建立會被復原，再次準備對話時不會再被建立到一半的簽出或分支阻擋。",
+      "代理程式透過內建的 GitHub 連接器推送雲端專案對話的分支並建立 PR；桌面端不再提供手動推送或建立 PR 的按鈕。",
+      "GitHub 託管的 MCP 伺服器拒絕驗證碼登入取得的權杖時，代理程式會改用一組精簡的議題與 PR 工具，直接呼叫 GitHub API。",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

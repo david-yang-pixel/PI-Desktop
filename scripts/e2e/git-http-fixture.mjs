@@ -3,8 +3,9 @@
  * smart HTTP by `git http-backend` (run as a CGI child), behind the basic
  * credential GitHub accepts for a token (`x-access-token:<token>`).
  *
- * It records every request (method, path, query, and whether a credential
- * was present) so a test can assert what did and did not reach "GitHub".
+ * It records every request (method, path, query, declared body length, and
+ * whether a credential was present) so a test can assert what did and did not
+ * reach "GitHub".
  */
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -17,7 +18,7 @@ import { createServer } from "node:http";
  */
 export async function startGitHttpFixture({ projectRoot, repositoryPath, token }) {
   const expected = `Basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`;
-  /** @type {Array<{ method: string, path: string, query: string, credential: boolean, authorized: boolean }>} */
+  /** @type {Array<{ method: string, path: string, query: string, contentLength: string | null, credential: boolean, authorized: boolean }>} */
   const requests = [];
 
   const server = createServer((req, res) => {
@@ -27,7 +28,8 @@ export async function startGitHttpFixture({ projectRoot, repositoryPath, token }
     const query = mark < 0 ? "" : raw.slice(mark + 1);
     const authorization = req.headers.authorization;
     const authorized = authorization === expected;
-    requests.push({ method: req.method ?? "", path, query, credential: authorization !== undefined, authorized });
+    const contentLength = req.headers["content-length"] ?? null;
+    requests.push({ method: req.method ?? "", path, query, contentLength, credential: authorization !== undefined, authorized });
     if (!path.startsWith(`${repositoryPath}/`)) {
       req.resume();
       res.writeHead(404, { "content-type": "text/plain" }).end("Not Found\n");

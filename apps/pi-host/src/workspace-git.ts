@@ -81,7 +81,7 @@ export function createWorkspaceGit(deps: {
   /** Live connections that set a token, per installation. The token lives while one remains. */
   const holders = new Map<string, Set<string>>();
   /** Proxy address per `(installation, session)` scope. */
-  const scopes = new Map<string, { url: string; repository: WorkspaceGitRepository }>();
+  const scopes = new Map<string, { url: string; installationId: string; sessionId: string; repository: WorkspaceGitRepository }>();
   const preparations = new Map<string, { jobId: string; installationId: string; sessionId: string }>();
   const closed = new Set<string>();
   const scopeKey = (installationId: string, sessionId: string) => JSON.stringify([installationId, sessionId]);
@@ -107,7 +107,7 @@ export function createWorkspaceGit(deps: {
       repository: { owner: repository.owner, name: repository.name },
       workBranch: workspaceGitWorkBranch(installationId, sessionId),
     });
-    scopes.set(scopeKey(installationId, sessionId), { url, repository });
+    scopes.set(scopeKey(installationId, sessionId), { url, installationId, sessionId, repository });
     return url;
   }
 
@@ -157,6 +157,12 @@ export function createWorkspaceGit(deps: {
       connections.add(owner.connectionId);
       holders.set(input.installationId, connections);
       proxy.setToken(input.installationId, input.token);
+      // A new token rotates the proxy's handles. Every address this module
+      // caches is registered again, including a session whose prepare is
+      // still running and is not listed yet, so none of them goes stale.
+      for (const scope of [...scopes.values()]) {
+        if (scope.installationId === input.installationId) registerScope(scope.installationId, scope.sessionId, scope.repository);
+      }
       // Worktrees that outlived a `pi-host` restart need their scopes back
       // before their tools can reach the proxy.
       for (const worktree of await listWorktrees(input.installationId)) {
@@ -207,13 +213,19 @@ export function createWorkspaceGit(deps: {
     async push(input, owner) {
       if (!getHost()) throw unavailable();
       attach(owner, input.installationId);
-      let url = scopes.get(scopeKey(input.installationId, input.sessionId))?.url;
-      if (!url) {
+      let repository = scopes.get(scopeKey(input.installationId, input.sessionId))?.repository;
+      if (!repository) {
         const worktree = (await listWorktrees(input.installationId)).find((candidate) => candidate.sessionId === input.sessionId);
         if (!worktree) throw new RacpError("WORKSPACE_GIT_NOT_FOUND", "this host has no worktree for the session");
-        url = registerScope(input.installationId, input.sessionId, worktree.repository);
+        repository = worktree.repository;
       }
-      return call("workspaceGit.push", { gitProxy: { url }, installationId: input.installationId, sessionId: input.sessionId });
+      // Registering is idempotent and returns the live handle: a cached
+      // address may have been rotated away by a credential set.
+      const url = registerScope(input.installationId, input.sessionId, repository);
+      return call("workspaceGit.push", {
+        gitProxy: { url }, installationId: input.installationId, sessionId: input.sessionId,
+        ...(input.forceWithLease === true ? { forceWithLease: true } : {}),
+      });
     },
     async job(input) {
       const result = await call<Awaited<ReturnType<WorkspaceGitOperations["job"]>>>("workspaceGit.job", { jobId: input.jobId });

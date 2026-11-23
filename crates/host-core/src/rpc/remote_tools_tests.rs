@@ -500,7 +500,7 @@ mod worktree_environment {
 
     const PROBE: &str = "printf '%s|%s|%s|%s|%s|%s|%s' \"${MY_VAR-unset}\" \"${PI_WORKTREE_ROOT-unset}\" \"${PI_PROJECT_ROOT-unset}\" \"${GIT_CONFIG_COUNT-unset}\" \"${GIT_CONFIG_KEY_0-unset}\" \"${GIT_CONFIG_VALUE_0-unset}\" \"${GIT_DIR-unset}\"";
     /// The rest of the environment-carried git configuration.
-    const HARDENING_PROBE: &str = "printf '%s=[%s]|%s=[%s]|%s=[%s]|%s' \"${GIT_CONFIG_KEY_1-unset}\" \"${GIT_CONFIG_VALUE_1-unset}\" \"${GIT_CONFIG_KEY_2-unset}\" \"${GIT_CONFIG_VALUE_2-unset}\" \"${GIT_CONFIG_KEY_3-unset}\" \"${GIT_CONFIG_VALUE_3-unset}\" \"${GIT_TERMINAL_PROMPT-unset}\"";
+    const HARDENING_PROBE: &str = "printf '%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s=[%s]|%s' \"${GIT_CONFIG_KEY_1-unset}\" \"${GIT_CONFIG_VALUE_1-unset}\" \"${GIT_CONFIG_KEY_2-unset}\" \"${GIT_CONFIG_VALUE_2-unset}\" \"${GIT_CONFIG_KEY_3-unset}\" \"${GIT_CONFIG_VALUE_3-unset}\" \"${GIT_CONFIG_KEY_4-unset}\" \"${GIT_CONFIG_VALUE_4-unset}\" \"${GIT_CONFIG_KEY_5-unset}\" \"${GIT_CONFIG_VALUE_5-unset}\" \"${GIT_CONFIG_KEY_6-unset}\" \"${GIT_CONFIG_VALUE_6-unset}\" \"${GIT_CONFIG_KEY_7-unset}\" \"${GIT_CONFIG_VALUE_7-unset}\" \"${GIT_TERMINAL_PROMPT-unset}\"";
 
     fn proxy() -> String {
         format!("http://127.0.0.1:4321/{}/", "ab".repeat(32))
@@ -552,6 +552,7 @@ mod worktree_environment {
                 setup_script: None,
                 setup_status: SetupStatus::None,
                 setup_log_tail: None,
+                last_pushed_commit: None,
                 recovery: Default::default(),
             },
         )
@@ -618,20 +619,24 @@ mod worktree_environment {
         assert_eq!(
             plain,
             format!(
-                "from-record|{root_text}|/w/repos/github.com/octo/repo|5|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "from-record|{root_text}|/w/repos/github.com/octo/repo|9|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
 
         let proxy = proxy();
         let proxied = probe(&state, &tx, &root.join("nested"), "proxied", Some(&proxy)).await;
+        // The tool sees the proxy address (`for_tool`'s tests pin it), but
+        // its output reports the GitHub URL it stands for: the handle is not
+        // for the desktop or the transcript.
         assert_eq!(
             proxied,
             format!(
-                "from-record|{root_text}|/w/repos/github.com/octo/repo|4|url.{proxy}octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "from-record|{root_text}|/w/repos/github.com/octo/repo|8|url.https://github.com/octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );
+        assert!(!proxied.contains("ab".repeat(32).as_str()));
         // The host user's credential helpers, askpass program, and HTTP proxy
         // are out of the picture for the session's git.
         let hardening = run(
@@ -645,7 +650,7 @@ mod worktree_environment {
         .await;
         assert_eq!(
             hardening,
-            format!("credential.helper=[]|core.askPass=[]|http.{proxy}.proxy=[]|0")
+            "url.https://github.com/octo/repo.git.insteadOf=[git@github.com:octo/repo.git]|url.https://github.com/octo/repo.git.insteadOf=[ssh://git@github.com/octo/repo.git]|credential.helper=[]|core.askPass=[]|http.lowSpeedLimit=[1]|http.lowSpeedTime=[300]|http.https://github.com/.proxy=[]|0"
         );
     }
 
@@ -692,7 +697,7 @@ mod worktree_environment {
         assert_eq!(
             probe(&state, &tx, &root, "forbidden", None).await,
             format!(
-                "kept|{root_text}|/w/repos/github.com/octo/repo|5|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
+                "kept|{root_text}|/w/repos/github.com/octo/repo|9|url.pi-workspace-no-credential:///octo/repo.git.insteadOf|https://github.com/octo/repo.git|{}",
                 ambient("GIT_DIR")
             )
         );

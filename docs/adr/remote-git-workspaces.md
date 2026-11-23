@@ -49,6 +49,13 @@ Host gains a mutation capability. Hence this record.
    connection drops it. It never reaches host-core, a child process, a file, a
    log line, or a process argument list.
 
+   A connection receives the token only when an operation on that Host first
+   needs it (D695): a prepare or push, or a command in a ready repository
+   session, which may run git through the proxy. Connecting, or signing in to
+   the connector, sends nothing to a Host that has not needed it; a Host that
+   holds the token gets a changed one at once and a clear on sign-out. A
+   restore or setup rerun asks for the token but runs without it, as before.
+
 4. **git reaches GitHub through a loopback credential proxy.** `pi-host` runs
    an HTTP proxy on `127.0.0.1` and a random port. Each session's scope gets a
    random 256-bit handle; git is pointed at
@@ -96,6 +103,15 @@ Host gains a mutation capability. Hence this record.
    desktop sends the token only to a Host reached over its own SSH forward, a
    `wss://` URL, or a loopback `ws://` URL. Otherwise nothing is sent and a
    prepare or push fails with `WORKSPACE_GIT_TRANSPORT_REFUSED`.
+
+   Delivery is tracked per connection (D695). Before a prepare or push the
+   desktop checks that the Host's current connection holds the current
+   credential; a delivery that failed, or one made to an earlier connection,
+   is sent again then. When it still cannot be delivered the operation is not
+   started and fails with the desktop-side code
+   `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE`. With no token to send the
+   operation proceeds without one, as before, and a connection that never
+   held a token is not sent a clear.
 
 9. **Long work is a job, not a long call.** Every request budget between the
    desktop and host-core is between 15 and 135 seconds, and RACP has no

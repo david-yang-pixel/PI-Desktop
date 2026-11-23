@@ -533,6 +533,7 @@ describe("owner-only workspace git boundary", () => {
     expect(await client.request("workspace/gitRepository", { repository })).toEqual({ path: worktree.mainPath, cloned: false });
     expect(await client.request("workspace/gitPrepare", prepare)).toEqual({ jobId: "job-1" });
     expect(await client.request("workspace/gitPush", session)).toEqual({ jobId: "job-2" });
+    expect(await client.request("workspace/gitPush", { ...session, forceWithLease: true })).toEqual({ jobId: "job-2" });
     expect(await client.request("workspace/gitJob", { jobId: "job-1" })).toEqual(job);
     expect(await client.request("workspace/gitJobCancel", { jobId: "job-1" })).toEqual({ ok: true });
     expect(await client.request("workspace/gitStatus", session)).toMatchObject({ worktree, unpushedCommits: 1 });
@@ -547,6 +548,7 @@ describe("owner-only workspace git boundary", () => {
       { op: "repository", input: { repository } },
       { op: "prepare", input: prepare, owner },
       { op: "push", input: session, owner },
+      { op: "push", input: { ...session, forceWithLease: true }, owner },
       { op: "job", input: { jobId: "job-1" } },
       { op: "cancelJob", input: { jobId: "job-1" } },
       { op: "status", input: session },
@@ -611,6 +613,8 @@ describe("owner-only workspace git boundary", () => {
       ["workspace/gitCredentialSet", { installationId: "nope", token: "t" }],
       ["workspace/gitCredentialClear", { installationId }],
       ["workspace/gitPush", { ...good }],
+      ["workspace/gitPush", { installationId, sessionId: "s-1", forceWithLease: "true" }],
+      ["workspace/gitPush", { installationId, sessionId: "s-1", force: true }],
       ["workspace/gitStatus", { installationId, sessionId: "s-1", path: "/tmp" }],
       ["workspace/gitRemove", { installationId, sessionId: "s-1" }],
       ["workspace/gitReclaim", { ...good }],

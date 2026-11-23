@@ -101,11 +101,51 @@ globalThis.remoteWorkspaceProbe = async () => {
   if (button("Save").disabled) throw new Error("rejected directories at the limits");
   fill(hours, "0");
   fill(directories, "  node_modules  \n\n  client/dist\n");
+
+  // The editor says where setup runs, that variables are plain text, and
+  // that changes apply to sessions created afterwards.
+  const copy = catalogs.en.sessionTarget;
+  if (![...document.querySelectorAll("[aria-label]")].some((element) => element.getAttribute("aria-label") === copy.setupScriptHint)) {
+    throw new Error("missing setup script hint");
+  }
+  for (const text of [copy.environmentEditor.plainText, copy.environmentEditor.appliesToNewSessions]) {
+    if (!document.body.textContent.includes(text)) throw new Error("missing editor copy: " + text);
+  }
+  // Variable names follow the Host's rule before Save.
+  const alertText = () => [...document.querySelectorAll('[role="alert"]')].map((element) => element.textContent).join(" ");
+  const nameInputs = () => [...document.querySelectorAll('input[aria-label="Variable name"]')];
+  const valueInputs = () => [...document.querySelectorAll('input[aria-label="Variable value"]')];
+  button("Add variable").click();
+  flushSync(() => {});
+  fill(valueInputs()[0], "https://api.example.test");
+  if (!button("Save").disabled || !alertText().includes(copy.environmentEditor.variableNameRequired)) {
+    throw new Error("accepted a variable value without a name");
+  }
+  for (const name of ["1BAD", "API-URL", "PATH", "GIT_DIR"]) {
+    fill(nameInputs()[0], name);
+    if (!button("Save").disabled || nameInputs()[0].getAttribute("aria-invalid") !== "true"
+      || !alertText().includes(copy.environmentEditor.variableNameInvalid)) {
+      throw new Error("accepted invalid variable name: " + name);
+    }
+  }
+  fill(nameInputs()[0], "API_URL");
+  if (button("Save").disabled) throw new Error("rejected a valid variable name");
+  button("Add variable").click();
+  flushSync(() => {});
+  fill(nameInputs()[1], "API_URL");
+  if (!button("Save").disabled || nameInputs().some((input) => input.getAttribute("aria-invalid") !== "true")
+    || !alertText().includes(copy.environmentEditor.variableNameDuplicate)) {
+    throw new Error("accepted a duplicate variable name");
+  }
+  fill(nameInputs()[1], "");
+  if (button("Save").disabled) throw new Error("a blank row blocked Save");
+
   button("Save").click();
   await until(() => savedEnvironment, "environment settings were not saved");
   const [input] = savedEnvironments;
   if (savedEnvironments.length !== 1 || input.id !== "environment" || input.idleReclaimHours !== 0 ||
-    JSON.stringify(input.regenerableDirs) !== JSON.stringify(["node_modules", "client/dist"])) {
+    JSON.stringify(input.regenerableDirs) !== JSON.stringify(["node_modules", "client/dist"]) ||
+    JSON.stringify(input.variables) !== JSON.stringify([{ name: "API_URL", value: "https://api.example.test" }])) {
     throw new Error("wrong environment settings payload: " + JSON.stringify(input));
   }
   return true;

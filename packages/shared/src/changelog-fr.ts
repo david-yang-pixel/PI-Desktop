@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const frEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Les conversations des projets cloud peuvent être supprimées même lorsque leur hôte est hors ligne ou que leur espace de travail est encore en préparation.",
+      "Quand une conversation d’un projet cloud ne peut pas démarrer, par exemple parce que l’hôte est hors ligne ou que GitHub est déconnecté, l’application en indique désormais la raison au lieu de sembler ne rien faire.",
+      "Une création de worktree interrompue sur l’hôte est annulée, si bien qu’une copie de travail ou une branche à moitié créée ne bloque plus une nouvelle préparation de la conversation.",
+      "L’agent pousse la branche d’une conversation de projet cloud et ouvre sa pull request via le connecteur GitHub intégré ; l’application n’a plus de boutons manuels pour pousser ou créer une pull request.",
+      "Quand le serveur MCP hébergé de GitHub refuse un jeton obtenu par connexion par code, l’agent passe à un ensemble réduit d’outils de tickets et de pull requests qui appellent directement l’API GitHub.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

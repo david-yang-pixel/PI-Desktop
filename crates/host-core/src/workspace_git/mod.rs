@@ -8,10 +8,12 @@
 //! git authenticates through a loopback proxy that `pi-host` runs, named by a
 //! per-command URL rewrite.
 
+pub mod clone;
 pub mod environment;
 pub mod jobs;
 pub mod layout;
 pub mod locks;
+pub mod push;
 pub mod reclaim;
 pub mod registry;
 pub mod repository;

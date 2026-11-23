@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { formatCompactTokenCount, type SessionSummary } from "@pi-desktop/shared";
+import { formatCompactTokenCount, type SessionPullRequestLink, type SessionSummary } from "@pi-desktop/shared";
+import { SessionGitHubActivity } from "../features/chat/session-target/SessionGitHubActivity";
 import { useEnvironments } from "../features/chat/session-target/use-environments";
 import { composerContextUsage } from "../lib/context-usage";
 import { latestTurnContextInspector } from "../lib/latest-turn-context";
@@ -133,6 +134,7 @@ function ConversationDetailsSidebar({ id, session, cloud, onClose }: {
               </div>
             )}
             {branch && <div><dt>{t("conversationDetails.branch")}</dt><dd>{branch}</dd></div>}
+            {repository && <SessionGitHubActivity sessionId={session.id} workspace={repository} />}
           </dl>
         </section>
         <section>
@@ -157,11 +159,7 @@ function ConversationDetailsSidebar({ id, session, cloud, onClose }: {
               </Button>
             )}
           </div>
-          {githubPullRequest && (
-            <a className="conversation-details-pr" href={githubPullRequest.url} target="_blank" rel="noopener noreferrer">
-              {t("sessionTarget.openPullRequest", { number: githubPullRequest.number })}
-            </a>
-          )}
+          {githubPullRequest && <PullRequestLink pullRequest={githubPullRequest} />}
           <Suspense fallback={<p role="status">{t("panel.review.loadingHistory")}</p>}>
             {changes.map(({ change, message }) => (
               <ReviewChangeCard key={change.snapshotId} message={message} compact readOnly />
@@ -171,6 +169,19 @@ function ConversationDetailsSidebar({ id, session, cloud, onClose }: {
         </section>
       </div>
     </aside>
+  );
+}
+
+/** The recorded pull request, named with its state, e.g. "View PR #12 · Merged". */
+export function PullRequestLink({ pullRequest }: { pullRequest: SessionPullRequestLink }) {
+  const { t } = useTranslation();
+  // A link recorded before states were stored shows none until it is refreshed.
+  const status = pullRequest.state === "open" && pullRequest.draft ? "draft" : pullRequest.state;
+  return (
+    <a className="conversation-details-pr" href={pullRequest.url} target="_blank" rel="noopener noreferrer">
+      {t("sessionTarget.openPullRequest", { number: pullRequest.number })}
+      {status && ` · ${t(`sessionTarget.pullRequestStatus.${status}`)}`}
+    </a>
   );
 }
 

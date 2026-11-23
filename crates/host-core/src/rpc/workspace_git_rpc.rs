@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use tokio::sync::{watch, Mutex};
 
 use super::{command_shell_catalog, rpc_err, JsonRpcError};
+use crate::remote_sessions::environments::validate_variables;
 use crate::session_worktrees::git::GitRunner;
 use crate::session_worktrees::remove::is_real_dir;
 use crate::state::AppState;
@@ -28,9 +29,10 @@ use crate::workspace_git::jobs::{
     self, JobKind, JobPhase, JobProgress, JobState, Outcome, Pushed, SharedJobs,
 };
 use crate::workspace_git::layout::{
-    short_id, validate_branch, validate_installation_id, validate_session_id,
-    validate_variable_name, work_branch, Layout, Repository,
+    short_id, validate_branch, validate_installation_id, validate_session_id, work_branch, Layout,
+    Repository,
 };
+use crate::workspace_git::locks::Wait;
 use crate::workspace_git::reclaim::{self, Refusal, RegisteredPaths};
 use crate::workspace_git::registry::{self, SetupStatus, Variable, WorktreeRecord};
 use crate::workspace_git::repository::{self, NetworkContext, Phase};
@@ -40,7 +42,9 @@ use crate::workspace_git::worktree::{self, StartPoint};
 use crate::workspace_git::WorkspaceGitError;
 
 mod prepare;
+mod push;
 use prepare::start_prepare;
+use push::start_push;
 
 type SharedState = Arc<Mutex<AppState>>;
 
@@ -48,9 +52,8 @@ type SharedState = Arc<Mutex<AppState>>;
 /// carries the specific reason.
 const WORKSPACE_GIT_RPC_CODE: i64 = 1027;
 
-/// Limits of the shared contract (`racp-workspace-git.ts`).
-const MAX_VARIABLES: usize = 64;
-const MAX_VARIABLE_VALUE_CHARS: usize = 8192;
+/// Limits of the shared contract (`racp-workspace-git.ts`). Variables are
+/// checked by `validate_variables`, which applies the same limits.
 const MAX_SETUP_SCRIPT_CHARS: usize = 65_536;
 
 /// How long `workspaceGit.jobCancel` waits for the job to stop and clean up.
@@ -184,6 +187,9 @@ struct PushParams {
     git_proxy: Option<Value>,
     installation_id: String,
     session_id: String,
+    /// Allow a non-fast-forward update under a lease (`workspace_git::push`).
+    #[serde(default)]
+    force_with_lease: bool,
 }
 
 #[derive(Deserialize)]
@@ -278,26 +284,18 @@ impl PrepareRequest {
             variables: Vec::new(),
             setup_script: None,
         });
-        if environment.variables.len() > MAX_VARIABLES {
-            return Err(WorkspaceGitError::invalid(
-                "environment has too many variables",
-            ));
-        }
-        let mut variables = Vec::with_capacity(environment.variables.len());
-        for variable in environment.variables {
-            validate_variable_name(&variable.name)?;
-            if variable.value.chars().count() > MAX_VARIABLE_VALUE_CHARS
-                || variable.value.contains('\0')
-            {
-                return Err(WorkspaceGitError::invalid(
-                    "environment variable value is not allowed",
-                ));
-            }
-            variables.push(Variable {
+        let variables: Vec<Variable> = environment
+            .variables
+            .into_iter()
+            .map(|variable| Variable {
                 name: variable.name,
                 value: variable.value,
-            });
-        }
+            })
+            .collect();
+        // The same rules as a saved environment: count, names, duplicates,
+        // and value limits.
+        validate_variables(&variables)
+            .map_err(|error| WorkspaceGitError::invalid(error.to_string()))?;
         if environment
             .setup_script
             .as_ref()
@@ -510,7 +508,7 @@ async fn restore_for_setup(
     if record.recovery.checkout_creation_pending {
         // An earlier restore stopped after `git worktree add` started. Its
         // partial checkout is removed and the restore starts over.
-        rollback::roll_back(&context.git, &record).await?;
+        rollback::roll_back(&context.git, &record, Wait::Block).await?;
         record.recovery.checkout_creation_pending = false;
     }
     let _repository = crate::session_worktrees::repo_lock::lock(&paths.common).await;
@@ -585,7 +583,10 @@ async fn run_setup(
         };
         let jobs_for_output = jobs.clone();
         let job_id_for_output = job_id.to_owned();
-        let on_output = Arc::new(move |tail| {
+        let proxy_for_output = request.proxy_url.clone();
+        let repository_for_output = record.repository.clone();
+        let on_output = Arc::new(move |tail: String| {
+            let tail = environment::redact_proxy(&proxy_for_output, &repository_for_output, &tail);
             lock(&jobs_for_output).set_setup_log_tail(&job_id_for_output, Some(tail));
         });
         let (status, log) = match shell_id {
@@ -608,7 +609,12 @@ async fn run_setup(
             ),
         };
         record.setup_status = status;
-        record.setup_log_tail = Some(log);
+        // Stored in the registry and sent to the desktop: no proxy handle.
+        record.setup_log_tail = Some(environment::redact_proxy(
+            &request.proxy_url,
+            &record.repository,
+            &log,
+        ));
     }
     if strict && record.setup_status != SetupStatus::Failed {
         let verified = async {
@@ -700,89 +706,6 @@ async fn discard(
     }
 }
 
-// ---- push ---------------------------------------------------------------------
-
-async fn start_push(
-    state: &SharedState,
-    context: &Arc<WorkspaceGitContext>,
-    params: PushParams,
-) -> Result<Value, WorkspaceGitError> {
-    layout(&params.workspaces_root)?;
-    let proxy_url = proxy_url(params.git_proxy.as_ref())?;
-    session_key(&params.installation_id, &params.session_id)?;
-    let (jobs, job_id, cancel, record, access) = {
-        let st = state.lock().await;
-        let access = exclusive_access(&st, &params.installation_id, &params.session_id)?;
-        let jobs = st.workspace_git_jobs.clone();
-        let mut table = lock(&jobs);
-        let record = registry::get(&st.db, &params.installation_id, &params.session_id)?
-            .filter(|record| {
-                !record.recovery.blocks_access() && is_real_dir(Path::new(&record.path))
-            })
-            .ok_or_else(not_found)?;
-        let (job_id, cancel) =
-            table.start(JobKind::Push, &params.installation_id, &params.session_id)?;
-        drop(table);
-        (jobs, job_id, cancel, record, access)
-    };
-    tokio::spawn(run_push(
-        context.clone(),
-        jobs,
-        job_id.clone(),
-        record,
-        proxy_url,
-        cancel,
-        access,
-    ));
-    Ok(json!({ "jobId": job_id }))
-}
-
-async fn run_push(
-    context: Arc<WorkspaceGitContext>,
-    jobs: SharedJobs,
-    job_id: String,
-    record: WorktreeRecord,
-    proxy_url: String,
-    mut cancel: watch::Receiver<bool>,
-    access: tokio::sync::OwnedRwLockWriteGuard<()>,
-) {
-    lock(&jobs).set_phase(&job_id, JobPhase::Pushing);
-    let outcome = match record.repository.validated() {
-        Err(error) => Outcome::Failed(error),
-        Ok(repository) => {
-            let config = context.network_config(&proxy_url, &repository);
-            let config: Vec<(&str, &str)> = config
-                .iter()
-                .map(|(key, value)| (key.as_str(), value.as_str()))
-                .collect();
-            let on_progress = |progress: JobProgress| {
-                lock(&jobs).set_progress(&job_id, Some(progress));
-            };
-            let network = NetworkContext {
-                git: &context.git,
-                config: &config,
-                on_progress: Some(&on_progress),
-            };
-            let pushed = tokio::select! {
-                biased;
-                _ = jobs::cancelled(&mut cancel) => None,
-                result = worktree::push(&network, Path::new(&record.path), &record.work_branch) => Some(result),
-            };
-            match pushed {
-                None => Outcome::Cancelled,
-                Some(Err(error)) => Outcome::Failed(error),
-                Some(Ok(remote_head)) => Outcome::Pushed(Pushed {
-                    branch: record.work_branch.clone(),
-                    remote_head,
-                }),
-            }
-        }
-    };
-    let mut table = lock(&jobs);
-    drop(access);
-    table.finish(&job_id, outcome);
-}
-
 // ---- status and remove ----------------------------------------------------------
 
 async fn status(
@@ -817,9 +740,22 @@ async fn status(
         && !record.recovery.checkout_creation_pending
         && is_real_dir(path)
     {
-        worktree::status(&context.git, path, &record.work_branch).await?
+        worktree::status(
+            &context.git,
+            path,
+            &record.work_branch,
+            record.last_pushed_commit.as_deref(),
+        )
+        .await?
     } else {
-        worktree::branch_status(&context.git, main, &record.work_branch, 0).await?
+        worktree::branch_status(
+            &context.git,
+            main,
+            &record.work_branch,
+            0,
+            record.last_pushed_commit.as_deref(),
+        )
+        .await?
     };
     let ahead_of_base = worktree::commits_ahead_of_base(
         &context.git,
@@ -862,11 +798,13 @@ async fn remove(
         (record, access)
     };
     if record.recovery.checkout_creation_pending {
-        match prepare::roll_back_unfinished(state, context, record.clone()).await {
+        // Answered inline: a busy repository is reported, not waited out.
+        match prepare::roll_back_unfinished(state, context, record.clone(), Wait::Bounded).await {
             Ok(None) => {
                 return Ok(json!({ "removed": true, "uncommittedFiles": 0, "unpushedCommits": 0 }))
             }
             Ok(Some(remaining)) => record = remaining,
+            Err(error) if error.code == "WORKSPACE_GIT_BUSY" => return Err(error),
             // Kept because its branch gained commits: the checks below
             // count them, and only `force` discards them.
             Err(error) => tracing::info!(%error, "removing an unfinished worktree with checks"),
@@ -878,6 +816,7 @@ async fn remove(
         Path::new(&record.path),
         &record.work_branch,
         params.force,
+        record.last_pushed_commit.as_deref(),
     )
     .await?;
     if removed {

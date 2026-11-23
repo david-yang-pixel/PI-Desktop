@@ -341,6 +341,12 @@ export function RemoteHostsPage() {
                     ? t("settings.remoteHosts.transportSsh")
                     : host.url}
                 </div>
+                {host.hostVersion && (
+                  <div className="settings-remote-host-meta">
+                    {t("settings.remoteHosts.hostVersion", { version: host.hostVersion })}
+                    {host.updateAvailable && ` · ${t("settings.remoteHosts.updatePending")}`}
+                  </div>
+                )}
               </div>
               <span className="settings-remote-host-card-actions">
                 <Badge tone={host.connected ? "success" : host.status === "action-required" ? "warning" : "neutral"}>

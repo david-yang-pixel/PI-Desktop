@@ -1,4 +1,5 @@
 use super::*;
+use crate::workspace_git::locks::Wait;
 
 pub(super) async fn start_prepare(
     state: &SharedState,
@@ -32,12 +33,22 @@ pub(super) async fn start_prepare(
                 && record.recovery.reclaimed_commit.is_none()
                 && request.rerun_setup
                 && request.require_setup_success;
-            if record.recovery.blocks_access() && !request.strict_restore() && !retry_setup {
+            // A checkout creation on an owned branch that stopped part way is
+            // rolled back and done again by the job (`discard_unfinished`).
+            let finish_checkout = record.recovery.only_checkout_pending();
+            if record.recovery.blocks_access()
+                && !request.strict_restore()
+                && !retry_setup
+                && !finish_checkout
+            {
                 return Err(WorkspaceGitError::failed(
                     "the workspace requires strict setup before it can be used",
                 ));
             }
-            if !request.rerun_setup && is_real_dir(Path::new(&record.path)) {
+            if !request.rerun_setup
+                && !record.recovery.checkout_creation_pending
+                && is_real_dir(Path::new(&record.path))
+            {
                 let outcome = if request.require_setup_success
                     && record.setup_status == SetupStatus::Failed
                 {
@@ -97,12 +108,22 @@ async fn run_prepare(
         return;
     }
     // Dropping the git future kills its process (`kill_on_drop`) and removes
-    // a half-written clone directory.
+    // a half-written clone directory. Only what this prepare creates may be
+    // discarded: not an existing checkout, and not a work branch an older
+    // host-core left, which this prepare adopts.
     let may_discard = match record_of(&state, &request.installation_id, &request.session_id).await {
-        Ok(None) => matches!(
-            std::fs::symlink_metadata(request.worktree_path()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound
-        ),
+        Ok(None) => {
+            matches!(
+                std::fs::symlink_metadata(request.worktree_path()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound
+            ) && !worktree::local_branch_exists(
+                &context.git,
+                &request.main_path(),
+                &request.work_branch(),
+            )
+            .await
+            .unwrap_or(true)
+        }
         _ => false,
     };
     let created = tokio::select! {
@@ -123,12 +144,25 @@ async fn run_prepare(
     } else {
         Ok(None)
     };
+    let record = match record {
+        // A checkout creation on a branch the registration owns (an adopted
+        // branch, or a restore) stopped part way: the partial checkout is
+        // rolled back, and the registration keeps the branch and its work.
+        Ok(Some(record)) if record.recovery.only_checkout_pending() => {
+            roll_back_unfinished(&state, &context, record, Wait::Block)
+                .await
+                .inspect_err(|error| {
+                    tracing::warn!(%error, "could not roll back an unfinished checkout");
+                })
+        }
+        other => other,
+    };
     match record {
         // A cancelled or failed prepare leaves no worktree, record, or branch
         // behind; the main checkout stays. Only this job can have registered
         // an unfinished creation: an earlier one was rolled back above.
         Ok(Some(record)) if record.recovery.branch_creation_pending => {
-            if let Err(error) = roll_back_unfinished(&state, &context, record).await {
+            if let Err(error) = roll_back_unfinished(&state, &context, record, Wait::Block).await {
                 tracing::warn!(%error, "could not roll back an unfinished worktree");
             }
         }
@@ -247,9 +281,10 @@ async fn create_worktree(
     let mut record = new_record(request, &main_path, &worktree_path, &creation.base_commit)?;
     // Registered before git creates the branch or the checkout, so anything
     // that stops this prepare from here on leaves a registration owning what
-    // was created, which the next prepare or remove rolls back.
+    // was created, which the next prepare or remove rolls back. An adopted
+    // branch is not created here: a rollback keeps it, registered.
     record.recovery.checkout_creation_pending = true;
-    record.recovery.branch_creation_pending = true;
+    record.recovery.branch_creation_pending = !creation.adopted;
     registry::persist_recovery(&state.lock().await.db, &record)?;
     creation.add(&context.git, &main_path).await?;
     record.recovery.checkout_creation_pending = false;
@@ -293,6 +328,7 @@ fn new_record(
             SetupStatus::None
         },
         setup_log_tail: None,
+        last_pushed_commit: None,
         recovery: registry::Recovery {
             strict_setup_pending: request.require_setup_success && request.setup_script.is_some(),
             ..Default::default()
@@ -308,8 +344,9 @@ pub(super) async fn roll_back_unfinished(
     state: &SharedState,
     context: &WorkspaceGitContext,
     mut record: WorktreeRecord,
+    wait: Wait,
 ) -> Result<Option<WorktreeRecord>, WorkspaceGitError> {
-    rollback::roll_back(&context.git, &record).await?;
+    rollback::roll_back(&context.git, &record, wait).await?;
     let st = state.lock().await;
     if record.recovery.branch_creation_pending {
         registry::remove(&st.db, &record.installation_id, &record.session_id)?;
@@ -326,8 +363,13 @@ async fn discard_unfinished(
     request: &PrepareRequest,
 ) -> Result<(), WorkspaceGitError> {
     match record_of(state, &request.installation_id, &request.session_id).await? {
-        Some(record) if record.recovery.branch_creation_pending => {
-            roll_back_unfinished(state, context, record).await.map(drop)
+        Some(record)
+            if record.recovery.branch_creation_pending
+                || record.recovery.only_checkout_pending() =>
+        {
+            roll_back_unfinished(state, context, record, Wait::Block)
+                .await
+                .map(drop)
         }
         _ => Ok(()),
     }

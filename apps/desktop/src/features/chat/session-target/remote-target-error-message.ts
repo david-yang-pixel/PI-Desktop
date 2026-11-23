@@ -22,12 +22,16 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   // creates a session without a repository.
   [ErrorCodes.AGENT_UNAVAILABLE, HOST_OFFLINE],
   [ErrorCodes.HOST_DISCONNECTED, HOST_OFFLINE],
+  // A send reconnects an offline Host; a failed SSH startup check is what an
+  // unreachable SSH Host reports then, as main's `offlineError` treats it.
+  [ErrorCodes.HOST_BOOTSTRAP_FAILED, HOST_OFFLINE],
   [ErrorCodes.REMOTE_CONNECTION_FAILED, HOST_OFFLINE],
   [ErrorCodes.REMOTE_TARGET_HOST_OFFLINE, HOST_OFFLINE],
   [ErrorCodes.HOST_VERSION_MISMATCH, HOST_OUTDATED],
   [ErrorCodes.REMOTE_TARGET_UNSUPPORTED, HOST_OUTDATED],
   [ErrorCodes.REMOTE_ENVIRONMENT_NOT_FOUND, "sessionTarget.environmentUnavailable"],
   [ErrorCodes.REMOTE_WORKSPACE_NOT_READY, "sessionTarget.errors.workspaceNotReady"],
+  [ErrorCodes.REMOTE_WORKSPACE_CANCELLED, "sessionTarget.preparationControl.cancelled"],
   [ErrorCodes.WORKSPACE_GIT_UNAVAILABLE, "sessionTarget.errors.gitUnavailable"],
   [ErrorCodes.WORKSPACE_GIT_AUTH_REQUIRED, "sessionTarget.errors.gitAuthRequired"],
   [ErrorCodes.WORKSPACE_GIT_REPOSITORY_NOT_FOUND, "errors.GITHUB_NOT_FOUND"],
@@ -38,6 +42,12 @@ const REMOTE_TARGET_ERROR_KEYS: ReadonlyMap<string, string> = new Map([
   [ErrorCodes.WORKSPACE_GIT_FAILED, GIT_FAILED],
   [ErrorCodes.WORKSPACE_GIT_SETUP_FAILED, "sessionTarget.errors.setupRequired"],
   [ErrorCodes.WORKSPACE_GIT_TRANSPORT_REFUSED, "sessionTarget.errors.transportRefused"],
+  [ErrorCodes.WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE, "sessionTarget.errors.credentialUnavailable"],
+  // Push failures the Host reports by these names. Plain strings: the codes
+  // are defined with the Host change that emits them.
+  ["WORKSPACE_GIT_PUSH_REJECTED", "sessionTarget.gitErrors.pushRejected"],
+  ["WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED", "sessionTarget.gitErrors.workflowScopeRequired"],
+  ["WORKSPACE_GIT_STALLED", "sessionTarget.gitErrors.stalled"],
 ]);
 
 /** The catalog's sentence for a remote target code, or `fallback` for any other. */

@@ -6,8 +6,10 @@ import type { GitHubConnector } from "../github/connector";
 import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
 import { onConfirmedQuit } from "../bootstrap/confirmed-quit";
 import { createIdleWorkspaceReclaimer, idleSince } from "../remote/idle-workspace-reclaimer";
+import { createSessionGitHubActivity } from "../remote/session-github-activity";
 import { createSessionWorkspaceGit } from "../remote/session-workspace-git";
 import { createSessionWorkspaces, remoteError, type HostCall } from "../remote/session-workspaces";
+import { recoverRepositorySessions, type RecoveryLog } from "../remote/repository-session-recovery";
 import type { IpcRegistrar } from "./types";
 
 let active: {
@@ -15,9 +17,22 @@ let active: {
   git: ReturnType<typeof createSessionWorkspaceGit>;
   connector: GitHubConnector;
   reclaimer: ReturnType<typeof createIdleWorkspaceReclaimer>;
+  hostBusy(hostKey: string): Promise<boolean>;
 } | null = null;
 
 export function getRemoteRepositorySessions() { return active; }
+
+/**
+ * Resume repository workspaces once host-core is ready. IPC registers before
+ * host-core boots, so a resume at registration always failed, and a Host can
+ * connect before host-core answers too. Call after the backends boot.
+ */
+export async function recoverRemoteRepositorySessions(log: RecoveryLog) {
+  const sessions = active;
+  if (!sessions) return;
+  await recoverRepositorySessions(sessions, async () =>
+    (await getActiveRemoteHostsBoot()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey), log);
+}
 
 const invalid = () => remoteError(ErrorCodes.INVALID_ARGUMENT, "Invalid repository session request");
 const object = (value: unknown): Record<string, unknown> => {
@@ -68,10 +83,13 @@ export function registerRemoteRepositorySessions(deps: {
   acquireSessionOperation(sessionId: string): Promise<() => void>;
   hasQueuedPrompt(sessionId: string): boolean;
   isBusy(sessionId: string): boolean;
+  /** Any local turn, scheduled run, or approved execution is running. */
+  hasActiveWork?(): boolean;
 }) {
   const { registrar, call, connector, emit, log } = deps;
   const workspaces = createSessionWorkspaces({ call, hosts: getActiveRemoteHostsBoot, connector, emit, log, hasQueuedPrompt: deps.hasQueuedPrompt });
   const git = createSessionWorkspaceGit({ call, workspaces, connector, emit, log });
+  const githubActivity = createSessionGitHubActivity({ workspaces, connector });
   const supported = (hostKey: string) => getActiveRemoteHostsBoot()?.workspaceGit.supportsReclaim(hostKey) === true;
   const reclaimer = createIdleWorkspaceReclaimer({
     connectedHosts: async () => (await getActiveRemoteHostsBoot()?.list() ?? []).filter((host) => host.connected).map((host) => host.hostKey),
@@ -92,7 +110,19 @@ export function registerRemoteRepositorySessions(deps: {
       return result;
     },
   });
-  active = { workspaces, git, connector, reclaimer };
+  /**
+   * Whether restarting this Host's `pi-host` would interrupt repository work:
+   * a preparation, reclamation, or removal, a push or pull request in flight,
+   * a queued prompt, or any running turn. Turns are not tied to Hosts here, so
+   * any running turn counts; an update can wait.
+   */
+  const hostBusy = async (hostKey: string) => {
+    if (deps.hasActiveWork?.()) return true;
+    return (await workspaces.listBindings()).some((binding) => binding.hostKey === hostKey
+      && (["preparing", "reclaiming", "removing"].includes(binding.state)
+        || git.isOperating(binding.sessionId) || deps.isBusy(binding.sessionId) || deps.hasQueuedPrompt(binding.sessionId)));
+  };
+  active = { workspaces, git, connector, reclaimer, hostBusy };
   const boot = getActiveRemoteHostsBoot();
   boot?.workspaceGit.setCredentialProvider(() => connector.token());
   void boot?.workspaceGit.refreshCredential();
@@ -116,16 +146,9 @@ export function registerRemoteRepositorySessions(deps: {
     return { remoteRepository: await workspaces.start({ ...selection, baseBranch: branch, sessionId: string(data.sessionId) }) };
   });
   handle(IPC.invoke.remoteSessionWorkspaceRetry, async (id) => ({ remoteRepository: await workspaces.retry(string(id)) }));
-  handle(IPC.invoke.remoteSessionGitStatus, async (id) => ({ status: await git.status(string(id)) }));
-  handle(IPC.invoke.remoteSessionPush, async (id) => ({ status: await git.push(string(id)) }));
-  handle(IPC.invoke.remoteSessionPullRequestFind, async (id) => ({ pullRequest: await git.find(string(id)) }));
-  handle(IPC.invoke.remoteSessionPullRequestCreate, async (input) => {
-    const { sessionId, title, body, draft } = object(input);
-    if (typeof body !== "string" || body.length > 65_536 || typeof draft !== "boolean") throw invalid();
-    return { pullRequest: await git.create(string(sessionId), { title: string(title, 256).trim(), body, draft }) };
-  });
+  handle(IPC.invoke.remoteSessionWorkspaceCancel, async (id) => ({ remoteRepository: await workspaces.cancelPreparation(string(id)) }));
   handle(IPC.invoke.remoteSessionDeletePreflight, async (id) => git.preflight(string(id)));
+  handle(IPC.invoke.remoteSessionGithubActivity, async (id) => githubActivity(string(id)));
   handle(IPC.invoke.remoteLeftoverWorktreesList, async (hostKey) => ({ worktrees: await git.leftovers(string(hostKey)) }));
   handle(IPC.invoke.remoteLeftoverWorktreesRemove, async (hostKey, id) => ({ ok: await git.removeLeftover(string(hostKey), string(id)) }));
-  void workspaces.resume().catch((error) => log("Could not resume repository workspaces", error));
 }

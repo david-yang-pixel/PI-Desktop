@@ -23,6 +23,7 @@ import {
   WorkspaceGitPrepareSchema,
   WorkspaceGitReclaimSchema,
   WorkspaceGitRemoveSchema,
+  WorkspaceGitPushSchema,
   WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitSessionRefSchema,
 } from "./racp-workspace-git.js";
@@ -925,6 +926,12 @@ export const RACP_ERROR_CODES = {
   WORKSPACE_GIT_BUSY: { retriable: false },
   WORKSPACE_GIT_JOB_NOT_FOUND: { retriable: false },
   WORKSPACE_GIT_FAILED: { retriable: false },
+  /** A stall is transient: the same request may succeed later. */
+  WORKSPACE_GIT_STALLED: { retriable: true },
+  /** The same push is refused again until the branch is rebased or the rule changes. */
+  WORKSPACE_GIT_PUSH_REJECTED: { retriable: false },
+  /** Needs a new sign-in with the `workflow` scope first. */
+  WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED: { retriable: false },
   WORKSPACE_GIT_SETUP_FAILED: { retriable: false },
   WORKSPACE_GIT_TRANSPORT_REFUSED: { retriable: false },
   FORBIDDEN: { retriable: false },
@@ -1000,6 +1007,7 @@ export const RACP_SCHEMAS = {
   WorkspaceGitRepositoryRequest: WorkspaceGitRepositoryRequestSchema,
   WorkspaceGitPrepare: WorkspaceGitPrepareSchema,
   WorkspaceGitSessionRef: WorkspaceGitSessionRefSchema,
+  WorkspaceGitPush: WorkspaceGitPushSchema,
   WorkspaceGitRemove: WorkspaceGitRemoveSchema,
   WorkspaceGitReclaim: WorkspaceGitReclaimSchema,
   WorkspaceGitJobRef: WorkspaceGitJobRefSchema,

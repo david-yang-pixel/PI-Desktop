@@ -93,6 +93,10 @@ test("native picker handlers and secret-write channels stay out of the MCP catal
     "githubConnectorStatus",
     "githubRepositories",
     "githubBranches",
+    "remoteSessionWorkspaceCancel",
+    "githubRepository",
+    "githubBranch",
+    "remoteSessionGithubActivity",
   ]) {
     assert.equal(blocked.has(key), true, `${key} must be blocked on the control plane`);
   }

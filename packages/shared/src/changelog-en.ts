@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const enEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Chats in cloud projects can be deleted even while their host is offline or their workspace is still being prepared.",
+      "When a cloud project chat cannot start, for example because the host is offline or GitHub is disconnected, Desktop now says why instead of appearing to do nothing.",
+      "An interrupted worktree setup on the host is rolled back, so preparing the chat again is no longer blocked by a half-created checkout or branch.",
+      "The agent pushes a cloud project chat's branch and opens its pull request through the built-in GitHub connector; Desktop no longer has manual push or pull request buttons.",
+      "When GitHub's hosted MCP server refuses a token from sign-in with a code, the agent switches to a smaller set of issue and pull request tools that call the GitHub API directly.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

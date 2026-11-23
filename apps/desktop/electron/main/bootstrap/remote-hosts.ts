@@ -27,6 +27,8 @@ import { createRemoteSessionCatalog } from "../remote/remote-session-catalog.js"
 import { syncRemoteProviders } from "../remote/remote-provider-transfer.js";
 import { workspaceExecutionError } from "../remote/remote-workspace-outcome.js";
 import { createWorkspaceGitBoot, type WorkspaceGitBoot } from "../remote/workspace-git-boot.js";
+import { recoverRepositoryHost } from "../remote/repository-session-recovery.js";
+import { createRemoteHostPatchUpdater } from "../remote/remote-host-patch-update.js";
 import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 export { sshMetadataOf, sshHostRecord, transportOf } from "../remote/remote-host-metadata.js";
 export type { RemoteHostSummary };
@@ -346,8 +348,10 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     const status: RemoteHostConnectionStatus = state === "connected" || state === "connecting" || state === "reconnecting"
       ? state
       : state === "error" || actionRequired.has(record.hostKey) ? "action-required" : "disconnected";
+    const hostVersion = status === "connected" ? opened.get(record.hostKey)?.adapter.serverVersion?.() : undefined;
     return { hostKey: record.hostKey, label: record.label, url: opened.get(record.hostKey)?.url ?? record.url,
-      connected: status === "connected", status, transport: transportOf(record) };
+      connected: status === "connected", status, transport: transportOf(record),
+      ...(hostVersion ? { hostVersion, updateAvailable: patchUpdater.updateAvailable(record.hostKey) } : {}) };
   }
   async function addRecord(record: RemoteHostRecord): Promise<RemoteHostSummary> {
     assertOpen();
@@ -377,6 +381,28 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
       await openHostOnce(realigned ?? record);
     }
     return realigned !== null;
+  });
+
+  /**
+   * Whether anything runs on a Host that a restart would end: an agent turn
+   * on the Host itself, or a repository session's git job or turn. When it
+   * cannot be told, the Host counts as busy.
+   */
+  async function hostBusy(key: string): Promise<boolean> {
+    const live = connectedHost(key);
+    if (!live) return true;
+    const { sessions } = await live.adapter.client.request<{ sessions: RacpSession[] }>("session/list");
+    if (connectedHost(key) !== live) return true;
+    if (sessions.some((session) => session.activeTurnId || session.queuedTurnIds?.length
+      || session.status === "running" || session.status === "waiting_permission")) return true;
+    return await getRemoteRepositorySessions()?.hostBusy(key) ?? true;
+  }
+  const patchUpdater = createRemoteHostPatchUpdater({
+    expectedVersion: options.clientInfo.version,
+    hostVersion: (key) => connectedHost(key)?.adapter.serverVersion?.(),
+    isBusy: hostBusy,
+    realign: realignConnected,
+    log: (level, message, data) => log(level, message, data),
   });
 
   const ensureReady = (key: string): Promise<RemoteHostSummary> => {
@@ -421,18 +447,17 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
   });
   /**
    * Every new connection to a Host starts without a git credential: the Host
-   * drops it when a connection closes. Send it after the first open and after
-   * each transport-level reconnect. Failures are logged there, never thrown.
+   * drops it when a connection closes. Tell the git boot after the first open
+   * and after each transport-level reconnect; the credential follows only when
+   * an operation on this Host needs it. Then recover repository sessions.
    */
   gitHostConnected = (live) => {
     const onConnect = () => {
       void workspaceGit.hostConnected(live.hostKey).then(async () => {
         const sessions = getRemoteRepositorySessions();
-        if (!sessions) return;
-        await sessions.workspaces.announceEnvironments();
-        await sessions.workspaces.resume(live.hostKey);
-        await sessions.git.reconcile(live.hostKey);
-        await sessions.reclaimer.check(live.hostKey);
+        if (sessions) await recoverRepositoryHost(sessions, live.hostKey, log);
+        // After recovery, so a preparation it resumed counts as running.
+        if (!closed && opened.get(live.hostKey) === live) await patchUpdater.check(live.hostKey);
       }).catch((error) => log("warn", "could not recover repository sessions", { hostKey: live.hostKey, error: String(error) }));
     };
     onConnect();
@@ -471,6 +496,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
     closeAll() {
       if (closing) return closing;
       closed = true;
+      patchUpdater.dispose();
       for (const controller of bootstraps.keys()) controller.abort();
       const hosts = new Set([...opened.values(), ...openingHosts]);
       opened.clear();
@@ -569,6 +595,9 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
       return result;
     },
     async createSession(input) {
+      // Creating a session is a user action: bring an offline Host back, as
+      // browsing its projects does, instead of failing because it dropped.
+      await ensureReady(input.hostKey);
       let environment: WorkspaceGitEnvironment | undefined;
       if (input.environmentId) {
         const workspaces = getRemoteRepositorySessions()?.workspaces;
@@ -640,6 +669,7 @@ export function createRemoteHostsBoot(options: BootRemoteHostsOptions): RemoteHo
       await tunnels.close(key);
       await registry.remove(key);
       workspaceGit.hostRemoved(key);
+      patchUpdater.forget(key);
       await getRemoteRepositorySessions()?.workspaces.removeForHost(key).catch((error) =>
         log("warn", "could not remove host environments", { hostKey: key, error: String(error) }));
       actionRequired.delete(key);

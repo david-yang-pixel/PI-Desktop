@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const ptBREntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Conversas em projetos na nuvem podem ser excluídas mesmo com o host offline ou com o espaço de trabalho ainda em preparação.",
+      "Quando uma conversa de um projeto na nuvem não consegue iniciar, por exemplo porque o host está offline ou o GitHub está desconectado, o aplicativo agora explica o motivo em vez de parecer não fazer nada.",
+      "Uma criação de worktree interrompida no host é revertida, então uma cópia de trabalho ou branch criada pela metade não impede mais preparar a conversa de novo.",
+      "O agente envia o branch de uma conversa de projeto na nuvem e abre o pull request dela pelo conector integrado do GitHub; o aplicativo não tem mais botões manuais de envio ou de pull request.",
+      "Quando o servidor MCP hospedado do GitHub recusa um token do login com código, o agente passa a usar um conjunto menor de ferramentas de issues e pull requests que chamam a API do GitHub diretamente.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

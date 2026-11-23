@@ -201,6 +201,17 @@ and a password descriptor whose stored secret is gone, are never touched, and th
 artifact is still fetched from the desktop's release and verified against the
 published SHA-256 before installation.
 
+A connected Host whose handshake reports an older release than this desktop,
+such as an earlier patch of the same minor series, is realigned the same way
+once per desktop run (D695), but only while nothing runs on it: no agent turn
+or queued turn on the Host, no repository preparation, reclamation, removal,
+push, pull request, or queued prompt, and no running local turn. A turn started
+while the update runs finds the Host offline until it reconnects. A busy Host is checked again
+every five minutes; when its activity cannot be read it counts as busy. The
+same throttle and verification apply. The Host summary carries the version the
+Host reported and `updateAvailable` while it is behind, and Remote Hosts
+settings shows "Host version X · update pending".
+
 Provider configuration is copied only after explicit selection and consent in
 Settings. Electron Main reads the selected eligible secrets and sends a bounded
 versioned payload over SSH stdin to `pi-host provider-import`. That CLI forwards

@@ -28,12 +28,14 @@ test("every remote target and workspace code main reports maps to a catalog sent
   const expected = {
     AGENT_UNAVAILABLE: en.sessionTarget.errors.hostOffline,
     HOST_DISCONNECTED: en.sessionTarget.errors.hostOffline,
+    HOST_BOOTSTRAP_FAILED: en.sessionTarget.errors.hostOffline,
     REMOTE_CONNECTION_FAILED: en.sessionTarget.errors.hostOffline,
     REMOTE_TARGET_HOST_OFFLINE: en.sessionTarget.errors.hostOffline,
     HOST_VERSION_MISMATCH: en.sessionTarget.errors.hostOutdated,
     REMOTE_TARGET_UNSUPPORTED: en.sessionTarget.errors.hostOutdated,
     REMOTE_ENVIRONMENT_NOT_FOUND: en.sessionTarget.environmentUnavailable,
     REMOTE_WORKSPACE_NOT_READY: en.sessionTarget.errors.workspaceNotReady,
+    REMOTE_WORKSPACE_CANCELLED: en.sessionTarget.preparationControl.cancelled,
     WORKSPACE_GIT_UNAVAILABLE: en.sessionTarget.errors.gitUnavailable,
     WORKSPACE_GIT_AUTH_REQUIRED: en.sessionTarget.errors.gitAuthRequired,
     WORKSPACE_GIT_REPOSITORY_NOT_FOUND: en.errors.GITHUB_NOT_FOUND,
@@ -44,6 +46,10 @@ test("every remote target and workspace code main reports maps to a catalog sent
     WORKSPACE_GIT_FAILED: en.sessionTarget.errors.gitFailed,
     WORKSPACE_GIT_SETUP_FAILED: en.sessionTarget.errors.setupRequired,
     WORKSPACE_GIT_TRANSPORT_REFUSED: en.sessionTarget.errors.transportRefused,
+    WORKSPACE_GIT_PUSH_REJECTED: en.sessionTarget.gitErrors.pushRejected,
+    WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED: en.sessionTarget.gitErrors.workflowScopeRequired,
+    WORKSPACE_GIT_STALLED: en.sessionTarget.gitErrors.stalled,
+    WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE: en.sessionTarget.errors.credentialUnavailable,
   };
   for (const [code, sentence] of Object.entries(expected)) {
     assert.equal(typeof sentence, "string", code);
@@ -64,6 +70,10 @@ test("the sentence follows the current language", async () => {
     assert.equal(
       remoteTargetErrorText(t, coded("REMOTE_TARGET_HOST_OFFLINE", "The selected remote host is offline")),
       zhCN.sessionTarget.errors.hostOffline,
+    );
+    assert.equal(
+      remoteTargetErrorTextForCode(t, "WORKSPACE_GIT_PUSH_REJECTED", "! [rejected] (fetch first)"),
+      zhCN.sessionTarget.gitErrors.pushRejected,
     );
   } finally {
     await translator.changeLanguage("en");

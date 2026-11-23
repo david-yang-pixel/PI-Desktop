@@ -794,6 +794,73 @@ The same refusals, a gzip-encoded foreign push, and a push whose ref updates
 do not end within 64 KiB are pinned byte-for-byte in
 `apps/pi-host/src/git-credential-proxy.test.ts`.
 
+## E2E-REMOTE-git-push-rebased-branch-with-lease
+
+Covered by step 10 of `scripts/e2e-remote-workspace-git.mjs`. After the
+Agent's Bash rewrites session B's pushed work branch (as a rebase would), a
+host push job fails with `WORKSPACE_GIT_PUSH_REJECTED` and leaves the remote
+branch as it was; the same push with `forceWithLease: true` succeeds and
+reports the rewritten commit, and no other branch moves. host-core tests
+(`workspace_git/push.rs`, `workspace_git_rpc_tests/push.rs`) also show that
+a lease never overwrites a commit someone else pushed, that a lease on a
+branch never pushed requires it to be absent, and that the arguments never
+contain a bare `--force` or a `+` refspec. The real-git proxy test
+(`git-credential-proxy.real-git.test.ts`) forwards a forced update of the
+work branch and refuses a forced push to any other ref.
+`apps/desktop/test/github-session-tools.test.mjs` covers the
+`forceWithLease` parameter of `plugin_pi_github_PushSessionBranch`.
+
+## E2E-REMOTE-git-squash-merged-work-counts-as-pushed
+
+Covered by step 11 of the same script. After the host pushed session B's
+branch, the fixture deletes it (as GitHub does after a squash merge) and a
+fetch prunes the tracking ref: status reports `pushedOnce: false` and
+`unpushedCommits: 0`. `workspace_git_rpc_tests/push.rs` adds that a commit
+made after the push still counts, and that reclaim and removal without
+`force` (with or without the checkout directory) go ahead.
+
+## E2E-REMOTE-git-ssh-url-uses-proxy
+
+Covered by step 12 of the same script. From session B's Bash, a push of
+`HEAD:main` to `git@github.com:octo/repo.git` fails with HTTP 403 from the
+proxy and reaches no fixture, and a push of the work branch to
+`ssh://git@github.com/octo/repo.git` lands on the fixture through the proxy.
+Printing `GIT_CONFIG_KEY_0` shows the GitHub URL and no proxy address or
+handle. `workspace_git::environment` tests run `git ls-remote` on both SSH
+spellings (rewritten) and on another repository's (left alone).
+
+## E2E-REMOTE-git-prepare-adopts-legacy-work-branch
+
+Covered by host-core tests in
+`crates/host-core/src/rpc/workspace_git_rpc_tests/adoption.rs`. A work
+branch with no registration is adopted by the next prepare and checked out
+at its own commit, with `baseCommit` at its merge base with the base branch.
+A foreign directory at the worktree path still fails the prepare and both
+survive; a cancelled setup keeps the branch; an adoption whose checkout
+creation fails keeps the branch registered with `checkoutPresent: false`,
+and the next prepare finishes it.
+
+## E2E-REMOTE-git-transfer-keeps-sessions-usable
+
+Covered by host-core tests. While a push transfers
+(`workspace_git_rpc_tests/push.rs`), the session's tool guard and the
+repository lock are free, status works, and prepare, push, and remove of
+the same session answer `WORKSPACE_GIT_BUSY` with the push job's id. While
+a fetch transfers (`workspace_git_rpc_tests/locking.rs`), another session's
+removal completes; removal against a held repository answers
+`WORKSPACE_GIT_BUSY` within seconds and changes nothing.
+
+## E2E-REMOTE-git-stalled-transfer-and-interrupted-clone
+
+Covered by host-core and `pi-host` tests. git output for a low-speed abort
+or a proxy 504 maps to `WORKSPACE_GIT_STALLED` (`workspace_git/repository.rs`);
+the proxy answers 504 to an upstream that stops answering and cuts a
+response whose body stalls (`git-credential-proxy.test.ts`). A clone cut
+short, or failed after its transfer, is completed by the next prepare from
+the kept `<repo>.cloning-partial.git`, and a partial clone of another URL is
+discarded (`workspace_git/clone.rs`). A fetch fast-forwards a clean main
+checkout on its default branch and leaves a changed one alone.
+
 ## E2E-REMOTE-interrupted-prepare-leaves-no-orphan-branch
 
 Covered by host-core tests in
@@ -813,8 +880,9 @@ repository, and a git wrapper that stalls or fails a chosen step. No Desktop,
 3. If its work branch gained a commit, the prepare fails and keeps the
    commit and the checkout; removal without `force` reports the commit, and
    `force` removes everything.
-4. A non-empty directory already at the worktree path, and a work branch
-   without a registration, survive a failed prepare.
+4. A non-empty directory already at the worktree path survives a failed
+   prepare. A work branch without a registration is adopted instead
+   (`E2E-REMOTE-git-prepare-adopts-legacy-work-branch`).
 5. A cancelled setup whose cleanup failed stays registered and is finished
    by the next prepare.
 6. An interrupted strict restore is retried from a clean checkout, or
@@ -833,15 +901,17 @@ the input card and the bottom-reserved home layout. The renderer suite
 their placement, menu surface, and narrow-width wrapping.
 
 In the same renderer suite, start inside a cloud project and click the primary
-New task button. The empty draft starts on This computer and no durable
-session is created. The local and cloud project rows show their own sessions
+New task button. The empty draft keeps the environment, repository, and base
+branch last picked on the home draft, not the open cloud session's, and no
+durable session is created. The local and cloud project rows show their own sessions
 once. A GitHub project row displays the repository name. Use the cloud
 project's add button, verify its last environment and
 repository are preselected, change to another Host, choose No repository without
 a GitHub connection, and send. Verify the first prompt reaches the new
 projectless session on the chosen Host and no Git worktree is prepared.
 
-On This computer, the project picker defaults to Temporary chat. Select a
+After that send, New task keeps the chosen Host and No repository. Switch
+to This computer: the project picker defaults to Temporary chat. Select a
 saved project, cancel the folder browser, then pick a different folder. Verify
 the draft text remains and the first send uses the chosen folder. Start a new
 draft, pick a folder and switch back to Temporary chat before sending. The
@@ -871,6 +941,98 @@ wrapper, and composer draft-restore helper. Only main's IPC replies are faked.
 sentence mapping and the language switch.
 `apps/desktop/test/workspace-preparation-status.test.mjs` pins the localized
 reason in a failed preparation banner.
+
+## E2E-REMOTE-local-send-failure-explains-and-keeps-draft
+
+On This computer, type a prompt in a new draft and send while the draft
+session cannot be created, for example because the local service is down.
+Verify Send restores the draft and shows exactly one error toast: "Could not
+send the message:" plus the catalog sentence for the failure's code, or the
+failure's own message when no sentence exists. A remote target failure still
+shows only its own "Could not start the remote session" toast.
+`apps/desktop/test/remote-target-send-failure.test.mjs` covers both through
+the real queue slice.
+
+## E2E-REMOTE-preparing-workspace-can-be-cancelled-and-retried
+
+Start a repository session and, while it clones, choose Cancel in the
+composer's preparing status. Verify main cancels the Host prepare job, waits
+for it to stop, and the status turns into the failed banner with "You
+cancelled the preparation" and Retry and Delete session. Cancel twice quickly
+and verify one Host cancel. Retry prepares again with a new job. A job that
+finished before the cancel arrived leaves the workspace ready.
+`apps/desktop/test/remote-session-workspaces.test.mjs` drives main's cancel,
+`apps/desktop/test/workspace-preparation-status.test.mjs` the Cancel button in
+Electron, and `apps/desktop/test/mcp-control-wiring.test.mjs` keeps
+`remoteSessionWorkspaceCancel` off the MCP control plane.
+
+## E2E-REMOTE-preparation-progress-survives-renderer-reload
+
+While a repository workspace clones at a reported percentage, reload the
+renderer. Verify the composer and session list still show the phase and
+progress ("Cloning octo/repo… — Receiving objects 42%") instead of the generic
+preparing text, and that nothing stale remains once the workspace is ready or
+cancelled. `apps/desktop/test/remote-workspace-progress-reload.test.mjs` pins
+main's memory and its use by the session list and session reads.
+
+## E2E-REMOTE-sidebar-marks-preparing-failed-and-deleting-sessions
+
+With one repository session preparing and another failed, verify their
+sidebar rows show `Preparing` with a spinner and `Failed` with the localized
+reason as a tooltip, and ready sessions show neither. Delete the preparing
+session while its Host job is slow to stop: the row shows `Deleting…` and the
+composer shows "Deleting this session…" until the delete settles, a second
+Delete sends nothing, and the row disappears when it completes.
+`apps/desktop/test/remote-session-badge.test.mjs` and
+`apps/desktop/test/session-deletion-progress-user-path.test.mjs` cover this.
+
+## E2E-REMOTE-environment-editor-checks-variables-and-confirms-removal
+
+Open the environment editor. Verify it says variables are stored in plain text
+and are not for secrets, that changes apply to sessions created afterwards,
+and where the setup script runs. Add a variable with a value but no name, then
+names such as `1BAD`, `PATH`, and `GIT_DIR`, then the same name twice: each
+keeps Save disabled, marks the input invalid, and explains the rule. A row
+left blank is not saved. In Remote Hosts settings, Remove on an environment
+asks for confirmation, Cancel keeps it, and a refusal from main is shown in
+the UI language. `apps/desktop/test/remote-session-pr-user-path.test.mjs` and
+`apps/desktop/test/remote-environment-removal-user-path.test.mjs` drive both.
+
+## E2E-REMOTE-offline-host-is-marked-and-reconnected-on-send
+
+With a paired Host offline, open the environment picker: its environments
+carry a Host offline badge and stay selectable. Select one and verify the
+location row notes that sending reconnects the Host, with Send enabled. Send:
+a repository target reconnects through the workspace capability check and a
+session without a repository reconnects before it is created; only a Host that
+still cannot be reached is reported offline.
+`apps/desktop/test/session-target-row-user-path.test.mjs` and
+`apps/desktop/test/remote-offline-host-send.test.mjs` cover the picker and
+main's reconnect.
+
+## E2E-REMOTE-target-pickers-find-unlisted-repositories-and-branches
+
+With more repositories or branches than the connector lists, verify the
+truncated lists say how to find more. Type an exact `owner/name` that the list
+lacks: after a short pause the picker looks it up on GitHub and offers it, or
+says GitHub has no such repository for this account. Selecting it uses its
+default branch. Type an exact branch name the branch list lacks and verify it
+is offered the same way. A listed name triggers no lookup.
+`apps/desktop/test/session-target-row-user-path.test.mjs` drives the pickers;
+`github-api`, `github-connector`, and `github-connector-ipc` tests pin
+`githubRepository` and `githubBranch`, which stay off the MCP control plane.
+
+## E2E-REMOTE-details-link-pushed-branch-and-show-pr-checks
+
+Open conversation details for a repository session. Before the agent pushes,
+no GitHub row is shown. After the push, an "On GitHub" row links "View changes
+on GitHub" to the compare page of the base and work branch. With a recorded
+pull request the row shows the checks state of the branch head, refreshing
+while checks are pending. With GitHub disconnected the row is hidden; other
+GitHub failures are explained. `pnpm test:e2e:remote-mvp-ui` verifies the
+compare link and passing checks in the details sheet, and
+`apps/desktop/test/session-github-activity.test.mjs` covers main's activity
+read and the row's updates.
 
 ## E2E-REMOTE-cloud-session-topbar
 
@@ -911,6 +1073,64 @@ conversation. While the Host push job is running, the composer shows its Git
 percentage when available. Updates are scoped to the session and clear when
 polling ends, including failure or disconnect. The test verifies uncommitted work survives an ordinary delete
 and that confirmed deletion preserves the pushed branch.
+
+## E2E-REMOTE-repo-session-keeps-merged-or-closed-pull-request
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git` (D695). Every pull
+request lookup asks the connector for all states. After the fixture marks the
+session's PR closed, the lookup returns it and the binding keeps the link with
+`state: "closed"` and its draft flag instead of clearing it. The pull request
+request then opens replacement PR #2 and records it as open.
+`apps/desktop/test/remote-session-workspace-git.test.mjs` covers a merged PR
+staying linked, an empty lookup keeping the recorded link, a new PR after a
+merge when commits exist, a refused create never returning the merged PR, and
+the throttled refresh on session use;
+`apps/desktop/test/conversation-details-pull-request.test.mjs` covers the
+"View PR #12 · Merged" label.
+
+## E2E-REMOTE-git-credential-sent-on-first-use
+
+Covered by steps 1 and 2 of `pnpm test:e2e:remote-workspace-git` (D695).
+After the Host connects and the connector's credential is refreshed,
+`pi-host` has been handed no token. The first prepare delivers it once, and
+the clone goes through the proxy with it. A retried prepare on the same
+connection sends nothing more.
+`apps/desktop/test/remote-workspace-git-boot.test.mjs` covers a sign-in
+reaching no Host until it needs the token, a changed token replacing the one a
+Host holds, a sign-out clearing it, delivery again after a reconnect, one retry
+before `WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE`, and the transport rules;
+`apps/desktop/test/remote-session-workspace-git.test.mjs` covers only a ready
+repository session's commands asking for the token.
+
+## E2E-REMOTE-host-on-older-patch-updates-when-idle
+
+Not covered by an end-to-end run: a realignment needs a real SSH Host and a
+published release (D695). `apps/desktop/test/remote-host-patch-update.test.mjs`
+covers the version comparison, one realignment per run for an idle Host on an
+older patch, a busy Host waiting and updating once idle, and an unreadable
+activity counting as busy; `apps/desktop/test/remote-workspace-git-boot.test.mjs`
+covers the Host summary's `hostVersion` and `updateAvailable` and a Host with
+unknown activity staying connected;
+`apps/desktop/test/repository-session-recovery.test.mjs` covers what makes a
+Host busy.
+
+## E2E-REMOTE-agent-pushes-session-branch-through-connector
+
+Covered by step 9 of `pnpm test:e2e:remote-workspace-git`. Desktop has no
+manual push or pull request controls (D693); the Agent publishes. With the
+session switched to Plan, `plugin_pi_github_PushSessionBranch` is refused with
+`PLUGIN_DISABLED_IN_PLAN` and the work branch stays absent from the Git server.
+Back in Agent mode the tool pushes the work branch through the Host's push job:
+the result reports `pushed: true`, the session's work branch and zero unpushed
+commits, the branch exists on the Git server, and the session's push progress
+ends cleared. A second call answers `pushed: false` with the current counts
+instead of failing. The pull request tool then opens the PR without another
+push. `apps/desktop/test/github-session-tools.test.mjs` covers the tools'
+availability (offered whenever the connector is signed in, regardless of the
+GitHub Agent tools switch, and following a sign-in or sign-out at the next
+launch), the refusal of a running turn's calls after a sign-out
+(`GITHUB_NOT_CONNECTED`), the Agent-turn requirement, argument validation and
+turn cancellation.
 
 ## E2E-REMOTE-repo-session-delete-during-prepare-removes-worktree
 

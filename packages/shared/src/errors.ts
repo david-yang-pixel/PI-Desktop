@@ -294,6 +294,8 @@ export const ErrorCodes = {
   WORKSPACE_GIT_NOT_FOUND: "WORKSPACE_GIT_NOT_FOUND",
   /** A git job for the same session is still running. */
   REMOTE_WORKSPACE_NOT_READY: "REMOTE_WORKSPACE_NOT_READY",
+  /** The user cancelled a repository workspace's preparation; Retry starts it again. */
+  REMOTE_WORKSPACE_CANCELLED: "REMOTE_WORKSPACE_CANCELLED",
   REMOTE_ENVIRONMENT_NOT_FOUND: "REMOTE_ENVIRONMENT_NOT_FOUND",
   REMOTE_TARGET_UNSUPPORTED: "REMOTE_TARGET_UNSUPPORTED",
   REMOTE_TARGET_HOST_OFFLINE: "REMOTE_TARGET_HOST_OFFLINE",
@@ -303,9 +305,20 @@ export const ErrorCodes = {
   WORKSPACE_GIT_BUSY: "WORKSPACE_GIT_BUSY",
   WORKSPACE_GIT_JOB_NOT_FOUND: "WORKSPACE_GIT_JOB_NOT_FOUND",
   WORKSPACE_GIT_FAILED: "WORKSPACE_GIT_FAILED",
+  /** A clone, fetch, or push stopped moving data and was abandoned; retrying may succeed. */
+  WORKSPACE_GIT_STALLED: "WORKSPACE_GIT_STALLED",
+  /** GitHub did not take the push: not a fast-forward, a stale lease, or a rule declined it. */
+  WORKSPACE_GIT_PUSH_REJECTED: "WORKSPACE_GIT_PUSH_REJECTED",
+  /** GitHub refuses to create or update a workflow file without the token's `workflow` scope. */
+  WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED: "WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED",
   WORKSPACE_GIT_SETUP_FAILED: "WORKSPACE_GIT_SETUP_FAILED",
   /** The Host is not reached over SSH, `wss://`, or loopback; the credential was not sent. */
   WORKSPACE_GIT_TRANSPORT_REFUSED: "WORKSPACE_GIT_TRANSPORT_REFUSED",
+  /**
+   * Desktop-side only: the GitHub credential could not be delivered to the
+   * Host's current connection, so an operation that needs it was not started.
+   */
+  WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE: "WORKSPACE_GIT_CREDENTIAL_UNAVAILABLE",
   PAIRING_FAILED: "PAIRING_FAILED",
   PAIRING_TOKEN_EXPIRED: "PAIRING_TOKEN_EXPIRED",
   /** The Host does not advertise the capability the operation needs. */

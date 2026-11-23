@@ -22,6 +22,7 @@ import {
   isGitHubTokenShape,
   type GitHubBranchList,
   type GitHubBranchSummary,
+  type GitHubCommitChecks,
   type GitHubPullRequestInput,
   type GitHubPullRequestSummary,
   type GitHubRepositoryList,
@@ -49,10 +50,22 @@ export type GitHubViewer = {
   scopes: string[];
 };
 
+/** One branch by name with the commit it points at. */
+export type GitHubBranchHead = GitHubBranchSummary & { sha: string };
+
 export type GitHubApi = {
   viewer(token: string): Promise<GitHubViewer>;
   listRepositories(token: string): Promise<GitHubRepositoryList>;
   listBranches(token: string, repository: GitHubRepositoryRef): Promise<GitHubBranchList>;
+  /**
+   * One repository by its exact name, for a name a capped or SSO-trimmed
+   * listing left out. `null` when GitHub cannot find it for this token.
+   */
+  getRepository(token: string, repository: GitHubRepositoryRef): Promise<GitHubRepositorySummary | null>;
+  /** One branch by its exact name. `null` when the repository has no such branch. */
+  getBranch(token: string, repository: GitHubRepositoryRef, branch: string): Promise<GitHubBranchHead | null>;
+  /** CI on one commit: its latest check runs and its combined commit status. */
+  getCommitChecks(token: string, repository: GitHubRepositoryRef, sha: string): Promise<GitHubCommitChecks>;
   findPullRequest(
     token: string,
     repository: GitHubRepositoryRef,
@@ -116,6 +129,53 @@ export function repositoryPath(repository: { owner: unknown; name: unknown }): s
 function branchName(value: unknown): string {
   if (!isGitBranchName(value)) throw invalid("branch name");
   return value;
+}
+
+/** A branch name as path segments: each part encoded, its slashes kept. */
+function branchPath(value: unknown): string {
+  return branchName(value).split("/").map(encodeURIComponent).join("/");
+}
+
+/** A full commit id; a ref name would be ambiguous in a `commits/{ref}` path. */
+function commitSha(value: unknown): string {
+  if (typeof value !== "string" || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(value)) throw invalid("commit");
+  return value;
+}
+
+/** Conclusions GitHub's pull request page counts as an unsuccessful check. */
+const FAILED_CHECK_CONCLUSIONS = new Set(["failure", "timed_out", "cancelled", "action_required", "startup_failure"]);
+
+/**
+ * One verdict for a commit, from its check runs (GitHub Actions and apps) and
+ * its commit statuses (older integrations): failing if any failed, else
+ * pending if any has not finished, else passing if there are any.
+ */
+export function summarizeCommitChecks(checkRuns: readonly unknown[], statuses: readonly unknown[]): GitHubCommitChecks {
+  let failed = 0;
+  let pending = 0;
+  for (const raw of checkRuns) {
+    const run = (raw ?? {}) as { status?: unknown; conclusion?: unknown };
+    if (run.status !== "completed") pending += 1;
+    else if (typeof run.conclusion === "string" && FAILED_CHECK_CONCLUSIONS.has(run.conclusion)) failed += 1;
+  }
+  for (const raw of statuses) {
+    const state = (raw as { state?: unknown } | null)?.state;
+    if (state === "failure" || state === "error") failed += 1;
+    else if (state !== "success") pending += 1;
+  }
+  const total = checkRuns.length + statuses.length;
+  const state = failed ? "failing" : pending ? "pending" : total ? "passing" : "none";
+  return { state, total, failed, pending };
+}
+
+/** `null` for "GitHub has no such thing", the typed failure for anything else. */
+async function orNotFound<T>(read: () => Promise<T>): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.errorCode === ErrorCodes.GITHUB_NOT_FOUND) return null;
+    throw error;
+  }
 }
 
 /** Text that never carries the credential it describes. */
@@ -498,6 +558,40 @@ export function createGitHubApi(options: GitHubApiOptions = {}): GitHubApi {
       const list: GitHubBranchList = { branches: items, defaultBranch, truncated };
       if (ssoPartial || isSsoPartial(response)) list.ssoPartial = true;
       return list;
+    },
+
+    async getRepository(token, repository) {
+      const path = repositoryPath(repository);
+      return orNotFound(async () => {
+        const { response, json } = await request(token, "GET", path);
+        const summary = toRepository(json);
+        if (!summary || !summary.defaultBranch) throw unreadable(response.status);
+        return summary;
+      });
+    },
+
+    async getBranch(token, repository, branch) {
+      const path = `${repositoryPath(repository)}/branches/${branchPath(branch)}`;
+      return orNotFound(async () => {
+        const { response, json } = await request(token, "GET", path);
+        const summary = toBranch(json);
+        const sha = (json as { commit?: { sha?: unknown } } | null)?.commit?.sha;
+        if (!summary || typeof sha !== "string" || !/^[0-9a-f]{40,64}$/.test(sha)) throw unreadable(response.status);
+        return { ...summary, sha };
+      });
+    },
+
+    async getCommitChecks(token, repository, sha) {
+      const commit = `${repositoryPath(repository)}/commits/${commitSha(sha)}`;
+      const [runs, combined] = await Promise.all([
+        request(token, "GET", `${commit}/check-runs`, { per_page: String(PAGE_SIZE) }),
+        request(token, "GET", `${commit}/status`, { per_page: String(PAGE_SIZE) }),
+      ]);
+      const checkRuns = (runs.json as { check_runs?: unknown } | null)?.check_runs;
+      const statuses = (combined.json as { statuses?: unknown } | null)?.statuses;
+      if (!Array.isArray(checkRuns)) throw unreadable(runs.response.status);
+      if (!Array.isArray(statuses)) throw unreadable(combined.response.status);
+      return summarizeCommitChecks(checkRuns, statuses);
     },
 
     async findPullRequest(token, repository, head, state = "all") {

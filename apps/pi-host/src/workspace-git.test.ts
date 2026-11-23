@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { createServer, request } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, describe, expect, it } from "vitest";
 import type { HostRpc } from "@pi-desktop/host-runtime";
 
-import type { GitCredentialProxy, GitProxyScope } from "./git-credential-proxy.js";
+import { createGitCredentialProxy, type GitCredentialProxy, type GitProxyScope } from "./git-credential-proxy.js";
 import { createWorkspaceGit, detectWorkspaceGitReclaim, workspaceGitShortId, workspaceGitWorkBranch } from "./workspace-git.js";
 
 const INSTALLATION = "00000000-0000-4000-8000-000000000000";
@@ -34,6 +36,7 @@ function fixture(respond: (method: string, params: Record<string, unknown>) => u
     },
   };
   const proxy: GitCredentialProxy = {
+    verifiesPeerUser: true,
     async start() {},
     async close() {},
     setToken(installationId, token) { events.push({ type: "setToken", installationId, token }); },
@@ -130,7 +133,7 @@ describe("pi-host workspace git", () => {
     });
   });
 
-  it("push reuses the session's scope, or finds its repository in the registry", async () => {
+  it("push registers the session's scope again, finding its repository in the registry once", async () => {
     const f = fixture((method) => (method === "workspaceGit.list" ? { worktrees: [worktree("session-9")] } : { jobId: "job-2" }));
     await f.git.push({ installationId: INSTALLATION, sessionId: "session-9" }, owner);
     expect(f.events).toEqual([
@@ -139,12 +142,28 @@ describe("pi-host workspace git", () => {
       { type: "host", method: "workspaceGit.push" },
     ]);
     expect(f.calls[1]?.params).toEqual({ workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-9") }, installationId: INSTALLATION, sessionId: "session-9" });
-    // Known now: no second lookup.
+    // Known now: no second lookup, but the scope is registered again so the
+    // address is the proxy's live one.
     await f.git.push({ installationId: INSTALLATION, sessionId: "session-9" }, owner);
     expect(f.calls.map((call) => call.method)).toEqual(["workspaceGit.list", "workspaceGit.push", "workspaceGit.push"]);
+    expect(f.events.slice(3).map((event) => event.type)).toEqual(["register", "host"]);
     // A session without a worktree has nothing to push, and host-core is not asked to.
     await expect(f.git.push({ installationId: INSTALLATION, sessionId: "no-such" }, owner)).rejects.toMatchObject({ code: "WORKSPACE_GIT_NOT_FOUND" });
     expect(f.calls.at(-1)?.method).toBe("workspaceGit.list");
+  });
+
+  it("forwards an opt-in force-with-lease to host-core and nothing for a plain push", async () => {
+    const f = fixture((method) => (method === "workspaceGit.list" ? { worktrees: [worktree("session-1")] } : { jobId: "job-2" }));
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    await f.git.push(session, owner);
+    await f.git.push({ ...session, forceWithLease: true }, owner);
+    await f.git.push({ ...session, forceWithLease: false }, owner);
+    const pushes = f.calls.filter((call) => call.method === "workspaceGit.push").map((call) => call.params);
+    expect(pushes).toEqual([
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session },
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session, forceWithLease: true },
+      { workspacesRoot: ROOT, gitProxy: { url: f.urlFor("session-1") }, ...session },
+    ]);
   });
 
   it("setCredential hands the token to the proxy and scopes every existing worktree", async () => {
@@ -313,5 +332,90 @@ describe("pi-host workspace git", () => {
     const restarted = fixture();
     restarted.state.host = { async call<T>() { restarted.state.host = { async call<U>() { return {} as U; } }; return { jobId: "stale" } as T; } };
     await expect(restarted.git.prepare({ installationId: INSTALLATION, sessionId: "s", repository, baseBranch: "main" }, owner)).rejects.toMatchObject({ code: "AGENT_UNAVAILABLE" });
+  });
+});
+
+describe("pi-host workspace git with the real credential proxy", () => {
+  const cleanup: Array<() => Promise<void>> = [];
+  afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
+
+  /** The proxy in front of a stand-in GitHub that answers every request with 200. */
+  async function realProxy() {
+    const server = createServer((req, res) => { req.resume(); req.on("end", () => res.end("ok")); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }));
+    const proxy = createGitCredentialProxy({ upstream: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, env: {} });
+    await proxy.start();
+    cleanup.push(() => proxy.close());
+    return proxy;
+  }
+
+  /** What git gets when it fetches through `base`: 404 for a handle the proxy no longer knows. */
+  function fetchStatus(base: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const req = request(`${base}octo/repo.git/info/refs?service=git-upload-pack`, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode ?? 0));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("keeps every cached scope usable across credential sets, and push re-registers its scope", async () => {
+    const proxy = await realProxy();
+    const calls: Call[] = [];
+    // The prepare is still running: host-core does not list the worktree yet.
+    const host: HostRpc = {
+      async call<T>(method: string, params: Record<string, unknown> = {}) {
+        calls.push({ method, params });
+        return (method === "workspaceGit.list" ? { worktrees: [] } : { jobId: `job-${calls.length}` }) as T;
+      },
+    };
+    const git = createWorkspaceGit({ getHost: () => host, workspacesRoot: ROOT, proxy });
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    await git.setCredential({ installationId: INSTALLATION, token: TOKEN }, owner);
+    await git.prepare({ ...session, repository, baseBranch: "main" }, owner);
+    const first = git.proxyUrlFor(owner.connectionId, "session-1")!;
+    expect(await fetchStatus(first)).toBe(200);
+
+    // Reconnecting with the same token keeps the address the tools hold.
+    await git.setCredential({ installationId: INSTALLATION, token: TOKEN }, owner);
+    expect(git.proxyUrlFor(owner.connectionId, "session-1")).toBe(first);
+    expect(await fetchStatus(first)).toBe(200);
+
+    // A new token rotates the handles; the cached scope gets a live one.
+    await git.setCredential({ installationId: INSTALLATION, token: "rotated-fixture-token" }, owner);
+    expect(await fetchStatus(first)).toBe(404);
+    const second = git.proxyUrlFor(owner.connectionId, "session-1")!;
+    expect(second).not.toBe(first);
+    expect(await fetchStatus(second)).toBe(200);
+
+    // A push always hands host-core a registered address.
+    await git.push(session, owner);
+    const pushed = calls.filter((call) => call.method === "workspaceGit.push").at(-1)!;
+    const url = (pushed.params.gitProxy as { url: string }).url;
+    expect(await fetchStatus(url)).toBe(200);
+  });
+
+  it("re-registers a push scope that a rotation dropped behind the cache", async () => {
+    const proxy = await realProxy();
+    const calls: Call[] = [];
+    const host: HostRpc = {
+      async call<T>(method: string, params: Record<string, unknown> = {}) {
+        calls.push({ method, params });
+        return (method === "workspaceGit.list" ? { worktrees: [worktree("session-1")] } : { jobId: "job" }) as T;
+      },
+    };
+    const git = createWorkspaceGit({ getHost: () => host, workspacesRoot: ROOT, proxy });
+    const session = { installationId: INSTALLATION, sessionId: "session-1" };
+    await git.setCredential({ installationId: INSTALLATION, token: TOKEN }, owner);
+    await git.push(session, owner);
+    // The proxy rotates without this module asking, e.g. another connection
+    // of the same installation set a new token through a second instance.
+    proxy.setToken(INSTALLATION, "rotated-fixture-token");
+    await git.push(session, owner);
+    const url = (calls.filter((call) => call.method === "workspaceGit.push").at(-1)!.params.gitProxy as { url: string }).url;
+    expect(await fetchStatus(url)).toBe(200);
   });
 });

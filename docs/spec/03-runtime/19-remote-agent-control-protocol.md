@@ -717,7 +717,7 @@ A missing `checkoutPresent` field leaves the checkout state unknown.
 | `workspace/gitCredentialClear` | `{}` | `{ ok: true }` | yes |
 | `workspace/gitRepository` | `{ repository }` | `{ path, cloned }` | no |
 | `workspace/gitPrepare` | `{ installationId, sessionId, repository, baseBranch, fromSessionId?, restoreOnly?, rerunSetup?, requireSetupSuccess?, environment? }` | `{ jobId }` | yes |
-| `workspace/gitPush` | `{ installationId, sessionId }` | `{ jobId }` | yes |
+| `workspace/gitPush` | `{ installationId, sessionId, forceWithLease? }` | `{ jobId }` | yes |
 | `workspace/gitJob` | `{ jobId }` | `WorkspaceGitJob` | no |
 | `workspace/gitJobCancel` | `{ jobId }` | `{ ok: true }` | yes |
 | `workspace/gitStatus` | `{ installationId, sessionId }` | `WorkspaceGitStatus` | no |
@@ -750,9 +750,15 @@ from the same module. Field rules:
   64 variables, values up to 8192 characters, a script up to 65536
   characters. A variable name matches `[A-Za-z_][A-Za-z0-9_]{0,127}` and is
   not `PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `PWD`, `OLDPWD`, `IFS`,
-  `ENV`, `BASH_ENV`, `PROMPT_COMMAND`, `NODE_OPTIONS`, or
-  `ELECTRON_RUN_AS_NODE`, and does not start with `GIT_`, `PI_`, `LD_`,
-  `DYLD_`, or `BASH_FUNC_`.
+  `ENV`, `BASH_ENV`, `PROMPT_COMMAND`, `NODE_OPTIONS`,
+  `ELECTRON_RUN_AS_NODE`, `XDG_CONFIG_HOME`, `SHELLOPTS`, `BASHOPTS`, `PS4`,
+  `PYTHONPATH`, `PYTHONSTARTUP`, `PYTHONHOME`, `NODE_PATH`, `PERL5LIB`,
+  `PERL5OPT`, `PERLLIB`, `RUBYOPT`, or `RUBYLIB`, and does not start with
+  `GIT_`, `PI_`, `LD_`, `DYLD_`, or `BASH_FUNC_`. No name appears twice.
+  `isEnvironmentVariableName` in the shared module applies the same table,
+  so Desktop can check a name before it sends anything. A worktree that an
+  older Host stored with a name refused today does not pass that variable
+  to its tools.
 - `token` is 1 to 4096 characters with no control character. `jobId` is 1 to
   64 characters.
 
@@ -787,7 +793,14 @@ type WorkspaceGitJob = {
 
 - A prepare ensures the main checkout (clone when absent, otherwise fetch
   with prune), creates the worktree from `refs/remotes/origin/<baseBranch>`,
-  and runs the environment's setup script when it has one. With
+  and runs the environment's setup script when it has one. A clone that
+  failed, timed out, stalled, or was cut short by a Host restart is kept
+  beside the main checkout, and the next prepare completes it with a fetch
+  and a checkout of the remote's default branch instead of starting over; a
+  cancelled clone is removed. It is always a full clone. After a fetch, the
+  main checkout's default branch is fast-forwarded to the fetched one when
+  it is checked out and has no local changes, so the project-level file
+  view shows the current default branch; otherwise it is left as it is. With
   `fromSessionId` the worktree instead starts at the current head of that
   session's work branch on this Host, in the same repository and installation,
   including commits it never pushed; `baseBranch` is still recorded as given,
@@ -797,8 +810,29 @@ type WorkspaceGitJob = {
   already `succeeded` with that worktree. A prepare, push, or remove while a
   job for the same `(installationId, sessionId)` is running fails with
   `WORKSPACE_GIT_BUSY`.
+- A push sends the commit the work branch pointed at when the job started,
+  as `<commit>:refs/heads/<workBranch>`, and reports it as `remoteHead`.
+  The session's exclusive guard covers only resolving that commit: while
+  the transfer runs, `workspace/toolExecute` and `workspace/gitStatus` in
+  the worktree keep working, and no repository-wide lock is held, so other
+  sessions of the repository are not held up by the network.
+- A push that is not a fast-forward of the remote work branch fails with
+  `WORKSPACE_GIT_PUSH_REJECTED`. After a rebase, `forceWithLease: true`
+  lets the push replace the remote branch, but only under a lease: the Host
+  runs `git push --force-with-lease=refs/heads/<workBranch>:<expected>`,
+  where `<expected>` is the commit it last pushed or fetched for that
+  branch (empty, meaning "must not exist", when it has none). Commits
+  someone else pushed meanwhile make the push fail with the same code
+  instead of being overwritten. The Host never runs a bare `--force`, and
+  the credential proxy still refuses any ref but the work branch. An older
+  Host refuses the field with `INVALID_ARGUMENT`; Desktop sends it only
+  when asked.
 - A failing setup script does not fail the job. The worktree reports
   `setup: { status: "failed", logTail }` with the last 16 KiB of output.
+  The live `setupLogTail`, the stored log, and the output of tools in a
+  registered worktree show the GitHub URL wherever the credential proxy's
+  address (and its handle) would appear. Output a tool streams while it
+  runs is not rewritten.
 - A failed or cancelled job keeps the phase it stopped in. The Host keeps at
   most 64 finished jobs for 10 minutes; afterwards, and after a Host restart,
   the id is `WORKSPACE_GIT_JOB_NOT_FOUND` and `workspace/gitList` is the
@@ -815,16 +849,36 @@ type WorkspaceGitJob = {
   and a `restoreOnly` prepare answer `WORKSPACE_GIT_NOT_FOUND`. A work branch
   that gained commits meanwhile is kept: the prepare fails, removal without
   `force` reports the commits, and `force` discards them. A non-empty
-  directory at the worktree path, or a work branch that no registration
-  owns, is never removed; the prepare fails instead.
+  directory at the worktree path is never removed; the prepare fails
+  instead.
+- A work branch `pi-desktop/<id>` that exists without a registration (older
+  Hosts created branches before registering them) is adopted when the
+  worktree path is free or an empty directory: the prepare registers it and
+  checks it out as it is, with every commit it holds, and `baseCommit` is
+  where it left the base branch. Such a branch is never deleted or reset:
+  a cancelled setup keeps it, and an adoption that fails while creating the
+  checkout keeps it registered with `checkoutPresent: false`, so status and
+  removal count its commits and the next prepare finishes the checkout.
 
 **Status and removal.** `WorkspaceGitStatus` carries the worktree, `ahead` and
 `behind` relative to the remote work branch (zero before the first push),
-`uncommittedFiles`, `unpushedCommits` (commits no remote branch contains), and
-`pushedOnce`. `workspace/gitRemove` removes the worktree and its local work
+`uncommittedFiles`, `unpushedCommits`, and `pushedOnce`. A commit counts as
+unpushed when no remote branch contains it and the Host's last successful
+push of the work branch did not send it either: the Host keeps that commit
+in the worktree's registration (`lastPushedCommit`, an additive field older
+Hosts ignore), so work that GitHub squash-merged and whose branch it then
+deleted is not reported as unpushed after the next fetch prunes the branch.
+Status, removal without `force`, and reclaim apply the same rule. A push the
+Agent makes from Bash is not recorded this way. `workspace/gitRemove` removes the worktree and its local work
 branch. Without `force`, uncommitted files or unpushed commits make it answer
 `{ removed: false, uncommittedFiles, unpushedCommits }` and change nothing.
-The remote branch is never deleted. A restore that stopped while recreating a
+The remote branch is never deleted. Removal is answered inline: if another
+step of the same repository (another session's worktree creation, removal,
+or reclaim) holds the repository for more than a few seconds, it answers
+`WORKSPACE_GIT_BUSY` without a `jobId` and changes nothing, and the caller
+retries. Clone and fetch take turns per repository under their own lock and
+never hold the repository lock across the network, and a push holds neither.
+A restore that stopped while recreating a
 checkout is rolled back first, and removal continues as for a missing
 checkout. A reclamation that stopped part way is removed only with `force`,
 which also discards its quarantined checkout; without `force` the Host
@@ -856,6 +910,14 @@ drops it on `workspace/gitCredentialClear` and when that connection closes
 Host prepared, Bash receives the worktree's saved variables, `PI_WORKTREE_ROOT`,
 `PI_PROJECT_ROOT`, and the Git configuration for the repository credential
 proxy. A registered Git worktree does not accept caller-supplied variables.
+The configuration rewrites the session repository's HTTPS URL and both of
+its SSH spellings, `git@github.com:<owner>/<repo>.git` and
+`ssh://git@github.com/<owner>/<repo>.git`, to the proxy, so each is held to
+the work-branch rule. Nothing else is rewritten. This does not confine the
+Agent: Bash runs as the Host user, and any SSH key or credential helper of
+that user that GitHub accepts can still reach GitHub under another URL or
+another repository's name. Run `pi-host` as a dedicated user with no GitHub
+credentials of its own (security spec §3.7).
 
 ### 6.3 Deferred operations
 
@@ -1452,9 +1514,12 @@ Initial RACP codes are:
 | `WORKSPACE_GIT_REPOSITORY_NOT_FOUND` | no | The repository does not exist or is not visible to the credential |
 | `WORKSPACE_GIT_BRANCH_NOT_FOUND` | no | The base branch does not exist on the remote |
 | `WORKSPACE_GIT_NOT_FOUND` | no | The Host has no worktree for the installation and session |
-| `WORKSPACE_GIT_BUSY` | no | A job for the same session is still running |
+| `WORKSPACE_GIT_BUSY` | no | A job for the same session is still running (details carry its `jobId`), or a removal found the repository busy with another session's step |
 | `WORKSPACE_GIT_JOB_NOT_FOUND` | no | The job id is unknown or its result has expired |
 | `WORKSPACE_GIT_FAILED` | no | A git step failed for another reason; the message carries the tail of git's output |
+| `WORKSPACE_GIT_PUSH_REJECTED` | no | GitHub did not take the push: not a fast-forward, a force-with-lease whose remote branch moved, or a hook or branch rule declined it |
+| `WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED` | no | GitHub refuses to create or update a workflow file without the token's `workflow` scope |
+| `WORKSPACE_GIT_STALLED` | yes | A clone, fetch, or push stopped moving data (below 1 byte/s for 300 s, or the credential proxy's idle limit for a GitHub connection) and was abandoned |
 | `WORKSPACE_GIT_TRANSPORT_REFUSED` | no | Desktop did not send the credential: the Host is not reached over SSH, `wss://`, or loopback |
 | `INTERNAL` | maybe | Unexpected failure with a trace id |
 

@@ -66,7 +66,8 @@ test("the Connectors destination is named and explained in every shipped catalog
     "settings.connectors.github.disconnectNoteToken":
       "Disconnecting removes the token from this computer. To revoke it, delete the token in your GitHub settings.",
     "settings.connectors.github.agentTools": "GitHub tools for the agent",
-    "settings.connectors.github.agentToolsHelp": "Lets the agent read and write issues, pull requests, and comments. Each call asks for approval.",
+    "settings.connectors.github.agentToolsHelp":
+      "Lets the agent read and write issues, pull requests, and comments. Each call asks for approval. Chats in cloud projects can still push their own branch and open its pull request when this is off.",
     "settings.connectors.github.agentToolsShadowed": "Your configured MCP server named github takes precedence over the built-in server.",
     "settings.connectors.github.allowWorkflow": "Allow changes to GitHub Actions workflow files",
     "settings.connectors.github.allowWorkflowHelp":
@@ -170,6 +171,7 @@ test("every remote session target failure has a localized message in every shipp
     "sessionTarget.errors.gitFailed",
     "sessionTarget.errors.setupRequired",
     "sessionTarget.errors.transportRefused",
+    "sessionTarget.errors.credentialUnavailable",
   ];
   assert.deepEqual(
     Object.keys(english).filter((key) => key.startsWith("sessionTarget.errors.")).sort(),
@@ -184,6 +186,31 @@ test("every remote session target failure has a localized message in every shipp
         assert.notEqual(flat[key], english[key], `${locale} ${key} is still English`);
       }
     }
+  }
+});
+
+test("remote session target controls and notices are localized in every shipped catalog", () => {
+  // Nested groups after `sessionTarget.preparation`: Cancel while preparing,
+  // sidebar marks, the environment editor, environment removal, the Host's
+  // push and credential failures, a send that could not start, the hint for
+  // an offline Host, lookups beyond the capped GitHub lists, the work
+  // branch's compare link and checks, and a slow deletion.
+  const groups = ["preparationControl", "sessionBadge", "environmentEditor", "environmentRemoval", "gitErrors", "sendFailure", "offlineHost", "lookup", "githubActivity", "deletion"];
+  const keys = Object.keys(english).filter((key) => groups.some((group) => key.startsWith(`sessionTarget.${group}.`)));
+  for (const group of groups) {
+    assert.ok(keys.some((key) => key.startsWith(`sessionTarget.${group}.`)), group);
+  }
+  for (const [locale, catalog] of Object.entries(catalogs)) {
+    const flat = flattenCatalog(catalog);
+    for (const key of [...keys, "sessionTarget.setupScriptHint"]) {
+      assert.equal(typeof flat[key], "string", `${locale} ${key}`);
+      assert.ok(flat[key].trim(), `${locale} ${key} must not be blank`);
+      if (locale !== "en") assert.notEqual(flat[key], english[key], `${locale} ${key} is still English`);
+    }
+    // Reserved names are identifiers and must survive translation.
+    assert.match(flat["sessionTarget.environmentEditor.variableNameInvalid"], /PATH.*GIT_.*PI_/, locale);
+    // The search syntax is typed as is.
+    assert.match(flat["sessionTarget.lookup.repositoryHint"], /owner\/name/, locale);
   }
 });
 

@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const esEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Los chats de proyectos en la nube se pueden eliminar aunque su host esté sin conexión o su espacio de trabajo aún se esté preparando.",
+      "Cuando un chat de un proyecto en la nube no puede iniciarse, por ejemplo porque el host está sin conexión o GitHub está desconectado, la aplicación ahora explica el motivo en lugar de parecer que no hace nada.",
+      "Si se interrumpe la creación de un worktree en el host, se revierte, de modo que una copia de trabajo o rama a medio crear ya no impide volver a preparar el chat.",
+      "El agente sube la rama de un chat de un proyecto en la nube y abre su pull request mediante el conector integrado de GitHub; la aplicación ya no tiene botones manuales para subir cambios ni para pull requests.",
+      "Cuando el servidor MCP alojado de GitHub rechaza un token obtenido con el inicio de sesión con código, el agente pasa a un conjunto más pequeño de herramientas de incidencias y pull requests que llaman directamente a la API de GitHub.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

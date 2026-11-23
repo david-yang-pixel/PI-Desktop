@@ -30,6 +30,7 @@ import {
   githubConnectorScopes,
   isGitHubTokenShape,
   type GitHubBranchList,
+  type GitHubCommitChecks,
   type GitHubConnectorAccount,
   type GitHubConnectorStatus,
   type GitHubPullRequestInput,
@@ -46,7 +47,7 @@ import {
   type DeviceFlowEvent,
   type GitHubDeviceFlowOptions,
 } from "./device-flow";
-import { GitHubApiError, type GitHubApi, type GitHubViewer } from "./github-api";
+import { GitHubApiError, type GitHubApi, type GitHubBranchHead, type GitHubViewer } from "./github-api";
 
 /** How long a repository listing is served from memory. */
 export const GITHUB_REPOSITORY_CACHE_MS = 5 * 60_000;
@@ -64,6 +65,12 @@ export type GitHubConnector = {
   disconnect(): Promise<GitHubConnectorStatus>;
   listRepositories(input: GitHubRepositoryListInput): Promise<GitHubRepositoryList>;
   listBranches(repository: GitHubRepositoryRef): Promise<GitHubBranchList>;
+  /** A repository the listing left out, by exact name; `null` when GitHub cannot find it. */
+  getRepository(repository: GitHubRepositoryRef): Promise<GitHubRepositorySummary | null>;
+  /** A branch by exact name with its head commit; `null` when it does not exist. */
+  getBranch(repository: GitHubRepositoryRef, branch: string): Promise<GitHubBranchHead | null>;
+  /** CI state of one commit. Main only: it names a commit, not a session. */
+  getCommitChecks(repository: GitHubRepositoryRef, sha: string): Promise<GitHubCommitChecks>;
   findPullRequest(
     repository: GitHubRepositoryRef,
     head: string,
@@ -549,6 +556,21 @@ export function createGitHubConnector(deps: GitHubConnectorDeps): GitHubConnecto
     async listBranches(repository) {
       const credential = await requireCredential();
       return spend(credential, (token) => deps.api.listBranches(token, repository));
+    },
+
+    async getRepository(repository) {
+      const credential = await requireCredential();
+      return spend(credential, (token) => deps.api.getRepository(token, repository));
+    },
+
+    async getBranch(repository, branch) {
+      const credential = await requireCredential();
+      return spend(credential, (token) => deps.api.getBranch(token, repository, branch));
+    },
+
+    async getCommitChecks(repository, sha) {
+      const credential = await requireCredential();
+      return spend(credential, (token) => deps.api.getCommitChecks(token, repository, sha));
     },
 
     async findPullRequest(repository, head, ...filter) {

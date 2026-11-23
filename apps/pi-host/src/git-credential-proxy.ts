@@ -13,10 +13,12 @@
  *
  * - the listener is loopback-only;
  * - a connection is served only when the process that opened it runs as the
- *   same user as `pi-host` (Linux; see `loopback-peer.ts`);
+ *   same user as `pi-host` (Linux; see `loopback-peer.ts`). Where that cannot
+ *   be checked, `verifiesPeerUser` is false and `pi-host` does not offer git
+ *   workspaces at all;
  * - a handle works only for the repository of the session it was issued for,
  *   and for a push only to that session's work branch;
- * - every credential set replaces the installation's handles.
+ * - a credential set with a new token replaces the installation's handles.
  *
  * When the owning desktop disconnects the token is dropped and the proxy
  * answers 401.
@@ -35,15 +37,23 @@ import { sendUpstreamRequest, type UpstreamTlsOptions } from "./upstream-proxy.j
 export type GitProxyScope = { installationId: string; sessionId: string; repository: WorkspaceGitRepository; workBranch: string };
 
 export type GitCredentialProxy = {
+  /**
+   * Whether a connection is served only to a process of this user. Without
+   * that check any local user who reads a handle could use the token, so the
+   * caller must not offer git workspaces when it is false.
+   */
+  readonly verifiesPeerUser: boolean;
   /** Bind 127.0.0.1 on a free port. */
   start(): Promise<void>;
   close(): Promise<void>;
   /**
-   * Setting a token invalidates every handle of that installation; the next
-   * `register` mints new ones. Dropping it (`null`) keeps them: they answer 401.
+   * Setting a token that differs from the one held invalidates every handle
+   * of that installation; the next `register` mints new ones. Setting the
+   * same token again keeps them. Dropping it (`null`) keeps them too: they
+   * answer 401, and the next token set after a drop rotates them.
    */
   setToken(installationId: string, token: string | null): void;
-  /** Returns `http://127.0.0.1:<port>/<handle>/`; the same scope keeps its handle until the next credential set. */
+  /** Returns `http://127.0.0.1:<port>/<handle>/`; the same scope keeps its handle until the token changes. */
   register(scope: GitProxyScope): string;
   unregister(installationId: string, sessionId: string): void;
   /** An unauthenticated connection gets a URL that only answers 401. */
@@ -63,8 +73,19 @@ const HANDLE = /^[0-9a-f]{64}$/u;
 /** Paths git builds from an owner, a repository, and a fixed endpoint need nothing else. */
 const SAFE_PATH = /^(?:\/[A-Za-z0-9._~-]+)+\/?$/u;
 const SAFE_QUERY = /^[A-Za-z0-9._~=&-]*$/u;
-const REFUSED_DRAIN_MS = 30_000;
+/** How long a refused upload may go without a byte before it is answered and cut off. */
+const REFUSED_DRAIN_IDLE_MS = 5_000;
+/** How much of a refused upload the proxy reads and discards before answering anyway. */
+const REFUSED_DRAIN_LIMIT = 1024 * 1024 * 1024;
 const INSPECTION_IDLE_MS = 30_000;
+/**
+ * How long an upstream connection may carry no byte in either direction.
+ * host-core's git aborts a transfer below 1 byte/s for 300 s
+ * (`http.lowSpeedTime`) and reports it with a precise code; this is the
+ * backstop behind it, so it is a little longer. GitHub's keepalive and
+ * progress packets keep a slow but live transfer well above it.
+ */
+const UPSTREAM_IDLE_MS = 360_000;
 
 /** Never forwarded to GitHub: the client's own credentials, and hop-by-hop headers. */
 const DROPPED_REQUEST_HEADERS = new Set([
@@ -180,12 +201,15 @@ export type GitCredentialProxyOptions = {
   /**
    * The uid that owns the client end of a loopback connection, for tests.
    * By default the kernel's socket table on Linux; no check elsewhere.
+   * `null` stands for a platform without a lookup.
    */
-  peerUid?: LoopbackPeerUidLookup;
+  peerUid?: LoopbackPeerUidLookup | null;
   /** Environment used for HTTP_PROXY / HTTPS_PROXY / ALL_PROXY / NO_PROXY lookup. Defaults to `process.env`. */
   env?: NodeJS.ProcessEnv;
   /** Optional TLS overrides for upstream HTTPS connections (e.g. a test CA certificate). */
   upstreamTls?: UpstreamTlsOptions;
+  /** Idle limit of an upstream connection, for tests. */
+  upstreamIdleMs?: number;
 };
 
 export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}): GitCredentialProxy {
@@ -200,23 +224,54 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
   let server: Server | null = null;
   let port = 0;
   const ownUid = typeof process.getuid === "function" ? process.getuid() : null;
-  const peerUid = options.peerUid ?? (process.platform === "linux" ? createLoopbackPeerUidLookup() : null);
+  const peerUid = options.peerUid === undefined
+    ? (process.platform === "linux" ? createLoopbackPeerUidLookup() : null)
+    : options.peerUid;
 
   const reply = (res: ServerResponse, status: number, message: string) => {
     if (res.headersSent) return void res.destroy();
     res.writeHead(status, { "content-type": "text/plain; charset=utf-8", connection: "close" });
     res.end(`${message}\n`);
   };
-  /** Answer now; let a client that is still uploading notice, then let go of it. */
+  /**
+   * Answer a refusal once the client has finished uploading. Answering while
+   * git is still streaming a pack lets the server close the socket under it,
+   * and git then reports a broken pipe instead of the refusal. The rest of the
+   * body is read and discarded; a client that stalls or keeps sending past the
+   * limit gets the answer anyway and is cut off.
+   */
   const refuse = (req: IncomingMessage, res: ServerResponse, status: number, message: string) => {
-    reply(res, status, message);
+    if (req.complete) return reply(res, status, message);
+    let drained = 0;
+    let answered = false;
+    const answer = (cutOff: boolean) => {
+      if (answered) return;
+      answered = true;
+      clearTimeout(idle);
+      req.off("data", onData);
+      req.off("end", onEnd);
+      reply(res, status, message);
+      if (cutOff) res.once("finish", () => req.destroy());
+    };
+    const onData = (chunk: Buffer) => {
+      idle.refresh();
+      drained += chunk.length;
+      if (drained > REFUSED_DRAIN_LIMIT) answer(true);
+    };
+    const onEnd = () => answer(false);
+    const idle = setTimeout(() => answer(true), REFUSED_DRAIN_IDLE_MS).unref();
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("aborted", () => answer(true));
+    req.once("error", () => answer(true));
     req.resume();
-    setTimeout(() => req.destroy(), REFUSED_DRAIN_MS).unref();
   };
 
+  const upstreamIdleMs = options.upstreamIdleMs ?? UPSTREAM_IDLE_MS;
   const forward = (req: IncomingMessage, res: ServerResponse, path: string, authorization: string | null, body: { buffered: Buffer[]; ended: boolean } | null, sessionId: string) => {
     const headers = forwardedHeaders(req.headers);
     if (authorization) headers.authorization = authorization;
+    let stalled = false;
     const outbound = sendUpstreamRequest({
       upstream,
       method: req.method,
@@ -226,6 +281,16 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
       upstreamTls: options.upstreamTls,
     }, {
       onReady(clientReq) {
+        // A GitHub that stops sending or reading mid-transfer would otherwise
+        // hold git, and this connection, until git's own limit.
+        clientReq.setTimeout(upstreamIdleMs, () => {
+          stalled = true;
+          log("warn", "git proxy upstream stopped responding", { sessionId });
+          outbound.destroy();
+          // 504 while nothing was answered yet; otherwise cut the response,
+          // so git sees a truncated transfer instead of a complete one.
+          reply(res, 504, "pi-host git proxy: GitHub stopped responding");
+        });
         for (const chunk of body?.buffered ?? []) clientReq.write(chunk);
         if (body?.ended || req.readableEnded) clientReq.end();
         else req.pipe(clientReq);
@@ -240,6 +305,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
         inbound.on("error", () => res.destroy());
       },
       onError(error) {
+        if (stalled) return;
         // The message of a socket error names a host or an errno, never a path or credential.
         log("warn", "git proxy upstream request failed", { sessionId, error: (error as NodeJS.ErrnoException).code ?? "ERROR" });
         reply(res, 502, "pi-host git proxy: GitHub could not be reached");
@@ -304,6 +370,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
   };
 
   return {
+    verifiesPeerUser: peerUid !== null && ownUid !== null,
     async start() {
       if (server) return;
       const created = createServer((req, res) => {
@@ -312,7 +379,8 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
           reply(res, 500, "pi-host git proxy: internal error");
         });
       });
-      // A clone or push may run for an hour; git's own limits apply, not ours.
+      // A clone or push may run for an hour; git's own limits apply on the
+      // loopback side. A stalled upstream is caught in `forward`.
       created.requestTimeout = 0;
       created.timeout = 0;
       // Before any request is read: only a process of this user may talk to
@@ -324,7 +392,7 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
         log("warn", uid === null ? "git proxy closed a connection whose owner is unknown" : "git proxy closed a connection opened by another user", uid === null ? undefined : { uid });
         socket.destroy();
       });
-      if (!peerUid) log("warn", "git proxy cannot check which user opens a connection on this platform; any local user who learns a handle can use it");
+      if (!peerUid) log("warn", "git proxy cannot check which user opens a connection on this platform; git workspaces are not offered");
       await new Promise<void>((resolve, reject) => {
         created.once("error", reject);
         created.listen(0, "127.0.0.1", () => {
@@ -349,9 +417,13 @@ export function createGitCredentialProxy(options: GitCredentialProxyOptions = {}
     },
     setToken(installationId, token) {
       if (!token) return void tokens.delete(installationId);
+      const previous = tokens.get(installationId);
       tokens.set(installationId, token);
+      // A reconnect delivers the same token again. Rotating then would strand
+      // every address git and the tools already hold, for nothing.
+      if (previous === token) return;
       // A handle is readable by other local users (see the module comment),
-      // so it does not outlive the credential set it was issued under.
+      // so it does not outlive the credential it was issued under.
       for (const [handleId, scope] of scopes) {
         if (scope.installationId !== installationId) continue;
         scopes.delete(handleId);

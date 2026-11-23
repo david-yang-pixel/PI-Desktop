@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { RacpError } from "@pi-desktop/agent-host";
 
+import type { GitCredentialProxy } from "./git-credential-proxy.js";
 import { createHostOperations } from "./host-operations.js";
 
 const dirs: string[] = [];
@@ -130,5 +131,22 @@ describe("pi-host operations over host-core", () => {
     await expect(operations.workspace.list("s9", "")).rejects.toBeInstanceOf(RacpError);
     const diff = await operations.workspace.diff("s1");
     expect(diff.repo).toBe(false);
+  });
+
+  it("offers git workspaces only when the credential proxy can tell which user connects", () => {
+    const proxy = (verifiesPeerUser: boolean): GitCredentialProxy => ({
+      verifiesPeerUser,
+      async start() {},
+      async close() {},
+      setToken() {},
+      register() { return "http://127.0.0.1:1/"; },
+      unregister() {},
+    });
+    const deps = { getHost: () => null, runtime: { compact: async () => ({ accepted: true }), isBusy: () => false }, workspacesRoot: "/home/pi/pi-workspaces" };
+    // Without a peer-user check any local user who reads a handle could use
+    // the token; the capability is not advertised at all.
+    expect(createHostOperations({ ...deps, gitProxy: proxy(false) }).workspaceGit).toBeUndefined();
+    expect(createHostOperations({ ...deps, gitProxy: proxy(true) }).workspaceGit).toBeDefined();
+    expect(createHostOperations(deps).workspaceGit).toBeUndefined();
   });
 });

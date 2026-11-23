@@ -68,10 +68,12 @@ import type {
   OAuthVendor,
   OAuthStartResult,
   GitHubBranchList,
+  GitHubBranchSummary,
   GitHubConnectorStatus,
   GitHubRepositoryList,
   GitHubRepositoryListInput,
   GitHubRepositoryRef,
+  GitHubRepositorySummary,
   PluginSummary,
   LauncherCatalog,
   LauncherOpenPluginRequest,
@@ -94,12 +96,11 @@ import type {
   PluginReviewTicker,
   ProjectRecord,
   ProjectGroupRecord,
-  GitHubPullRequestSummary,
   LeftoverWorktree,
   RemoteEnvironment,
   RemoteEnvironmentInput,
   RemoteSessionDeletePreflight,
-  RemoteSessionGitStatus,
+  RemoteSessionGitHubActivity,
   RemoteSessionTarget,
   RemoteSessionWorkspaceStart,
   SessionRemoteRepository,
@@ -1119,18 +1120,22 @@ export const api = {
     invoke<GitHubRepositoryList>(IPC.invoke.githubRepositories, input),
   listGithubBranches: (repository: GitHubRepositoryRef) =>
     invoke<GitHubBranchList>(IPC.invoke.githubBranches, repository),
+  /** Look up one repository by exact name; `null` when GitHub cannot find it. */
+  getGithubRepository: (repository: GitHubRepositoryRef) =>
+    invoke<{ repository: GitHubRepositorySummary | null }>(IPC.invoke.githubRepository, repository),
+  /** Look up one branch by exact name; `null` when the repository has none. */
+  getGithubBranch: (input: GitHubRepositoryRef & { branch: string }) =>
+    invoke<{ branch: GitHubBranchSummary | null }>(IPC.invoke.githubBranch, input),
   listEnvironments: () => invoke<{ environments: RemoteEnvironment[] }>(IPC.invoke.environmentsList),
   upsertEnvironment: (input: RemoteEnvironmentInput) => invoke<{ environment: RemoteEnvironment }>(IPC.invoke.environmentsUpsert, input),
   removeEnvironment: (id: string) => invoke<{ ok: boolean }>(IPC.invoke.environmentsRemove, id),
   resolveRemoteSessionTarget: (input: RemoteSessionTarget) => invoke<{ projectPath: string }>(IPC.invoke.remoteSessionTargetResolve, input),
   startRemoteSessionWorkspace: (input: RemoteSessionWorkspaceStart) => invoke<{ remoteRepository: SessionRemoteRepository }>(IPC.invoke.remoteSessionWorkspaceStart, input),
   retryRemoteSessionWorkspace: (id: string) => invoke<{ remoteRepository: SessionRemoteRepository }>(IPC.invoke.remoteSessionWorkspaceRetry, id),
-  remoteSessionGitStatus: (id: string) => invoke<{ status: RemoteSessionGitStatus }>(IPC.invoke.remoteSessionGitStatus, id),
-  pushRemoteSession: (id: string) => invoke<{ status: RemoteSessionGitStatus }>(IPC.invoke.remoteSessionPush, id),
-  findRemoteSessionPullRequest: (id: string) => invoke<{ pullRequest: GitHubPullRequestSummary | null }>(IPC.invoke.remoteSessionPullRequestFind, id),
-  createRemoteSessionPullRequest: (input: { sessionId: string; title: string; body: string; draft: boolean }) =>
-    invoke<{ pullRequest: GitHubPullRequestSummary }>(IPC.invoke.remoteSessionPullRequestCreate, input),
+  /** Resolves `null` when the session was deleted while its job was stopping. */
+  cancelRemoteSessionWorkspace: (id: string) => invoke<{ remoteRepository: SessionRemoteRepository | null }>(IPC.invoke.remoteSessionWorkspaceCancel, id),
   remoteSessionDeletePreflight: (id: string) => invoke<RemoteSessionDeletePreflight>(IPC.invoke.remoteSessionDeletePreflight, id),
+  getRemoteSessionGithubActivity: (id: string) => invoke<RemoteSessionGitHubActivity>(IPC.invoke.remoteSessionGithubActivity, id),
   listRemoteLeftoverWorktrees: (hostKey: string) => invoke<{ worktrees: LeftoverWorktree[] }>(IPC.invoke.remoteLeftoverWorktreesList, hostKey),
   removeRemoteLeftoverWorktree: (hostKey: string, id: string) => invoke<{ ok: boolean }>(IPC.invoke.remoteLeftoverWorktreesRemove, hostKey, id),
   onRemoteSessionWorkspaceChanged: (callback: (event: { sessionId: string; remoteRepository: SessionRemoteRepository | null }) => void) =>

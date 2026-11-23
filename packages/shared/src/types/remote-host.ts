@@ -74,6 +74,10 @@ export type RemoteHostSummary = {
   status?: RemoteHostConnectionStatus;
   /** Absent on records written before the SSH bootstrap existed → `direct`. */
   transport?: RemoteHostTransport;
+  /** The release the connected Host reported; absent while it is not connected. */
+  hostVersion?: string;
+  /** The connected Host runs an older release than this desktop; an update is pending. */
+  updateAvailable?: boolean;
 };
 
 /**

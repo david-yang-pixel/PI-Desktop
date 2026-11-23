@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { GitHubBranchList, GitHubRepositoryList } from "@pi-desktop/shared";
 import { IconChevronDown, IconFolder, IconMonitor, IconServer } from "../../../components/icons";
 import { AnchoredMenu } from "../../../components/settings/AnchoredMenu";
-import { Button, Input } from "../../../components/ui";
+import { Badge, Button, Input } from "../../../components/ui";
 import { api } from "../../../lib/api";
 import { filterSwitcherProjects, listSwitcherProjects, normalizeProjectPath } from "../../../lib/sidebar-preferences";
 import { useAppStore } from "../../../stores/app-store";
@@ -11,6 +11,7 @@ import { githubErrorText } from "../../settings/connectors/github-error-message"
 import { useGitHubConnector } from "../../settings/connectors/use-github-connector";
 import { EnvironmentEditor } from "./EnvironmentEditor";
 import { useSessionTargetStore } from "./session-target-store";
+import { UnlistedBranchOption, UnlistedRepositoryOption } from "./UnlistedTargetOptions";
 import { useEnvironments } from "./use-environments";
 import "./session-target.css";
 
@@ -54,6 +55,9 @@ export function SessionTargetRow() {
   const close = useCallback(() => setMenu(null), []);
   const closeEditor = useCallback(() => setEditorOpen(false), []);
   const environment = environments.find((entry) => entry.id === target.environmentId);
+  // Sending does not wait for a reconnect by hand: the first send brings an
+  // offline Host back, so the row only says so.
+  const offlineHost = environment ? hosts.find((host) => host.hostKey === environment.hostKey && !host.connected) : undefined;
   const repository = target.repository;
   const connected = status?.connected && !status.needsReauthentication;
   const localWorkspace = workspace && !workspace.remote && !workspace.path.startsWith("remote-project:") ? workspace : null;
@@ -117,7 +121,11 @@ export function SessionTargetRow() {
       {hosts.map((host) => <div className="session-target-fields" key={host.hostKey}>
         <span>{host.connected ? host.label : t("sessionTarget.hostOffline", { host: host.label })}</span>
         {environments.filter((item) => item.hostKey === host.hostKey).map((item) => <Button key={item.id} variant="secondary"
-          onClick={() => { target.setEnvironment(item.id, item.hostKey); close(); }}>{item.name}</Button>)}
+          data-host-offline={host.connected ? undefined : "true"}
+          onClick={() => { target.setEnvironment(item.id, item.hostKey); close(); }}>
+          {item.name}
+          {!host.connected && <>{" "}<Badge tone="warning">{t("sessionTarget.offline")}</Badge></>}
+        </Button>)}
       </div>)}
       {hosts.length > 0 && <Button variant="secondary" onClick={() => { close(); setEditorOpen(true); }}>{t("sessionTarget.newEnvironment")}</Button>}
       <Button variant="secondary" onClick={() => { close(); openSettings("remoteHosts"); }}>{t("sessionTarget.addRemoteHost")}</Button>
@@ -150,10 +158,12 @@ export function SessionTargetRow() {
         {search(t("sessionTarget.searchRepositories"))}
         <Button variant="secondary" onClick={() => { setError(undefined); setRevision((value) => value + 1); }}>{t("sessionTarget.refresh")}</Button>
         {errorRow}
-        {repositories?.truncated && <span>{t("sessionTarget.truncated")}</span>}
+        {repositories?.truncated && <span>{t("sessionTarget.truncated")} {t("sessionTarget.lookup.repositoryHint")}</span>}
         {repositories?.ssoPartial && <span>{t("sessionTarget.ssoPartial")}</span>}
         {repositories?.repositories.filter((item) => matches(item.fullName)).map((item) => <Button variant="secondary" key={item.fullName}
           onClick={() => { target.setRepository({ owner: item.owner, name: item.name, defaultBranch: item.defaultBranch }); setBranches(undefined); close(); }}>{item.fullName}</Button>)}
+        <UnlistedRepositoryOption query={query} listed={repositories?.repositories}
+          onSelect={(item) => { target.setRepository({ owner: item.owner, name: item.name, defaultBranch: item.defaultBranch }); setBranches(undefined); close(); }} />
       </> : <Button variant="secondary" onClick={() => { close(); openSettings("connectors"); }}>
         {t(status?.needsReauthentication ? "sessionTarget.reconnectGitHub" : "sessionTarget.connectGitHub")}
       </Button>}
@@ -161,10 +171,16 @@ export function SessionTargetRow() {
     {environment && connected && repository && <Picker label={target.baseBranch ?? t("sessionTarget.chooseBranch")} title={t("sessionTarget.chooseBranch")}
       open={menu === "branch"} toggle={() => open("branch")} close={close} search>
       {search(t("sessionTarget.searchBranches"))}{errorRow}
+      {branches?.truncated && <span>{t("sessionTarget.lookup.branchesTruncated")}</span>}
       {branches?.ssoPartial && <span>{t("sessionTarget.ssoPartial")}</span>}
       {branches?.branches.filter((item) => matches(item.name)).map((item) => <Button variant="secondary" key={item.name}
         onClick={() => { target.setBaseBranch(item.name); close(); }}>{item.name}</Button>)}
+      <UnlistedBranchOption query={query} repository={repository} listed={branches?.branches}
+        onSelect={(item) => { target.setBaseBranch(item.name); close(); }} />
     </Picker>}
+    {offlineHost && <p className="session-target-note" role="status">
+      {t("sessionTarget.offlineHost.sendHint", { host: offlineHost.label })}
+    </p>}
     {editorOpen && <EnvironmentEditor hosts={hosts} onSaved={(value) => { target.setEnvironment(value.id, value.hostKey); closeEditor(); }} onClose={closeEditor} />}
   </div>;
 }

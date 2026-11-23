@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const trEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Bulut projelerindeki sohbetler, ana makine çevrimdışıyken veya çalışma alanı hâlâ hazırlanırken bile silinebilir.",
+      "Bir bulut projesi sohbeti başlatılamadığında, örneğin ana makine çevrimdışıysa veya GitHub bağlı değilse, masaüstü uygulaması artık hiçbir şey yapmıyormuş gibi görünmek yerine nedenini söyler.",
+      "Ana makinede yarıda kesilen worktree oluşturma işlemi geri alınır; böylece sohbeti yeniden hazırlamak yarım kalmış bir çalışma kopyası veya dal yüzünden engellenmez.",
+      "Ajan, bulut projesi sohbetinin dalını yerleşik GitHub bağlayıcısıyla gönderir ve pull request’ini açar; masaüstü uygulamasında artık elle gönderme veya pull request düğmeleri yok.",
+      "GitHub’ın barındırılan MCP sunucusu kodla oturum açmadan alınan bir belirteci reddettiğinde, ajan GitHub API’sini doğrudan çağıran daha küçük bir sorun ve pull request araç setine geçer.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

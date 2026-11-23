@@ -375,6 +375,8 @@ export function registerIpcHandlers(dependencies: RegisterIpcDependencies) {
     hasQueuedPrompt: (sessionId) => Boolean(getAgentHostBridge()?.queue.list(sessionId).length),
     isBusy: (sessionId) => activeTurns.has(sessionId) || scheduledRunsBySession.has(sessionId)
       || approvedExecutionIdsBySession.has(sessionId) || claimedExecutionSessions.has(sessionId),
+    hasActiveWork: () => activeTurns.size > 0 || scheduledRunsBySession.size > 0
+      || approvedExecutionIdsBySession.size > 0 || claimedExecutionSessions.size > 0,
     registrar, connector: githubConnector, emit: (channel, payload) => {
       sendToRenderer(channel, payload);
       if (channel !== IPC.event.remoteSessionWorkspaceChanged) return;

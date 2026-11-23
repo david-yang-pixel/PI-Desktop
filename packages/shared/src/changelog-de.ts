@@ -2,6 +2,16 @@ import type { ChangelogEntry } from "./changelog.js";
 
 export const deEntries: ChangelogEntry[] = [
   {
+    version: "0.23.1",
+    highlights: [
+      "Chats in Cloud-Projekten lassen sich auch löschen, während ihr Host offline ist oder ihr Arbeitsbereich noch vorbereitet wird.",
+      "Kann ein Chat in einem Cloud-Projekt nicht starten, etwa weil der Host offline oder GitHub nicht verbunden ist, nennt die Desktop-App jetzt den Grund, statt scheinbar nichts zu tun.",
+      "Eine unterbrochene Worktree-Erstellung auf dem Host wird zurückgerollt, sodass ein halb angelegter Checkout oder Branch das erneute Vorbereiten des Chats nicht mehr blockiert.",
+      "Der Agent pusht den Branch eines Cloud-Projekt-Chats und öffnet dessen Pull Request über den integrierten GitHub-Connector; die Desktop-App hat keine manuellen Push- oder Pull-Request-Schaltflächen mehr.",
+      "Lehnt der gehostete MCP-Server von GitHub ein Token aus der Anmeldung per Code ab, wechselt der Agent zu einem kleineren Satz von Issue- und Pull-Request-Werkzeugen, die die GitHub-API direkt aufrufen.",
+    ],
+  },
+  {
     version: "0.23.0",
     date: "2026-11-19",
     highlights: [

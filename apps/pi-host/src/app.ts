@@ -254,6 +254,7 @@ export async function startPiHost(config: PiHostConfig, options: { log?: HostLog
   // The loopback proxy that holds the GitHub token for git on this host. It
   // always talks to GitHub: nothing in the configuration can redirect it.
   const gitProxy = createGitCredentialProxy({ log: (level, message, data) => log(level, message, data as Record<string, unknown> | undefined) });
+  if (!gitProxy.verifiesPeerUser) log("warn", "git workspaces are disabled: this platform cannot tell which local user opens a connection to the credential proxy");
 
   const operations: RacpHostOperations = {
     ...createHostOperations({

@@ -328,11 +328,11 @@ export const IPC = {
     remoteSessionTargetResolve: "pi-desktop/remoteSession/target/resolve",
     remoteSessionWorkspaceStart: "pi-desktop/remoteSession/workspace/start",
     remoteSessionWorkspaceRetry: "pi-desktop/remoteSession/workspace/retry",
-    remoteSessionGitStatus: "pi-desktop/remoteSession/git/status",
-    remoteSessionPush: "pi-desktop/remoteSession/git/push",
-    remoteSessionPullRequestFind: "pi-desktop/remoteSession/pullRequest/find",
-    remoteSessionPullRequestCreate: "pi-desktop/remoteSession/pullRequest/create",
+    /** Stop a preparing repository workspace; the binding becomes `failed` and retryable. */
+    remoteSessionWorkspaceCancel: "pi-desktop/remoteSession/workspace/cancel",
     remoteSessionDeletePreflight: "pi-desktop/remoteSession/deletePreflight",
+    /** Whether the work branch is on GitHub and, with a pull request, its CI state. */
+    remoteSessionGithubActivity: "pi-desktop/remoteSession/github/activity",
     remoteLeftoverWorktreesList: "pi-desktop/remoteHost/leftoverWorktrees/list",
     remoteLeftoverWorktreesRemove: "pi-desktop/remoteHost/leftoverWorktrees/remove",
     githubConnectorStatus: "pi-desktop/github/status",
@@ -342,6 +342,10 @@ export const IPC = {
     githubConnectorDisconnect: "pi-desktop/github/disconnect",
     githubRepositories: "pi-desktop/github/repositories",
     githubBranches: "pi-desktop/github/branches",
+    /** One repository by exact `owner/name`, for one a capped listing left out. */
+    githubRepository: "pi-desktop/github/repository",
+    /** One branch by exact name, for one a capped listing left out. */
+    githubBranch: "pi-desktop/github/branch",
     providersListModels: "pi-desktop/providers/listModels",
     /**
      * Look one model id up in the local models.dev snapshot.

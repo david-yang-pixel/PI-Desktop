@@ -90,6 +90,7 @@ import {
   useWorktreeProjectMenuItems,
 } from "../features/worktree/WorktreeSidebarParts";
 import { WorktreeBehindWatcher } from "../features/worktree/WorktreeBehind";
+import { RemoteSessionBadge } from "../features/chat/session-target/RemoteSessionBadge";
 import { SidebarMenuPanel, sidebarMenuKeyDown } from "./SidebarMenuPanel";
 import {
   sidebarMenuAction,
@@ -1663,6 +1664,7 @@ export function Sidebar({
           ) : null}
           {isRemoteSession(session) && <span className="thread-item-source" title={session.remoteHostLabel}>{t("remote:remote")}</span>}
           <WorktreeBadge worktree={session.worktree} sessionId={session.id} />
+          <RemoteSessionBadge session={session} />
           <span className="thread-item-title">{taskTitle(session.title)}</span>
         </button>
         <div

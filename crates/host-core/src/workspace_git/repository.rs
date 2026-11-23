@@ -11,9 +11,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::jobs::JobProgress;
-use super::WorkspaceGitError;
+use super::{clone, WorkspaceGitError};
 use crate::session_worktrees::git::{parse_version, GitError, GitOutput, GitRunner};
-use crate::session_worktrees::repo_lock;
 
 /// `GIT_CONFIG_COUNT`, which carries the proxy rewrite to host-run git and to
 /// the agent's own git, was added in git 2.31.0. An older git would ignore it
@@ -132,13 +131,19 @@ pub async fn ensure(
     };
     fs::create_dir_all(parent)?;
     check_git(ctx.git, parent).await?;
-    let _lock = repo_lock::lock(&common_dir(main_path)).await;
-    remove_leftover_clones(parent, name)?;
+    // Clone and fetch of one repository take turns under the transfer lock.
+    // They do not hold the repository lock: worktree steps of other sessions
+    // (creation, removal) go on while the network is slow, and git's own
+    // ref locking keeps a fetch and those steps apart.
+    let _transfer = super::locks::transfer(&common_dir(main_path)).await;
+    clone::remove_leftover_clones(parent, name)?;
     match fs::symlink_metadata(main_path) {
         Ok(metadata) if metadata.is_dir() => {
             on_phase(Phase::Fetching);
             let args = ["fetch", "--progress", "--prune", "--", "origin"];
-            run(ctx, main_path, "fetch", &args, FETCH_TIMEOUT).await
+            run(ctx, main_path, "fetch", &args, FETCH_TIMEOUT).await?;
+            fast_forward_main(ctx, main_path).await;
+            Ok(())
         }
         // A link or a file where the checkout belongs is never followed.
         Ok(_) => Err(WorkspaceGitError::failed(
@@ -146,36 +151,48 @@ pub async fn ensure(
         )),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             on_phase(Phase::Cloning);
-            clone(ctx, remote_url, parent, name, main_path).await
+            clone::clone(ctx, remote_url, parent, name, main_path).await
         }
         Err(error) => Err(error.into()),
     }
 }
 
-async fn clone(
-    ctx: &NetworkContext<'_>,
-    remote_url: &str,
-    parent: &Path,
-    name: &str,
-    main_path: &Path,
-) -> Result<(), WorkspaceGitError> {
-    let temporary = TemporaryClone::new(parent, name);
-    let Some(target) = temporary.path.to_str() else {
-        return Err(WorkspaceGitError::invalid("invalid main checkout path"));
+/// Move the main checkout's default branch up to what was just fetched, when
+/// it is checked out and has no local changes: the main checkout backs the
+/// project-level file view, which should show the current default branch.
+/// Best effort under the repository lock: a checkout that is not clean, not
+/// on the default branch, or not a fast-forward is left exactly as it is.
+async fn fast_forward_main(ctx: &NetworkContext<'_>, main_path: &Path) {
+    let _repository = super::locks::repository(&common_dir(main_path), super::locks::Wait::Block)
+        .await
+        .ok();
+    let output = |args: &'static [&'static str]| ctx.git.output(main_path, args);
+    let Ok(head) = output(&["symbolic-ref", "-q", "HEAD"]).await else {
+        return;
     };
-    let args = [
-        "clone",
-        "--progress",
-        "--origin",
-        "origin",
-        "--",
-        remote_url,
-        target,
-    ];
-    run(ctx, parent, "clone", &args, CLONE_TIMEOUT).await?;
-    fs::rename(&temporary.path, main_path)?;
-    temporary.keep();
-    Ok(())
+    let Ok(default) = output(&["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]).await else {
+        return;
+    };
+    let (Some(branch), Some(remote_branch)) = (
+        head.stdout.trim().strip_prefix("refs/heads/"),
+        default.stdout.trim().strip_prefix("refs/remotes/origin/"),
+    ) else {
+        return;
+    };
+    if !head.success() || !default.success() || branch != remote_branch {
+        return;
+    }
+    let clean = output(&["status", "--porcelain=v1", "-z", "--untracked-files=no"])
+        .await
+        .is_ok_and(|status| status.success() && status.stdout.is_empty());
+    if !clean || super::layout::validate_branch(branch).is_err() {
+        return;
+    }
+    let target = format!("refs/remotes/origin/{branch}");
+    let args = ["merge", "-q", "--ff-only", "--no-edit", &target];
+    if let Err(error) = run(ctx, main_path, "merge", &args, FETCH_TIMEOUT).await {
+        tracing::debug!(%error, "left the main checkout where it was");
+    }
 }
 
 /// Run one network command and map a failure to a stable code.
@@ -251,7 +268,16 @@ pub(super) fn classify(
     let stderr = redact(config, output.stderr.trim());
     let lower = stderr.to_ascii_lowercase();
     let contains_any = |needles: &[&str]| needles.iter().any(|needle| lower.contains(needle));
-    let code = if contains_any(&[
+    // GitHub refuses a workflow file change unless the token has the
+    // `workflow` scope: "refusing to allow an OAuth App (or a Personal
+    // Access Token, or a GitHub App) to create or update workflow `<path>`
+    // without `workflow` scope". Checked first: it is also a remote rejection.
+    let code = if lower.contains("refusing to allow")
+        && lower.contains("workflow")
+        && lower.contains("scope")
+    {
+        "WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED"
+    } else if contains_any(&[
         "returned error: 401",
         "returned error: 403",
         "authentication failed",
@@ -267,6 +293,26 @@ pub(super) fn classify(
     ]) || (lower.contains("fatal: repository '") && lower.contains("' not found"))
     {
         "WORKSPACE_GIT_REPOSITORY_NOT_FOUND"
+    } else if contains_any(&[
+        // curl's low-speed abort (`http.lowSpeedLimit` / `http.lowSpeedTime`).
+        "operation too slow",
+        // The credential proxy gave up on an idle GitHub connection.
+        "returned error: 504",
+    ]) {
+        "WORKSPACE_GIT_STALLED"
+    } else if contains_any(&[
+        // git's per-ref status lines for a push the remote did not take:
+        // not a fast-forward, a remote ref this host has not fetched, a
+        // force-with-lease whose expectation no longer holds, or a server
+        // hook or branch rule that declined it.
+        "! [rejected]",
+        "! [remote rejected]",
+        "(non-fast-forward)",
+        "(fetch first)",
+        "(stale info)",
+        "updates were rejected",
+    ]) {
+        "WORKSPACE_GIT_PUSH_REJECTED"
     } else {
         "WORKSPACE_GIT_FAILED"
     };
@@ -275,7 +321,7 @@ pub(super) fn classify(
 
 /// Replace every proxy address named by a `url.<proxy>.insteadOf` pair with
 /// the URL it rewrites.
-fn redact(config: &[(&str, &str)], text: &str) -> String {
+pub(crate) fn redact(config: &[(&str, &str)], text: &str) -> String {
     let mut text = text.to_string();
     for (key, value) in config {
         let Some(proxy) = key
@@ -311,78 +357,6 @@ fn tail(text: &str) -> &str {
         start += 1;
     }
     &text[start..]
-}
-
-/// Temporary clones are named `<repo>.cloning-<random>.git`. No repository
-/// name may end in `.git`, so the name can never be another repository's main
-/// checkout in the same owner directory.
-const TEMPORARY_SUFFIX: &str = ".git";
-
-fn temporary_prefix(name: &str) -> String {
-    format!("{name}.cloning-")
-}
-
-/// Remove what an interrupted clone of this repository left behind.
-fn remove_leftover_clones(parent: &Path, name: &str) -> Result<(), WorkspaceGitError> {
-    let prefix = temporary_prefix(name);
-    for entry in fs::read_dir(parent)? {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        let Some(file_name) = file_name.to_str() else {
-            continue;
-        };
-        if file_name.starts_with(&prefix) && file_name.ends_with(TEMPORARY_SUFFIX) {
-            remove_path(&entry.path())?;
-        }
-    }
-    Ok(())
-}
-
-/// Remove a directory tree, or a link or file as itself (never its target).
-fn remove_path(path: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path),
-        Ok(_) => fs::remove_file(path),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-/// The directory a clone is written to until it succeeds. Dropping it (a
-/// failed clone, or a cancelled job whose future is dropped) removes it.
-struct TemporaryClone {
-    path: PathBuf,
-    keep: bool,
-}
-
-impl TemporaryClone {
-    fn new(parent: &Path, name: &str) -> Self {
-        let random = uuid::Uuid::new_v4().simple().to_string();
-        Self {
-            path: parent.join(format!(
-                "{}{random}{TEMPORARY_SUFFIX}",
-                temporary_prefix(name)
-            )),
-            keep: false,
-        }
-    }
-
-    fn keep(mut self) {
-        self.keep = true;
-    }
-}
-
-impl Drop for TemporaryClone {
-    fn drop(&mut self) {
-        if self.keep {
-            return;
-        }
-        // Best effort: a git child that outlives its killed parent may still
-        // be writing; whatever remains is removed by the next `ensure`.
-        if let Err(error) = remove_path(&self.path) {
-            tracing::warn!(%error, "could not remove an interrupted clone directory");
-        }
-    }
 }
 
 #[cfg(test)]
@@ -440,6 +414,43 @@ mod tests {
             .unwrap();
         assert_eq!(*phases.lock().unwrap(), [Phase::Cloning, Phase::Fetching]);
         assert_eq!(rev_parse(&main_path, "refs/remotes/origin/main"), added);
+    }
+
+    #[tokio::test]
+    async fn a_fetch_fast_forwards_a_clean_main_checkout_to_the_default_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let remote = Remote::new(dir.path());
+        let main_path = dir.path().join("root/repos/github.com/octo/repo");
+        let git = GitRunner::default();
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        let added = remote.commit("main", "later.txt", "later\n");
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        // The project-level file view sees the default branch as fetched.
+        assert_eq!(rev_parse(&main_path, "HEAD"), added);
+        assert!(main_path.join("later.txt").is_file());
+        assert!(crate::session_worktrees::test_support::git_cmd(
+            &main_path,
+            &["status", "--porcelain"]
+        )
+        .is_empty());
+
+        // A main checkout with local changes is left exactly as it is.
+        std::fs::write(main_path.join("README.md"), "edited by hand\n").unwrap();
+        let next = remote.commit("main", "next.txt", "next\n");
+        ensure(&context(&git), &remote.url(), &main_path, &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(rev_parse(&main_path, "refs/remotes/origin/main"), next);
+        assert_eq!(rev_parse(&main_path, "HEAD"), added);
+        assert_eq!(
+            std::fs::read_to_string(main_path.join("README.md")).unwrap(),
+            "edited by hand\n"
+        );
+        assert!(!main_path.join("next.txt").exists());
     }
 
     #[tokio::test]
@@ -580,6 +591,39 @@ mod tests {
                 "WORKSPACE_GIT_REPOSITORY_NOT_FOUND",
                 "{stderr}"
             );
+        }
+        for stderr in [
+            "error: RPC failed; curl 28 Operation too slow. Less than 1 bytes/sec transferred the last 300 seconds\nfatal: expected flush after ref listing",
+            "fatal: unable to access 'https://github.com/o/r.git/': Operation too slow. Less than 1 bytes/sec transferred the last 300 seconds",
+            // The credential proxy gave up on GitHub.
+            "error: RPC failed; HTTP 504 curl 22 The requested URL returned error: 504\nfatal: the remote end hung up unexpectedly",
+        ] {
+            assert_eq!(
+                classify(none, "fetch", &failed(stderr)).code,
+                "WORKSPACE_GIT_STALLED",
+                "{stderr}"
+            );
+        }
+        for stderr in [
+            "To https://github.com/o/r.git\n ! [rejected]        a1b2 -> pi-desktop/x (non-fast-forward)\nerror: failed to push some refs to 'https://github.com/o/r.git'\nhint: Updates were rejected because a pushed branch tip is behind its remote",
+            "To https://github.com/o/r.git\n ! [rejected]        pi-desktop/x -> pi-desktop/x (fetch first)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            // A force-with-lease whose expectation no longer holds.
+            "To https://github.com/o/r.git\n ! [rejected]        a1b2 -> pi-desktop/x (stale info)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (protected branch hook declined)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+        ] {
+            assert_eq!(
+                classify(none, "push", &failed(stderr)).code,
+                "WORKSPACE_GIT_PUSH_REJECTED",
+                "{stderr}"
+            );
+        }
+        for stderr in [
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (refusing to allow an OAuth App to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)\nerror: failed to push some refs to 'https://github.com/o/r.git'",
+            "To https://github.com/o/r.git\n ! [remote rejected] a1b2 -> pi-desktop/x (refusing to allow a Personal Access Token to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)",
+        ] {
+            let error = classify(none, "push", &failed(stderr));
+            assert_eq!(error.code, "WORKSPACE_GIT_WORKFLOW_SCOPE_REQUIRED", "{stderr}");
+            assert!(error.message.contains(".github/workflows/ci.yml"));
         }
         let other = classify(
             none,

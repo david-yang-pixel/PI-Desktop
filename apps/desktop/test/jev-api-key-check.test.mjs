@@ -14,6 +14,7 @@ import {
   TYPESAFE_JEV_MODEL_ID,
   TYPESAFE_SYSTEM_ONE_URL,
 } from "../../../packages/shared/src/secret-refs.ts";
+import { awaitWithLiveEventLoop } from "./helpers/live-event-loop.mjs";
 
 const KEY = "typesafe-fixture-key";
 
@@ -107,7 +108,9 @@ test("a silent service is reported as a timeout", async () => {
         });
       }),
   );
-  const result = await probeJevApiKey(KEY, { fetchImpl: fetch, timeoutMs: 20 });
+  const result = await awaitWithLiveEventLoop(
+    probeJevApiKey(KEY, { fetchImpl: fetch, timeoutMs: 20 }),
+  );
   assert.equal(result.ok, false);
   assert.match(result.message, /did not answer/);
   assert.ok(!result.message.includes(KEY));

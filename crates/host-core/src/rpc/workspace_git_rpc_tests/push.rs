@@ -1,0 +1,197 @@
+//! Pushing a work branch: what the session and the repository can do while
+//! the transfer runs, and how a refused push is reported.
+
+use super::*;
+use crate::session_worktrees::repo_lock;
+use crate::workspace_git::repository::common_dir;
+
+fn push_params(f: &Fixture, session: &str) -> Value {
+    let mut params = f.session(session);
+    params["gitProxy"] = f.proxy();
+    params
+}
+
+/// Wait until `ready` holds while the job is still running.
+async fn while_running(f: &Fixture, job_id: &str, mut ready: impl FnMut() -> bool) -> bool {
+    for _ in 0..500 {
+        let job = f
+            .call("workspaceGit.job", json!({ "jobId": job_id }))
+            .await
+            .unwrap();
+        if job["state"] != "running" {
+            return false;
+        }
+        if job["phase"] == "pushing" && ready() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    false
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn the_worktree_and_the_repository_stay_usable_while_a_push_transfers() {
+    let f = Fixture::slow("*' push '*", "1");
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let head = commit_file(&path, "work.txt", "work\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let job_id = started["jobId"].as_str().unwrap().to_string();
+    let locks = f.state.lock().await.workspace_git_locks.clone();
+    // The session's tools are not refused for the length of the transfer.
+    assert!(
+        while_running(&f, &job_id, || locks
+            .try_read(INSTALLATION, "session-1")
+            .is_some())
+        .await,
+        "the worktree stayed locked during the push"
+    );
+    // Nor is the repository: another session's worktree step can run.
+    assert!(repo_lock::try_lock(&common_dir(&f.main_path())).is_some());
+    let status = f
+        .call("workspaceGit.status", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(status["unpushedCommits"], 1);
+    // The running job still keeps exclusive steps of this session away.
+    let mut remove = f.session("session-1");
+    remove["force"] = json!(true);
+    let error = f.call("workspaceGit.remove", remove).await.unwrap_err();
+    assert_eq!(code(&error), "WORKSPACE_GIT_BUSY");
+    assert_eq!(error.data.as_ref().unwrap()["jobId"], json!(job_id));
+    let error = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap_err();
+    assert_eq!(code(&error), "WORKSPACE_GIT_BUSY");
+
+    let (job, _phases) = f.wait(&job_id).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(job["pushed"]["remoteHead"], head);
+    assert_eq!(f.remote.head(&work_branch(INSTALLATION, "session-1")), head);
+}
+
+#[tokio::test]
+async fn a_rebased_work_branch_needs_an_explicit_force_with_lease() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "work.txt", "work\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    let pushed = f.remote.head(&branch);
+
+    // A rebase onto the base branch rewrites the work branch.
+    git_cmd(&path, &["reset", "-q", "--hard", "HEAD~1"]);
+    let rebased = commit_file(&path, "rebased.txt", "rebased\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "failed", "{job}");
+    assert_eq!(job["error"]["code"], "WORKSPACE_GIT_PUSH_REJECTED", "{job}");
+    assert_eq!(f.remote.head(&branch), pushed);
+
+    let mut forced = push_params(&f, "session-1");
+    forced["forceWithLease"] = json!(true);
+    let started = f.call("workspaceGit.push", forced).await.unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    assert_eq!(job["pushed"]["remoteHead"], rebased);
+    assert_eq!(f.remote.head(&branch), rebased);
+    // A value that is not a boolean is refused before anything runs.
+    let mut bad = push_params(&f, "session-1");
+    bad["forceWithLease"] = json!("yes");
+    let error = f.call("workspaceGit.push", bad).await.unwrap_err();
+    assert_eq!(code(&error), "INVALID_ARGUMENT");
+}
+
+/// GitHub deletes a pull request's head branch after a squash merge, and the
+/// next fetch prunes its remote-tracking ref. The commits are on GitHub (in
+/// the squash) but on no remote branch: the last push still vouches for them.
+#[tokio::test]
+async fn work_pushed_by_the_host_stays_pushed_after_its_remote_branch_is_deleted() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "one.txt", "1\n");
+    let pushed = commit_file(&path, "two.txt", "2\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    let (job, _phases) = f.wait(started["jobId"].as_str().unwrap()).await;
+    assert_eq!(job["state"], "succeeded", "{job}");
+    // Merged and deleted on "GitHub"; the host fetches with prune.
+    git_cmd(&f.remote.bare, &["branch", "-D", "--", &branch]);
+    git_cmd(&f.main_path(), &["fetch", "-q", "--prune", "origin"]);
+    let status = f
+        .call("workspaceGit.status", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(status["pushedOnce"], false);
+    assert_eq!(status["unpushedCommits"], 0, "{status}");
+    {
+        let state = f.state.lock().await;
+        let record = crate::workspace_git::registry::get(&state.db, INSTALLATION, "session-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(record.last_pushed_commit.as_deref(), Some(pushed.as_str()));
+    }
+    // A commit made after the push is still unpushed.
+    commit_file(&path, "three.txt", "3\n");
+    let status = f
+        .call("workspaceGit.status", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(status["unpushedCommits"], 1, "{status}");
+    git_cmd(&path, &["reset", "-q", "--hard", "HEAD~1"]);
+    // Reclaim and safe removal agree: nothing would be lost.
+    let reclaimed = f
+        .call("workspaceGit.reclaim", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(reclaimed["reclaimed"], true, "{reclaimed}");
+    let removed = f
+        .call("workspaceGit.removeSafely", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        removed,
+        json!({ "removed": true, "uncommittedFiles": 0, "unpushedCommits": 0 })
+    );
+}
+
+#[tokio::test]
+async fn a_checkout_removed_with_its_branch_tip_pushed_needs_no_force_even_offline() {
+    let f = Fixture::new();
+    f.prepare("session-1", "main").await;
+    let path = f.worktree_path("session-1");
+    let branch = work_branch(INSTALLATION, "session-1");
+    commit_file(&path, "one.txt", "1\n");
+    let started = f
+        .call("workspaceGit.push", push_params(&f, "session-1"))
+        .await
+        .unwrap();
+    f.wait(started["jobId"].as_str().unwrap()).await;
+    git_cmd(&f.remote.bare, &["branch", "-D", "--", &branch]);
+    git_cmd(&f.main_path(), &["fetch", "-q", "--prune", "origin"]);
+    // The checkout directory is gone; counting falls back to the branch.
+    std::fs::remove_dir_all(&path).unwrap();
+    let removed = f
+        .call("workspaceGit.removeSafely", f.session("session-1"))
+        .await
+        .unwrap();
+    assert_eq!(removed["removed"], true, "{removed}");
+}

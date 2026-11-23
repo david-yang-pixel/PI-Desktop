@@ -50,7 +50,7 @@ function hostError(code, message, details) {
  * the two real external edges are faked: host-core's local RPC and the paired
  * Host's `workspace/git*` RACP surface (including its reconnect).
  */
-function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
+function createFixture({ bindings = {}, worktrees = [], jobs = [], connector } = {}) {
   const store = new Map(Object.entries(bindings));
   const pendingRemovals = [];
   const events = [];
@@ -62,6 +62,9 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
     jobs: new Map(jobs.map((job) => [job.jobId, { pollsAfterCancel: 0, ...job }])),
     requests: [],
     nextJob: 1,
+    /** Sessions whose worktree the Host fails to remove or to read. */
+    failRemove: new Set(),
+    failStatus: new Set(),
   };
   const runningJob = (sessionId) => [...remote.jobs.values()].find((job) => job.sessionId === sessionId && job.state === "running");
   const wire = (job) => {
@@ -103,6 +106,9 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
               return { ok: true };
             }
             case "workspace/gitRemove": {
+              if (remote.failRemove.has(params.sessionId)) throw hostError(ErrorCodes.WORKSPACE_GIT_FAILED, "git worktree remove failed");
+              // The connection drops before the reply arrives.
+              if (remote.dropOnRemove) { remote.online = false; remote.connectFailure = null; return { removed: false }; }
               const busy = runningJob(params.sessionId);
               if (busy) throw hostError(ErrorCodes.WORKSPACE_GIT_BUSY, "the worktree is in use", { jobId: busy.jobId });
               const tree = remote.worktrees.get(params.sessionId);
@@ -113,13 +119,25 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
               return { removed: true, uncommittedFiles: 0, unpushedCommits: 0 };
             }
             case "workspace/gitStatus": {
+              if (remote.failStatus.has(params.sessionId)) throw hostError(ErrorCodes.WORKSPACE_GIT_FAILED, "git status failed");
               const tree = remote.worktrees.get(params.sessionId);
               if (!tree) throw hostError(ErrorCodes.WORKSPACE_GIT_NOT_FOUND, "no such worktree");
-              return { worktree: tree, ahead: 0, behind: 0, aheadOfBase: 0, pushedOnce: false,
+              return { worktree: tree, ahead: tree.ahead ?? 0, behind: 0, aheadOfBase: tree.aheadOfBase ?? 0, pushedOnce: tree.pushedOnce ?? false,
                 uncommittedFiles: tree.uncommittedFiles ?? 0, unpushedCommits: tree.unpushedCommits ?? 0 };
             }
             case "workspace/gitList":
               return { worktrees: [...remote.worktrees.values()] };
+            case "workspace/gitCredentialSet":
+            case "workspace/gitCredentialClear":
+              return { ok: true };
+            case "workspace/gitPush": {
+              const jobId = `job-${remote.nextJob++}`;
+              const tree = remote.worktrees.get(params.sessionId);
+              const job = { jobId, sessionId: params.sessionId, kind: "push", state: "succeeded", phase: "done" };
+              if (tree) tree.unpushedCommits = 0;
+              remote.jobs.set(jobId, job);
+              return { jobId };
+            }
             default:
               throw new Error(`unexpected host request ${method}`);
           }
@@ -182,7 +200,8 @@ function createFixture({ bindings = {}, worktrees = [], jobs = [] } = {}) {
   });
   const git = createSessionWorkspaceGit({
     call, workspaces, emit: (channel, payload) => events.push({ channel, payload }),
-    connector: { findPullRequest: async () => null, createPullRequest: async () => { throw new Error("unused"); } },
+    connector: connector ?? { findPullRequest: async () => null, createPullRequest: async () => { throw new Error("unused"); } },
+    log: (message, error) => logs.push(`${message}: ${error}`),
   });
   return {
     workspaces, git, store, remote, pendingRemovals, events, logs,
@@ -403,4 +422,197 @@ test("a monitor whose reconnect fails resumes on the next connection", async (t)
   await settle(t, f.workspaces.resume("h1"));
   await until(t, () => f.store.get("s-1").state === "ready", "the binding to become ready");
   f.workspaces.dispose();
+});
+
+// ---- pull requests ---------------------------------------------------------
+
+const pullRequestUrl = (number) => `https://github.com/octo/repo/pull/${number}`;
+const summary = (number, state, extra = {}) => ({ number, url: pullRequestUrl(number), title: `PR ${number}`, draft: false,
+  state, head: workBranch, base: "main", ...extra });
+
+/** A GitHub connector double that records every lookup's arguments. */
+function gitHub({ found = null, create } = {}) {
+  const lookups = [];
+  const created = [];
+  return {
+    lookups, created, found,
+    async findPullRequest(...args) { lookups.push(args); return typeof this.found === "function" ? this.found() : this.found; },
+    async createPullRequest(repository, input) {
+      created.push(input);
+      if (create) return create(input);
+      return summary(created.length + 1, "open", { title: input.title, draft: input.draft });
+    },
+  };
+}
+
+test("a merged pull request stays linked with its state instead of being forgotten", async () => {
+  const connector = gitHub({ found: summary(1, "merged") });
+  const f = createFixture({ bindings: { "s-1": binding("s-1", { pullRequest: { number: 1, url: pullRequestUrl(1) } }) }, connector });
+
+  assert.equal((await f.git.find("s-1")).state, "merged");
+  // Every state is asked for: an open-only lookup cannot see a merged request.
+  assert.deepEqual(connector.lookups, [[repository, workBranch]]);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+  assert.deepEqual(f.events.at(-1).payload.remoteRepository.pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+
+  // An empty answer cannot prove the request is gone: the link stays.
+  connector.found = null;
+  assert.equal(await f.git.find("s-1"), null);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+});
+
+test("a pull request request opens a new one after the last was merged and new commits exist", async () => {
+  const connector = gitHub({ found: summary(1, "merged") });
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1", { pullRequest: { number: 1, url: pullRequestUrl(1), state: "open", draft: false } }) },
+    worktrees: [readyWorktree("s-1", { aheadOfBase: 2, pushedOnce: true })],
+    connector,
+  });
+
+  const created = await f.git.create("s-1", { title: "Follow-up", body: "", draft: true });
+  assert.equal(created.number, 2);
+  assert.deepEqual(connector.created, [{ title: "Follow-up", body: "", draft: true, head: workBranch, base: "main" }]);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 2, url: pullRequestUrl(2), state: "open", draft: true });
+});
+
+test("an open pull request answers the call, and a refused create never returns the merged one", async () => {
+  const open = gitHub({ found: summary(4, "open") });
+  const reuse = createFixture({ bindings: { "s-1": binding("s-1") }, worktrees: [readyWorktree("s-1", { aheadOfBase: 1, pushedOnce: true })], connector: open });
+  assert.equal((await reuse.git.create("s-1", { title: "Again", body: "", draft: false })).number, 4);
+  assert.deepEqual(open.created, []);
+
+  const refused = gitHub({ found: summary(1, "merged"), create: () => {
+    throw Object.assign(new Error("GitHub rejected the request (422). No commits between main and pi-desktop/abc123"), { errorCode: ErrorCodes.GITHUB_VALIDATION_FAILED });
+  } });
+  const f = createFixture({ bindings: { "s-1": binding("s-1") }, worktrees: [readyWorktree("s-1", { aheadOfBase: 1, pushedOnce: true })], connector: refused });
+  await assert.rejects(f.git.create("s-1", { title: "Nothing new", body: "", draft: false }),
+    (error) => error.errorCode === ErrorCodes.GITHUB_VALIDATION_FAILED);
+  assert.deepEqual(f.store.get("s-1").pullRequest, { number: 1, url: pullRequestUrl(1), state: "merged", draft: false });
+});
+
+test("using a session refreshes its pull request state at most once per interval and never after a merge", async (t) => {
+  useVirtualClock(t);
+  const connector = gitHub({ found: summary(3, "open") });
+  const f = createFixture({ bindings: { "s-1": binding("s-1", { pullRequest: { number: 3, url: pullRequestUrl(3) } }) }, connector });
+
+  await f.git.refreshPullRequest("s-1");
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 1);
+  assert.equal(f.store.get("s-1").pullRequest.state, "open");
+
+  t.mock.timers.tick(5 * 60 * 1_000);
+  connector.found = summary(3, "merged");
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 2);
+  assert.equal(f.store.get("s-1").pullRequest.state, "merged");
+
+  t.mock.timers.tick(60 * 60 * 1_000);
+  await f.git.refreshPullRequest("s-1");
+  assert.equal(connector.lookups.length, 2, "a merged pull request is final");
+
+  // A failed lookup is logged, never thrown into the launch that asked.
+  const failing = gitHub({ found: () => { throw new Error("GitHub is unavailable"); } });
+  const g = createFixture({ bindings: { "s-2": binding("s-2") }, connector: failing });
+  await g.git.refreshPullRequest("s-2");
+  assert.match(g.logs.join("\n"), /Could not refresh the session's pull request/);
+});
+
+// ---- one bad worktree -------------------------------------------------------
+
+const OLD = "2026-01-01T00:00:00.000Z";
+
+test("one worktree that cannot be removed does not stop reconciling the others", async () => {
+  const f = createFixture({
+    worktrees: [
+      readyWorktree("s-1"), readyWorktree("s-2", { workBranch: "pi-desktop/def456" }),
+      readyWorktree("orphan-1", { createdAt: OLD }), readyWorktree("orphan-2", { createdAt: OLD }),
+    ],
+  });
+  f.pendingRemovals.push({ sessionId: "s-1", hostKey: "h1", repository, workBranch },
+    { sessionId: "s-2", hostKey: "h1", repository, workBranch: "pi-desktop/def456" });
+  f.remote.failRemove.add("s-1");
+  f.remote.failRemove.add("orphan-1");
+
+  await f.git.reconcile("h1");
+  assert.deepEqual(f.pendingRemovals.map((item) => item.sessionId), ["s-1"], "the failed removal is retried on the next connection");
+  assert.equal(f.remote.worktrees.has("s-2"), false, "a later pending removal still runs");
+  assert.equal(f.remote.worktrees.has("orphan-1"), true);
+  assert.equal(f.remote.worktrees.has("orphan-2"), false, "a later orphan is still removed");
+  assert.match(f.logs.join("\n"), /Could not remove a deleted session's worktree/);
+  assert.match(f.logs.join("\n"), /Could not remove an orphaned worktree/);
+});
+
+test("a host that drops mid-reconcile ends the pass instead of failing every worktree", async () => {
+  const f = createFixture({ worktrees: [readyWorktree("s-1"), readyWorktree("s-2", { workBranch: "pi-desktop/def456" })] });
+  f.pendingRemovals.push({ sessionId: "s-1", hostKey: "h1", repository, workBranch },
+    { sessionId: "s-2", hostKey: "h1", repository, workBranch: "pi-desktop/def456" });
+  f.remote.dropOnRemove = true;
+  await assert.rejects(f.git.reconcile("h1"), (error) => error.errorCode === "AGENT_UNAVAILABLE");
+  assert.equal(f.removeRequests().length, 1, "nothing more is sent to a host that is gone");
+  assert.equal(f.pendingRemovals.length, 2, "both removals wait for the next connection");
+});
+
+test("leftover worktrees stay listed when one of them cannot be read", async () => {
+  const f = createFixture({ worktrees: [readyWorktree("gone-1"), readyWorktree("gone-2", { uncommittedFiles: 2 })] });
+  f.remote.failStatus.add("gone-1");
+  const leftovers = await f.git.leftovers("h1");
+  assert.deepEqual(leftovers.map((item) => [item.sessionId, item.uncommittedFiles]), [["gone-2", 2]]);
+  assert.match(f.logs.join("\n"), /Could not read a leftover worktree's status/);
+
+  // An unreachable Host cannot give a trustworthy list at all.
+  f.remote.online = false;
+  await assert.rejects(f.git.leftovers("h1"));
+});
+
+test("a reconnect that fails for one workspace still recovers the others", async (t) => {
+  useVirtualClock(t);
+  const f = createFixture({
+    bindings: {
+      "s-1": binding("s-1", { state: "reclaiming" }),
+      "s-2": binding("s-2", { state: "reclaiming" }),
+    },
+    worktrees: [readyWorktree("s-1"), readyWorktree("s-2")],
+  });
+  f.remote.failStatus.add("s-1");
+  await settle(t, f.workspaces.resume("h1"));
+  assert.equal(f.store.get("s-1").state, "reclaiming");
+  assert.equal(f.store.get("s-2").state, "ready", "the second workspace is settled despite the first failure");
+  assert.match(f.logs.join("\n"), /Could not check a repository workspace on reconnect/);
+});
+
+// ---- least privilege ---------------------------------------------------------
+
+test("only a ready repository session's commands hand its host the credential", async () => {
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1"), "s-2": binding("s-2", { state: "preparing", workBranch: undefined, path: undefined }) },
+  });
+  f.workspaces.git().setCredentialProvider(async () => "fixture-token-not-a-real-credential");
+  const sets = () => f.remote.requests.filter((entry) => entry.method === "workspace/gitCredentialSet").length;
+
+  // Reads and edits never run git; a folder session or a session still
+  // preparing gets nothing either.
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Read" });
+  await f.workspaces.prepareTool({ sessionId: "folder-session", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-2", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "other-host", toolName: "Bash" });
+  assert.equal(sets(), 0);
+
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
+  await f.workspaces.prepareTool({ sessionId: "s-1", hostKey: "h1", toolName: "Bash" });
+  assert.equal(sets(), 1, "delivered once, then held by the connection");
+});
+
+test("a push asks the Host for a force-with-lease only when the caller does", async () => {
+  const f = createFixture({
+    bindings: { "s-1": binding("s-1") },
+    worktrees: [readyWorktree("s-1", { unpushedCommits: 1, aheadOfBase: 1 })],
+  });
+  await f.git.push("s-1");
+  f.remote.worktrees.get("s-1").unpushedCommits = 1;
+  await f.git.push("s-1", undefined, { forceWithLease: true });
+  const pushes = f.remote.requests.filter((entry) => entry.method === "workspace/gitPush").map((entry) => entry.params);
+  assert.deepEqual(pushes, [
+    { installationId: INSTALLATION, sessionId: "s-1" },
+    { installationId: INSTALLATION, sessionId: "s-1", forceWithLease: true },
+  ]);
 });

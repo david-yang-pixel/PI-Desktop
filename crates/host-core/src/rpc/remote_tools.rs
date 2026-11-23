@@ -334,7 +334,7 @@ pub(super) async fn handle(
     }
     tools::validate_timeout_ms(p.timeout_ms)
         .map_err(|(code, message)| rpc_err(1002, message, &code))?;
-    let (mut cancellation, hashline, shell, extra_env, worktree_access) = {
+    let (mut cancellation, hashline, shell, extra_env, worktree_access, redaction) = {
         let mut st = state.lock().await;
         let shell = if p.tool_name == "Bash" {
             let catalog = command_shell_catalog(&st)?;
@@ -374,6 +374,12 @@ pub(super) async fn handle(
                 "INVALID_PARAMS",
             ));
         }
+        // A registered worktree's tools see the proxy address; what they
+        // print reaches the desktop with the GitHub URL in its place.
+        let redaction = registered.as_ref().and_then(|record| {
+            let repository = record.repository.validated().ok()?;
+            Some((git_proxy_url.clone()?, repository))
+        });
         let worktree_access = if let Some(record) = registered {
             let access = st
                 .workspace_git_locks
@@ -407,6 +413,7 @@ pub(super) async fn handle(
             shell,
             extra_env,
             worktree_access,
+            redaction,
         )
     };
     if tool_cancellation_requested(&cancellation) {
@@ -461,6 +468,13 @@ pub(super) async fn handle(
             }
         };
         result.tool_call_id = p.tool_call_id.clone();
+        if let Some((proxy_url, repository)) = &redaction {
+            crate::workspace_git::environment::redact_proxy_json(
+                proxy_url,
+                repository,
+                &mut result.content,
+            );
+        }
         state
             .lock()
             .await

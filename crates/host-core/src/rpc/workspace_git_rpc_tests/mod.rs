@@ -792,6 +792,17 @@ async fn names_shaped_like_options_or_paths_are_rejected_before_anything_is_crea
         with("environment", variables("PATH")),
         with("environment", variables("LD_PRELOAD")),
         with("environment", variables("1A")),
+        with("environment", variables("PYTHONPATH")),
+        with("environment", variables("XDG_CONFIG_HOME")),
+        // One name twice: which value would win is not the caller's to guess.
+        with(
+            "environment",
+            json!({ "variables": [{ "name": "DUP", "value": "a" }, { "name": "DUP", "value": "b" }] }),
+        ),
+        with(
+            "environment",
+            json!({ "variables": [{ "name": "NUL", "value": "a\u{0}b" }] }),
+        ),
         with(
             "environment",
             json!({ "variables": (0..65).map(|index| json!({ "name": format!("V{index}"), "value": "x" })).collect::<Vec<_>>() }),
@@ -918,8 +929,11 @@ async fn a_restore_only_request_cannot_create_a_new_registration() {
     assert!(!f.main_path().exists());
 }
 
+mod adoption;
 mod interrupted_prepare;
+mod locking;
 /// Tests that spawn real git processes and inspect the process table.
 mod process;
+mod push;
 mod reclaim;
 mod setup_and_progress;

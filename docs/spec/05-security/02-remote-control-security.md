@@ -319,7 +319,25 @@ proxy then:
 
 A handle is not the token. It appears in the Agent's environment and in the
 environment of host-run git. It is usable only on the Host's loopback
-interface, only for one repository, and for a push only to one branch.
+interface, only by a process running as the Host user, only for one
+repository, and for a push only to one branch. The proxy learns which user
+opened a connection from the kernel's socket table (Linux) and closes any
+connection of another user, or of an owner it cannot determine, before it
+reads a request. Where no such check exists, `pi-host` fails closed: it does
+not advertise `workspaceGit` at all and logs why. Published `pi-host`
+bundles target Linux, so this affects development setups only. A token set
+with an unchanged value keeps the installation's handles; a new token
+replaces them.
+
+**What the proxy does not confine.** The rewrite covers the session
+repository's HTTPS URL and its two SSH spellings
+(`git@github.com:<owner>/<repo>.git`, `ssh://git@github.com/<owner>/<repo>.git`)
+and nothing else. The Agent's Bash runs as the Host user, so an SSH key, a
+credential helper, or a token file of that user that GitHub accepts still
+reaches GitHub directly, under another URL spelling or another repository's
+name, without the work-branch rule. Run `pi-host` as a dedicated user that
+holds no GitHub credentials of its own; the proxy is then the only way to
+GitHub with a credential.
 
 **Names and paths.** Repository owner, repository name, base branch, and
 environment variable names are validated by the shared schema, by the RACP

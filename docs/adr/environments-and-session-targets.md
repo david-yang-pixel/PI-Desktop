@@ -39,3 +39,26 @@ The main clone provides common Git storage. A per-session checkout protects
 working files and permits parent-only commits to survive a fork. Environment
 support adds optional RACP fields within the existing protocol version. A dedicated project per session would
 duplicate navigation state. A new SQL table would require a schema migration.
+
+## Amendment: preparation control and GitHub visibility
+
+- Date: 2026-11-22
+- Related: D696
+
+The renderer can cancel a preparing workspace through
+`remoteSession/workspace/cancel`. Electron main stops the Host job through the
+existing cancel path and leaves the binding `failed` with
+`REMOTE_WORKSPACE_CANCELLED`, so Retry prepares it again. Main also keeps the
+last phase and progress of each preparing session in memory and returns them
+with session reads, so a reloaded renderer does not fall back to a generic
+status. Host-core and the persisted binding are unchanged.
+
+The first send reconnects an offline Host instead of refusing it. The pickers
+can look up one exact repository (`github/repository`) or branch
+(`github/branch`) beyond the connector's capped lists, and conversation
+details read `remoteSession/github/activity`: whether the work branch exists
+on GitHub and, with a pull request, the CI state of its head commit. These
+channels take a session id or exact names, spend the connector token only in
+main, and are blocked on the local MCP control plane.
+
+The primary New task keeps the remembered environment, repository, and branch.

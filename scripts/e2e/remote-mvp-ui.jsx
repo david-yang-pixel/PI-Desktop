@@ -5,6 +5,7 @@ import { initReactI18next } from "react-i18next";
 import { IPC, bindingForCustomModel } from "@pi-desktop/shared";
 import { remoteEn, remoteZh } from "../../apps/desktop/src/locales/remote";
 import { useAppStore } from "../../apps/desktop/src/stores/app-store";
+import { useSessionTargetStore } from "../../apps/desktop/src/features/chat/session-target/session-target-store";
 import { RemoteHostSessions } from "../../apps/desktop/src/components/settings/RemoteHostSessions";
 import { RemoteHostsPage } from "../../apps/desktop/src/components/settings/RemoteHostsPage";
 import { Sidebar } from "../../apps/desktop/src/components/Sidebar";
@@ -119,6 +120,8 @@ window.piDesktop = {
       data = { accepted: true };
     }
     else if (channel === IPC.invoke.plansPending) data = { plans: [] };
+    else if (channel === IPC.invoke.remoteSessionGithubActivity) data = input === cloudSession.id
+      ? { pushed: true, checks: { state: "passing", total: 2, failed: 0, pending: 0 } } : { pushed: false };
     else if (channel === IPC.invoke.remoteHostReconnect) {
       if (++reconnects === 1) return { ok: false, error: { message: "Fixture reconnect failure", code: "AGENT_UNAVAILABLE" } };
       data = { host };
@@ -560,6 +563,13 @@ globalThis.remoteMvpProbe = async () => {
   const pullRequest = changes.querySelector("a");
   assert(pullRequest?.textContent === "View PR #7" && pullRequest.href === "https://github.com/example/repo/pull/7",
     "the saved pull request is not linked");
+  await until(() => details().querySelector(".conversation-details-github a"), "the pushed work branch has no compare link");
+  const compare = details().querySelector(".conversation-details-github a");
+  assert(compare.textContent === catalogs.en.sessionTarget.githubActivity.viewChanges
+    && compare.href === `https://github.com/${repository.owner}/${repository.name}/compare/develop...pi-desktop/fixture`,
+  "the compare link does not name the base and work branch");
+  assert(details().querySelector('.conversation-details-github [data-checks-state="passing"]')?.textContent
+    === catalogs.en.sessionTarget.githubActivity.checksPassing, "the pull request's checks are not shown");
   const changeRow = () => changes.querySelector('[data-snapshot-id="fixture-change"]');
   await until(() => changeRow()?.textContent.includes("src/changed.ts"), "the session change is missing");
   const change = changeRow();
@@ -595,8 +605,14 @@ globalThis.remoteMvpProbe = async () => {
   await until(() => topbar().querySelector(".ct-title")?.textContent === cloudSession.title,
     "the local title persisted into the cloud session");
 
+  // New task keeps the environment, repository, and branch picked on the home
+  // draft above, not the open cloud session's.
   newTask().click();
-  await until(() => picker(labels.environmentHost)?.textContent.trim() === labels.thisComputer, "global task inherited cloud environment");
+  await until(() => !useAppStore.getState().activeSessionId && picker(labels.environmentHost)?.textContent.trim() === environment.name,
+    "global task did not restore the last used environment");
+  // GitHub is disconnected in this part, so the branch is kept but not shown.
+  assert(picker(labels.chooseRepository)?.textContent.trim() === repository.fullName
+    && useSessionTargetStore.getState().baseBranch === "develop", "global task did not restore the last used repository and branch");
   assert(!useAppStore.getState().activeSessionId && !useAppStore.getState().workspace, "global draft inherited project or session");
 
   addTask(localWorkspace).click();
@@ -659,7 +675,12 @@ globalThis.remoteMvpProbe = async () => {
   const localStarts = () => calls.filter(({ channel }) => channel === IPC.invoke.sessionCreate);
   const sentTo = (id) => calls.some(({ channel, input }) => channel === IPC.invoke.agentPrompt && input.sessionId === id);
   newTask().click();
-  await until(() => localProjectPicker()?.textContent.trim() === temporaryLabel, "fresh tasks should default to a local temporary chat");
+  await until(() => picker(labels.environmentHost)?.textContent.trim() === secondEnvironment.name
+    && picker(labels.chooseRepository)?.textContent.trim() === labels.noRepository, "New task did not keep the last used target");
+  picker(labels.environmentHost).click();
+  await until(() => button(labels.thisComputer), "This computer was not offered");
+  button(labels.thisComputer).click();
+  await until(() => localProjectPicker()?.textContent.trim() === temporaryLabel, "This computer should default to a local temporary chat");
   setPrompt("Use this local folder");
   await selectLocalOption(localWorkspace.name);
   await until(() => localProjectPicker().textContent.trim() === localWorkspace.name && !localProjectPicker().disabled,

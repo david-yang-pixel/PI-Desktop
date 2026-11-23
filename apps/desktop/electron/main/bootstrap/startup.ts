@@ -26,7 +26,7 @@ import { readCloseBehavior } from "../window-preferences";
 import { createAgentHostBridge, type AgentHostBridge } from "../agent-host-bridge";
 import { createBackendRouter, type BackendRouter } from "../remote/backend-router";
 import { createInstallationIdentity } from "../installation-identity";
-import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
+import { getRemoteRepositorySessions, recoverRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 import { createRemoteHostsBoot, setActiveRemoteHostsBoot } from "./remote-hosts";
 import {
   createMcpControlController,
@@ -326,6 +326,12 @@ export function registerApplicationStartup(deps: StartupDependencies): void {
       });
     }
     if (!bootError) planUiProbe.install();
+    // Repository workspaces resume only once host-core can answer: IPC
+    // registered before it booted, and a Host may have connected before too.
+    if (!bootError) {
+      void recoverRemoteRepositorySessions((level, message, data) =>
+        logger.app("runtime", level, message, { data: formatRemoteLogData(data) }));
+    }
     const scheduledRunner = createScheduledRunner({
       getHost,
       execute: (id) => invokeIpc(IPC.invoke.scheduledExecute, [id, true]),

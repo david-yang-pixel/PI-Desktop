@@ -55,12 +55,18 @@ const GIT_BRANCH_NAME_PATTERN =
 const FORBIDDEN_VARIABLE_NAMES = [
   "PATH", "HOME", "SHELL", "USER", "LOGNAME", "PWD", "OLDPWD", "IFS", "ENV", "BASH_ENV",
   "PROMPT_COMMAND", "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE",
+  // git's and the shell's own configuration and tracing.
+  "XDG_CONFIG_HOME", "SHELLOPTS", "BASHOPTS", "PS4",
+  // Interpreter search paths and startup options.
+  "PYTHONPATH", "PYTHONSTARTUP", "PYTHONHOME", "NODE_PATH", "PERL5LIB", "PERL5OPT", "PERLLIB", "RUBYOPT", "RUBYLIB",
 ] as const;
 const FORBIDDEN_VARIABLE_PREFIXES = ["GIT_", "PI_", "LD_", "DYLD_", "BASH_FUNC_"] as const;
 
 /**
  * `[A-Za-z_][A-Za-z0-9_]{0,127}`, minus the names and prefixes that would
- * redirect git, the shell loader, the dynamic linker, or the tool runner.
+ * redirect git, the shell loader, the dynamic linker, an interpreter's module
+ * search or startup code, or the tool runner. Host-core applies the same
+ * table, so the renderer can validate a name before anything is sent.
  */
 const ENVIRONMENT_VARIABLE_NAME_PATTERN =
   `^(?!(?:${FORBIDDEN_VARIABLE_NAMES.join("|")})$)(?!${FORBIDDEN_VARIABLE_PREFIXES.join("|")})[A-Za-z_][A-Za-z0-9_]{0,127}$`;
@@ -173,12 +179,25 @@ export const WorkspaceGitPrepareSchema = Type.Object({
 }, { additionalProperties: false });
 export type WorkspaceGitPrepare = Static<typeof WorkspaceGitPrepareSchema>;
 
-/** `{ installationId, sessionId }`; used by push and status. */
+/** `{ installationId, sessionId }`; used by status. */
 export const WorkspaceGitSessionRefSchema = Type.Object({
   installationId: InstallationId(),
   sessionId: SessionId(),
 }, { additionalProperties: false });
 export type WorkspaceGitSessionRef = Static<typeof WorkspaceGitSessionRefSchema>;
+
+export const WorkspaceGitPushSchema = Type.Object({
+  installationId: InstallationId(),
+  sessionId: SessionId(),
+  /**
+   * Allow a work branch that is not a fast-forward of the remote one, as
+   * after a rebase. The Host pushes with `--force-with-lease` on the commit
+   * it last pushed or fetched for the branch, never with a bare force, so
+   * commits someone else pushed meanwhile are refused, not overwritten.
+   */
+  forceWithLease: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export type WorkspaceGitPush = Static<typeof WorkspaceGitPushSchema>;
 
 export const WorkspaceGitRemoveSchema = Type.Object({
   installationId: InstallationId(),

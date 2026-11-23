@@ -114,7 +114,8 @@ export type RacpHostOperations = {
     clearCredential(owner: { deviceId: string; connectionId: string }): Promise<void>;
     repository(input: { repository: WorkspaceGitRepository }): Promise<{ path: string; cloned: boolean }>;
     prepare(input: WorkspaceGitPrepare, owner: { deviceId: string; connectionId: string }): Promise<{ jobId: string }>;
-    push(input: { installationId: string; sessionId: string }, owner: { deviceId: string; connectionId: string }): Promise<{ jobId: string }>;
+    /** `forceWithLease` allows a rebased branch under a lease; never a bare force. */
+    push(input: { installationId: string; sessionId: string; forceWithLease?: boolean }, owner: { deviceId: string; connectionId: string }): Promise<{ jobId: string }>;
     job(input: { jobId: string }): Promise<WorkspaceGitJob>;
     cancelJob(input: { jobId: string }): Promise<void>;
     status(input: { installationId: string; sessionId: string }): Promise<WorkspaceGitStatus>;

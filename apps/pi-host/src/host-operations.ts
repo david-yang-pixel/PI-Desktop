@@ -397,7 +397,9 @@ export function createWorkspaceAccess(
 export function createHostOperations(
   deps: HostOperationsDeps,
 ): Omit<RacpHostOperations, "terminal"> {
-  const workspaceGit = deps.workspacesRoot && deps.gitProxy
+  // Fail closed: without a peer-user check on the proxy, any local user who
+  // reads a session's handle could push with the owner's token.
+  const workspaceGit = deps.workspacesRoot && deps.gitProxy?.verifiesPeerUser === true
     ? createWorkspaceGit({
         getHost: deps.getHost,
         workspacesRoot: deps.workspacesRoot,

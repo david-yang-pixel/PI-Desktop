@@ -33,7 +33,7 @@ const { createRemoteHostsBoot } = await import("../apps/desktop/electron/main/bo
 const { createBackendRouter } = await import("../apps/desktop/electron/main/remote/backend-router.ts");
 const { createSessionWorkspaces } = await import("../apps/desktop/electron/main/remote/session-workspaces.ts");
 const { createSessionWorkspaceGit } = await import("../apps/desktop/electron/main/remote/session-workspace-git.ts");
-const { createGitHubSessionPullRequestTool, githubSessionPullRequestTool } = await import("../apps/desktop/electron/main/github/session-pr-tool.ts");
+const { createGitHubSessionTools, githubSessionPullRequestTool, githubSessionPushTool } = await import("../apps/desktop/electron/main/github/session-github-tools.ts");
 const { createHostRuntime } = await import("../apps/desktop/electron/main/runtime/host.ts");
 const { createRemoteWorkspaceToolRelay } = await import("../apps/desktop/electron/main/remote/remote-workspace-tools.ts");
 const { saveComposerPasteFiles } = await import("../apps/desktop/electron/main/composer-paste.ts");
@@ -59,6 +59,13 @@ const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
 const git = (cwd, ...args) => execFileSync("git", ["-C", cwd, "-c", "user.name=PI E2E", "-c", "user.email=pi-e2e@example.invalid", "-c", "commit.gpgsign=false", ...args],
   { env: { ...gitEnv, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 const remoteHead = (branch) => git(bare, "rev-parse", "--verify", `refs/heads/${branch}`);
+/**
+ * A receive-pack POST that can change refs. Before a pack larger than
+ * `http.postBuffer` git sends a probe whose body is only a flush packet
+ * (`0000`); the proxy lets it through because it names no ref and changes
+ * nothing, so it does not count as a push reaching "GitHub".
+ */
+const isRefUpdate = (request) => request.method === "POST" && request.path.endsWith("/git-receive-pack") && request.contentLength !== "4";
 const remoteHasBranch = (branch) => {
   try { remoteHead(branch); return true; } catch { return false; }
 };
@@ -73,6 +80,8 @@ async function step(name, action) {
 let fixture; let host; let proxy; let binding; let server; let boot; let localHost; let repositorySessions;
 const hostLogs = [];
 let token = FIXTURE_TOKEN;
+/** One entry per token pi-host was given: true for a token, false for a clear. */
+const tokenSets = [];
 const deadline = setTimeout(() => { console.error(`FAILED - ${currentStep}: remote workspace git acceptance exceeded 180s`); process.exit(1); }, 180_000);
 
 async function pollJob(jobId) {
@@ -167,6 +176,9 @@ try {
   await host.handshake();
   // The only way to point the proxy anywhere but GitHub: its constructor.
   proxy = createGitCredentialProxy({ upstream: fixture.url, log: (level, message, data) => hostLogs.push(JSON.stringify({ level, message, data })) });
+  // Record when pi-host is handed a token (never the value): connecting must not.
+  const proxySetToken = proxy.setToken.bind(proxy);
+  proxy.setToken = (installationId, value) => { tokenSets.push(value !== null); return proxySetToken(installationId, value); };
   await proxy.start();
   const agentHost = new AgentHost({ sessions: createHostSessionPort(() => host),
     runtime: { async prompt() { throw new Error("no remote model"); }, async stop() { return { requested: false }; }, async abort() {}, async respondInput() {} },
@@ -198,7 +210,7 @@ try {
   const workA = workspaceGitWorkBranch(INSTALLATION, "session-a");
   const workB = workspaceGitWorkBranch(INSTALLATION, "session-b");
 
-  await step("1 connect and deliver the credential", async () => {
+  await step("1 connect; the credential waits for its first use", async () => {
     boot.workspaceGit.setCredentialProvider(async () => token);
     assert.equal((await boot.addHost({ hostKey: HOST, label: "Fixture", url: `ws://127.0.0.1:${binding.address.port}/v1/racp/ws`, deviceToken: OWNER_TOKEN })).connected, true);
     await boot.workspaceGit.refreshCredential();
@@ -208,6 +220,8 @@ try {
     assert.deepEqual(where, { path: join(workspacesRoot, "repos/github.com/octo/repo"), cloned: false });
     assert.equal(existsSync(workspacesRoot), false, "asking where a repository lives creates nothing");
     assert.equal(fixture.requests.length, 0);
+    // Least privilege (D695): connecting and signing in hand the host no token.
+    assert.deepEqual(tokenSets, [], "the token waits for the first operation that needs it");
   });
 
   await step("2 prepare session A from main (E2E-REMOTE-repo-session-prepares-isolated-worktree)", async () => {
@@ -224,6 +238,7 @@ try {
     assert.equal(git(a.mainPath, "config", "--get", "remote.origin.url"), "https://github.com/octo/repo.git");
     assert.deepEqual(await boot.workspaceGit.repository(HOST, repository), { path: a.mainPath, cloned: true });
     assert.ok(fixture.requests.length > 0 && fixture.requests.every((request) => request.authorized), "the clone went through the proxy with the credential");
+    assert.deepEqual(tokenSets, [true], "the first prepare delivered the token once");
     // A retry returns the same worktree instead of a second one.
     assert.deepEqual((await prepare("session-a", "develop")).worktree, a);
   });
@@ -284,7 +299,7 @@ try {
   });
 
   await step("5 a push to another ref is refused by the proxy (E2E-REMOTE-git-proxy-rejects-foreign-ref)", async () => {
-    const receivePacks = () => fixture.requests.filter((request) => request.method === "POST" && request.path.endsWith("/git-receive-pack")).length;
+    const receivePacks = () => fixture.requests.filter(isRefUpdate).length;
     const before = receivePacks();
     for (const command of ["git push origin HEAD:main 2>&1", "git push origin HEAD:refs/heads/other 2>&1", "git push origin :develop 2>&1", `git push origin HEAD:${workA} HEAD:refs/tags/v1 2>&1`]) {
       const foreign = await bash("session-a", a.path, command);
@@ -376,7 +391,8 @@ try {
     const connector = {
       status: async () => ({ connected: true }),
       findPullRequest: async (_repository, head, state) => {
-        assert.equal(state, "open");
+        // Every state: a merged or closed request must stay visible.
+        assert.equal(state, undefined);
         if (cancelOnLookup) isPullRequestTurnActive = false;
         if (lookupError) throw lookupError;
         return requests.get(head) ?? null;
@@ -431,7 +447,7 @@ try {
     const workspaces = createSessionWorkspaces({ call, hosts: hostPort, connector, emit, log: (message, error) => hostLogs.push(`${message}: ${error}`) });
     repositorySessions = workspaces;
     const repositoryGit = createSessionWorkspaceGit({ call, workspaces, connector, emit });
-    const githubSessionPullRequest = createGitHubSessionPullRequestTool(() => ({ workspaces, connector, git: repositoryGit }));
+    const githubSessionTools = createGitHubSessionTools(() => ({ workspaces, connector, git: repositoryGit }));
     const pluginHost = {
       call,
       onNotification(handler) {
@@ -443,7 +459,7 @@ try {
     };
     createHostRuntime({
       runtimeState: { host: pluginHost }, logger: { app() {} }, sessionProjects: new Map(),
-      plugins: { getTools: () => [], drainToasts: () => [] }, githubSessionPullRequest,
+      plugins: { getTools: () => [], drainToasts: () => [] }, githubSessionTools,
       isTurnDispatchable: (_sessionId, turnId) => isPullRequestTurnActive && turnId === "agent-pr-turn",
     }).wireHost(pluginHost);
     const environment = await workspaces.upsert({
@@ -515,8 +531,8 @@ try {
       await workspaces.waitUntilReady(session.id);
       assert.equal(git(ready.remoteWorkspace.path, "rev-parse", "HEAD"), head);
 
-      assert.equal(await githubSessionPullRequest.available(unbound.id), false);
-      assert.equal(await githubSessionPullRequest.available(session.id), true);
+      assert.equal(await githubSessionTools.available(unbound.id), false);
+      assert.equal(await githubSessionTools.available(session.id), true);
       const publishByAgent = (args) => call("tools.execute", {
         sessionId: session.id, turnId: "agent-pr-turn", toolCallId: "publish-pr",
         toolName: githubSessionPullRequestTool.name, mode: "agent", declaredRisk: "high", args,
@@ -527,6 +543,31 @@ try {
       assert.equal(remoteHasBranch((await workspaces.binding(session.id)).workBranch), false);
       cancelOnLookup = false;
       isPullRequestTurnActive = true;
+      // E2E-REMOTE-agent-pushes-session-branch-through-connector: the Agent
+      // pushes without a pull request, Plan turns cannot, and an up-to-date
+      // branch answers with its counts instead of failing.
+      const pushByAgent = (mode) => call("tools.execute", {
+        sessionId: session.id, turnId: "agent-pr-turn", toolCallId: `push-${mode}`,
+        toolName: githubSessionPushTool.name, mode, declaredRisk: "high", args: {},
+      });
+      // Host-core authorizes with the durable session mode, so the session
+      // itself must be in Plan for the refusal to be real.
+      await call("session.configure", { id: session.id, mode: "plan" });
+      const planPush = await pushByAgent("plan");
+      assert.equal(planPush.errorCode, "PLUGIN_DISABLED_IN_PLAN", JSON.stringify(planPush));
+      assert.equal(remoteHasBranch((await workspaces.binding(session.id)).workBranch), false);
+      await call("session.configure", { id: session.id, mode: "agent" });
+      const pushed = await pushByAgent("agent");
+      assert.equal(pushed.ok, true, JSON.stringify(pushed));
+      assert.equal(pushed.content.pushed, true);
+      assert.equal(pushed.content.workBranch, (await workspaces.binding(session.id)).workBranch);
+      assert.equal(pushed.content.unpushedCommits, 0);
+      assert.equal(remoteHasBranch(pushed.content.workBranch), true);
+      assert.equal(events.filter(({ channel, payload }) => channel === IPC.event.remoteSessionPushProgress
+        && payload.sessionId === session.id).at(-1)?.payload.active, false, "the composer must clear push progress");
+      const upToDate = await pushByAgent("agent");
+      assert.equal(upToDate.ok, true, JSON.stringify(upToDate));
+      assert.equal(upToDate.content.pushed, false);
       const published = await publishByAgent({ title: "Fixture PR", draft: true });
       assert.equal(published.ok, true, JSON.stringify(published));
       const pushEvents = events.filter(({ channel, payload }) => channel === IPC.event.remoteSessionPushProgress && payload.sessionId === session.id);
@@ -540,11 +581,12 @@ try {
       assert.equal((await workspaces.binding(session.id)).pullRequest.number, 1);
       lookupError = null;
       requests.set(pr.head, { ...pr, state: "closed" });
-      assert.equal(await repositoryGit.find(session.id), null);
-      assert.equal((await workspaces.binding(session.id)).pullRequest, null);
+      assert.equal((await repositoryGit.find(session.id)).state, "closed");
+      // The closed request stays linked with its state instead of vanishing.
+      assert.deepEqual((await workspaces.binding(session.id)).pullRequest, { number: 1, url: pr.url, state: "closed", draft: true });
       const replacement = await repositoryGit.create(session.id, { title: "Replacement PR", body: "", draft: false });
       assert.equal(replacement.number, 2);
-      assert.equal((await workspaces.binding(session.id)).pullRequest.number, 2);
+      assert.deepEqual((await workspaces.binding(session.id)).pullRequest, { number: 2, url: replacement.url, state: "open", draft: false });
 
       assert.equal(boot.workspaceGit.supportsReclaim(HOST), true);
       const checkout = ready.remoteWorkspace.path;
@@ -696,6 +738,55 @@ try {
     } finally {
       off?.();
     }
+  });
+
+  // ---- Push lease, typed rejection, squash-merged work, SSH rewrite, and
+  // redacted tool output (fix/cloud-host-git, D694). Scenarios
+  // `E2E-REMOTE-git-push-rebased-branch-with-lease`,
+  // `E2E-REMOTE-git-squash-merged-work-counts-as-pushed`, and
+  // `E2E-REMOTE-git-ssh-url-uses-proxy`. Kept as one separate block.
+  await step("10 a rebased work branch replaces its remote only under a lease (E2E-REMOTE-git-push-rebased-branch-with-lease)", async () => {
+    token = FIXTURE_TOKEN;
+    await boot.workspaceGit.refreshCredential();
+    const before = remoteHead(workB);
+    // The Agent rewrites its branch, as a rebase onto a moved base would.
+    const rewrite = await bash("session-b", b.path, "git reset -q --hard HEAD~1 && printf 'rebased\\n' > rebased.txt && git add rebased.txt && git -c user.name='PI E2E' -c user.email=pi-e2e@example.invalid commit -q -m rebased");
+    assert.equal(rewrite.exitCode, 0, rewrite.output);
+    const rebased = git(b.path, "rev-parse", "HEAD");
+    const plain = await pollJob((await boot.workspaceGit.push(HOST, "session-b")).jobId);
+    assert.deepEqual([plain.job.state, plain.job.error?.code], ["failed", "WORKSPACE_GIT_PUSH_REJECTED"], JSON.stringify(plain.job));
+    assert.equal(remoteHead(workB), before, "a plain push never replaces the remote branch");
+    const leased = await pollJob((await boot.workspaceGit.push(HOST, "session-b", { forceWithLease: true })).jobId);
+    assert.deepEqual([leased.job.state, leased.job.pushed], ["succeeded", { branch: workB, remoteHead: rebased }], JSON.stringify(leased.job));
+    assert.equal(remoteHead(workB), rebased);
+    assert.equal(remoteHead("develop"), developHead, "the lease names the work branch only");
+  });
+
+  await step("11 squash-merged work does not count as unpushed after its branch is deleted (E2E-REMOTE-git-squash-merged-work-counts-as-pushed)", async () => {
+    // "GitHub" merged the pull request and deleted its head branch.
+    git(bare, "branch", "-D", "--", workB);
+    const fetched = await bash("session-b", b.path, "git fetch --prune 2>&1");
+    assert.equal(fetched.exitCode, 0, fetched.output);
+    const status = await boot.workspaceGit.status(HOST, "session-b");
+    assert.deepEqual([status.pushedOnce, status.unpushedCommits, status.uncommittedFiles], [false, 0, 0]);
+  });
+
+  await step("12 the session repository's SSH URLs go through the proxy, and tool output names no handle (E2E-REMOTE-git-ssh-url-uses-proxy)", async () => {
+    const receivePacks = () => fixture.requests.filter(isRefUpdate).length;
+    const before = receivePacks();
+    // A small post buffer makes git probe first and then stream the pack after
+    // the refusal, as it does for any large push.
+    const foreign = await bash("session-b", b.path, "git -c http.postBuffer=4096 push git@github.com:octo/repo.git HEAD:main 2>&1");
+    assert.notEqual(foreign.exitCode, 0, foreign.output);
+    assert.match(foreign.output, /403/, "the proxy, not the host user's SSH key, answered");
+    assert.equal(receivePacks(), before);
+    assert.equal(remoteHead("main"), mainHead);
+    const own = await bash("session-b", b.path, `git push ssh://git@github.com/octo/repo.git HEAD:refs/heads/${workB} 2>&1`);
+    assert.equal(own.exitCode, 0, own.output);
+    assert.equal(remoteHead(workB), git(b.path, "rev-parse", "HEAD"));
+    const printed = await bash("session-b", b.path, 'printf "%s" "$GIT_CONFIG_KEY_0"');
+    assert.match(printed.output, /url\.https:\/\/github\.com\/octo\/repo\.git\.insteadOf/);
+    assert.equal(/[0-9a-f]{64}/.test(printed.output) || printed.output.includes("127.0.0.1"), false, printed.output);
   });
 
   await boot.removeHost(HOST);

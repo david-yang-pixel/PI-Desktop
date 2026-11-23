@@ -10,42 +10,106 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::layout::{validate_variable_name, Layout, Repository};
+
+/// A network transfer slower than this many bytes per second ...
+const LOW_SPEED_LIMIT_BYTES: u32 = 1;
+/// ... for this many seconds is stalled. `pi-host`'s credential proxy gives
+/// up on an idle upstream connection a little later, as a backstop.
+const LOW_SPEED_TIME_SECS: u32 = 300;
 use super::{registry, WorkspaceGitError};
 use crate::db::Database;
 
-/// The one git configuration pair that sends a repository's traffic through
-/// the credential proxy: `url.<proxy><owner>/<repo>.git.insteadOf` set to the
-/// repository's GitHub URL. It is scoped to that repository, so every other
-/// URL behaves as if there were no proxy.
-pub fn proxy_rewrite(proxy_url: &str, repository: &Repository) -> (String, String) {
-    (
-        format!(
-            "url.{proxy_url}{}/{}.git.insteadOf",
-            repository.owner, repository.name
-        ),
+/// The git configuration pairs that send a repository's traffic through the
+/// credential proxy: `url.<proxy><owner>/<repo>.git.insteadOf`, once for the
+/// repository's HTTPS URL (the one host-core clones, so it comes first) and
+/// once for each SSH spelling of it, `git@github.com:<owner>/<repo>.git` and
+/// `ssh://git@github.com/<owner>/<repo>.git`. A push that names the
+/// repository over SSH is therefore held to the same work-branch rule
+/// instead of reaching GitHub with the host user's own keys. The pairs are
+/// scoped to that repository, so every other URL behaves as if there were no
+/// proxy.
+pub fn proxy_rewrites(proxy_url: &str, repository: &Repository) -> Vec<(String, String)> {
+    let key = format!(
+        "url.{proxy_url}{}/{}.git.insteadOf",
+        repository.owner, repository.name
+    );
+    let path = format!("{}/{}.git", repository.owner, repository.name);
+    [
         Layout::github_url(repository),
-    )
+        format!("git@github.com:{path}"),
+        format!("ssh://git@github.com/{path}"),
+    ]
+    .into_iter()
+    .map(|url| (key.clone(), url))
+    .collect()
+}
+
+/// `text` with every address of the session's proxy scope replaced by the
+/// GitHub URL it stands for. The handle in the address is usable by any
+/// process of the host user, so it stays out of what is stored in the
+/// registry or sent to the desktop: setup logs and tool output.
+pub fn redact_proxy(proxy_url: &str, repository: &Repository, text: &str) -> String {
+    if !text.contains(proxy_url) {
+        return text.to_string();
+    }
+    let rewrites = proxy_rewrites(proxy_url, repository);
+    let pairs: Vec<(&str, &str)> = rewrites
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect();
+    super::repository::redact(&pairs, text)
+}
+
+/// `redact_proxy` applied to every string inside a JSON value.
+pub fn redact_proxy_json(proxy_url: &str, repository: &Repository, value: &mut Value) {
+    match value {
+        Value::String(text) => {
+            if text.contains(proxy_url) {
+                *text = redact_proxy(proxy_url, repository, text);
+            }
+        }
+        Value::Array(items) => items
+            .iter_mut()
+            .for_each(|item| redact_proxy_json(proxy_url, repository, item)),
+        Value::Object(fields) => fields
+            .values_mut()
+            .for_each(|field| redact_proxy_json(proxy_url, repository, field)),
+        _ => {}
+    }
 }
 
 /// The git configuration for traffic to GitHub from this host, as key and
 /// value pairs for `GIT_CONFIG_COUNT`. host-run git and the Agent's Bash get
 /// the same pairs:
 ///
-/// - the proxy rewrite for the session's repository;
+/// - the proxy rewrites for the session's repository (`proxy_rewrites`);
 /// - an empty `credential.helper` and `core.askPass`, so git neither asks the
 ///   host user's own helpers for a credential nor offers them one to store.
 ///   The only credential in play is the one the proxy adds;
+/// - `http.lowSpeedLimit` and `http.lowSpeedTime`, so an HTTP transfer that
+///   moves less than one byte per second for five minutes is abandoned
+///   (`WORKSPACE_GIT_STALLED`) instead of holding its job until the overall
+///   limit. GitHub's keepalive and progress packets keep a slow but live
+///   transfer above it;
 /// - an empty proxy for the credential proxy's own address, so loopback
 ///   traffic to it is never handed to a configured HTTP proxy.
 ///
-/// Without a proxy address only the two credential pairs apply.
+/// Without a proxy address only the credential and low-speed pairs apply.
 pub fn network_config(proxy_url: Option<&str>, repository: &Repository) -> Vec<(String, String)> {
-    let mut config = Vec::with_capacity(4);
+    let mut config = Vec::with_capacity(8);
     if let Some(proxy_url) = proxy_url {
-        config.push(proxy_rewrite(proxy_url, repository));
+        config.extend(proxy_rewrites(proxy_url, repository));
     }
     config.push(("credential.helper".to_string(), String::new()));
     config.push(("core.askPass".to_string(), String::new()));
+    config.push((
+        "http.lowSpeedLimit".to_string(),
+        LOW_SPEED_LIMIT_BYTES.to_string(),
+    ));
+    config.push((
+        "http.lowSpeedTime".to_string(),
+        LOW_SPEED_TIME_SECS.to_string(),
+    ));
     if let Some(proxy_url) = proxy_url {
         config.push((format!("http.{proxy_url}.proxy"), String::new()));
     }
@@ -165,6 +229,7 @@ mod tests {
                 setup_script: None,
                 setup_status: SetupStatus::None,
                 setup_log_tail: None,
+                last_pushed_commit: None,
                 recovery: Default::default(),
             },
         )
@@ -191,10 +256,10 @@ mod tests {
         let env = for_tool(&db, Path::new(root), None);
         assert!(pairs(&env).starts_with(&expected));
         assert!(pairs(&env).contains(&(
-            "GIT_CONFIG_KEY_4",
+            "GIT_CONFIG_KEY_8",
             "protocol.pi-workspace-no-credential.allow"
         )));
-        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_4", "never")));
+        assert!(pairs(&env).contains(&("GIT_CONFIG_VALUE_8", "never")));
         let nested = Path::new(root).join("packages/app");
         assert_eq!(for_tool(&db, &nested, None), env);
     }
@@ -216,19 +281,30 @@ mod tests {
                 ("PI_PROJECT_ROOT", "/w/repos/github.com/octo/repo.js"),
                 ("GIT_ASKPASS", ""),
                 ("GIT_TERMINAL_PROMPT", "0"),
-                ("GIT_CONFIG_COUNT", "4"),
+                ("GIT_CONFIG_COUNT", "8"),
                 ("GIT_CONFIG_KEY_0", key.as_str()),
                 ("GIT_CONFIG_VALUE_0", "https://github.com/octo/repo.js.git"),
-                ("GIT_CONFIG_KEY_1", "credential.helper"),
-                ("GIT_CONFIG_VALUE_1", ""),
-                ("GIT_CONFIG_KEY_2", "core.askPass"),
-                ("GIT_CONFIG_VALUE_2", ""),
-                ("GIT_CONFIG_KEY_3", no_proxy.as_str()),
+                ("GIT_CONFIG_KEY_1", key.as_str()),
+                ("GIT_CONFIG_VALUE_1", "git@github.com:octo/repo.js.git"),
+                ("GIT_CONFIG_KEY_2", key.as_str()),
+                (
+                    "GIT_CONFIG_VALUE_2",
+                    "ssh://git@github.com/octo/repo.js.git"
+                ),
+                ("GIT_CONFIG_KEY_3", "credential.helper"),
                 ("GIT_CONFIG_VALUE_3", ""),
+                ("GIT_CONFIG_KEY_4", "core.askPass"),
+                ("GIT_CONFIG_VALUE_4", ""),
+                ("GIT_CONFIG_KEY_5", "http.lowSpeedLimit"),
+                ("GIT_CONFIG_VALUE_5", "1"),
+                ("GIT_CONFIG_KEY_6", "http.lowSpeedTime"),
+                ("GIT_CONFIG_VALUE_6", "300"),
+                ("GIT_CONFIG_KEY_7", no_proxy.as_str()),
+                ("GIT_CONFIG_VALUE_7", ""),
             ]
         );
         assert_eq!(
-            proxy_rewrite(&proxy, &Repository::parse("octo", "repo.js").unwrap()),
+            proxy_rewrites(&proxy, &Repository::parse("octo", "repo.js").unwrap())[0],
             (
                 key.clone(),
                 "https://github.com/octo/repo.js.git".to_string()
@@ -246,10 +322,24 @@ mod tests {
                 format!("url.{proxy}octo/repo.js.git.insteadOf"),
                 "https://github.com/octo/repo.js.git".to_string(),
             ),
+            // The SSH spellings of the same repository, so the host user's
+            // own keys never carry a push of it past the proxy.
+            (
+                format!("url.{proxy}octo/repo.js.git.insteadOf"),
+                "git@github.com:octo/repo.js.git".to_string(),
+            ),
+            (
+                format!("url.{proxy}octo/repo.js.git.insteadOf"),
+                "ssh://git@github.com/octo/repo.js.git".to_string(),
+            ),
             // An empty value resets the list: no helper of the host user is
             // asked for a credential, and none is offered a token to store.
             ("credential.helper".to_string(), String::new()),
             ("core.askPass".to_string(), String::new()),
+            // A transfer that stops moving is abandoned instead of holding
+            // the job until its overall limit.
+            ("http.lowSpeedLimit".to_string(), "1".to_string()),
+            ("http.lowSpeedTime".to_string(), "300".to_string()),
             // Loopback traffic to the credential proxy never goes through a
             // configured HTTP proxy.
             (format!("http.{proxy}.proxy"), String::new()),
@@ -261,8 +351,91 @@ mod tests {
             [
                 ("credential.helper".to_string(), String::new()),
                 ("core.askPass".to_string(), String::new()),
+                ("http.lowSpeedLimit".to_string(), "1".to_string()),
+                ("http.lowSpeedTime".to_string(), "300".to_string()),
             ]
         );
+    }
+
+    /// `git ls-remote <url>` with the session's network configuration, and
+    /// `ssh` refused, so nothing leaves the machine.
+    fn ls_remote(config: &[(String, String)], url: &str) -> String {
+        let mut command = std::process::Command::new("git");
+        for (name, _) in std::env::vars() {
+            if name.starts_with("GIT_") {
+                command.env_remove(name);
+            }
+        }
+        command
+            .args(["-c", "protocol.ssh.allow=never", "ls-remote", "--", url])
+            .env("GIT_CONFIG_COUNT", config.len().to_string())
+            .env("GIT_TERMINAL_PROMPT", "0");
+        for (index, (key, value)) in config.iter().enumerate() {
+            command
+                .env(format!("GIT_CONFIG_KEY_{index}"), key)
+                .env(format!("GIT_CONFIG_VALUE_{index}"), value);
+        }
+        let output = command.output().unwrap();
+        assert!(!output.status.success());
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    }
+
+    #[test]
+    fn every_spelling_of_the_session_repository_goes_through_the_proxy() {
+        let repository = Repository::parse("octo", "repo.js").unwrap();
+        let mut config = network_config(Some("pi-workspace-no-credential:///"), &repository);
+        config.push((
+            "protocol.pi-workspace-no-credential.allow".to_string(),
+            "never".to_string(),
+        ));
+        // The host user's own SSH keys never see the session's repository:
+        // all three spellings land on the (here disabled) proxy transport.
+        for url in [
+            "https://github.com/octo/repo.js.git",
+            "git@github.com:octo/repo.js.git",
+            "ssh://git@github.com/octo/repo.js.git",
+        ] {
+            let stderr = ls_remote(&config, url);
+            assert!(
+                stderr.contains("transport 'pi-workspace-no-credential' not allowed"),
+                "{url}: {stderr}"
+            );
+        }
+        // Any other repository is left alone, as if there were no proxy.
+        for url in [
+            "git@github.com:octo/other.git",
+            "ssh://git@github.com/elsewhere/repo.js.git",
+        ] {
+            let stderr = ls_remote(&config, url);
+            assert!(
+                stderr.contains("transport 'ssh' not allowed"),
+                "{url}: {stderr}"
+            );
+        }
+    }
+
+    #[test]
+    fn redaction_replaces_every_proxy_address_with_the_github_url() {
+        let proxy = proxy();
+        let handle = "ab".repeat(32);
+        let repository = Repository::parse("octo", "repo.js").unwrap();
+        let text = format!(
+            "fatal: unable to access '{proxy}octo/repo.js.git/': boom\nGIT_CONFIG_KEY_0=url.{proxy}octo/repo.js.git.insteadOf\nhttp.{proxy}.proxy\n{proxy}other/x.git"
+        );
+        let redacted = redact_proxy(&proxy, &repository, &text);
+        assert!(!redacted.contains(&handle), "{redacted}");
+        assert!(redacted.contains("unable to access 'https://github.com/octo/repo.js.git/'"));
+        assert!(redacted.contains("url.https://github.com/octo/repo.js.git.insteadOf"));
+        assert!(redacted.contains("https://github.com/other/x.git"));
+        let mut value = serde_json::json!({
+            "stdout": text,
+            "nested": [{ "stderr": format!("see {proxy}") }, 7, null],
+            "plain": "untouched",
+        });
+        redact_proxy_json(&proxy, &repository, &mut value);
+        assert!(!value.to_string().contains(&handle), "{value}");
+        assert_eq!(value["plain"], "untouched");
+        assert_eq!(value["nested"][1], 7);
     }
 
     #[test]

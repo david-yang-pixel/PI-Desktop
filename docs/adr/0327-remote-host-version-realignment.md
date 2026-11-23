@@ -64,3 +64,20 @@ in the RACP handshake.
   process for ordinary connection failures.
 - Trust the version and skip the capability check: rejected, a same-version bundle
   without workspace services would fail every `workspace/*` call.
+
+## Amendment: older patch releases
+
+- Date: 2026-11-22
+- Related: D695
+
+Readiness still accepts a Host in the same `major.minor` series, and a missing
+capability is still the only connect-time trigger, so a Host paired at an
+earlier patch never received fixes shipped later in that series. A connected
+Host whose RACP handshake reports an older release than this desktop is now
+realigned once per desktop run, through the same throttled, verified path, but
+only while nothing runs on it: a realignment restarts `pi-host` and would end
+its git jobs and agent turns. A busy Host is checked again every five minutes,
+and a Host whose activity cannot be read counts as busy. Versions that are not
+semver are never treated as older. Readiness is unchanged, so a busy Host keeps
+serving its sessions until it is idle. The Host summary exposes the reported
+version and `updateAvailable` for Settings.

@@ -1,5 +1,5 @@
-import { ErrorCodes, IPC, type AgentEventEnvelope, type AppSettings, type PlanExecutionFinishStatus, type Risk } from "@pi-desktop/shared";
-import { githubSessionPullRequestTool, type createGitHubSessionPullRequestTool } from "../github/session-pr-tool";
+import { ErrorCodes, IPC, type AgentEventEnvelope, type PlanExecutionFinishStatus, type Risk } from "@pi-desktop/shared";
+import type { createGitHubSessionTools } from "../github/session-github-tools";
 import { assertLinuxGlibcSupported } from "../linux-glibc";
 import { HostProcess } from "../host-process";
 import type { Logger } from "../logger";
@@ -10,6 +10,7 @@ import type { RuntimeState } from "./context";
 import type { FinishTurn } from "./plans";
 import { getActiveRemoteHostsBoot } from "../bootstrap/remote-hosts";
 import { createRemoteWorkspaceToolRelay, type RemoteWorkspaceToolRequest } from "../remote/remote-workspace-tools";
+import { getRemoteRepositorySessions } from "../ipc/repository-session-ipc";
 
 export type HostRuntimeDependencies = {
   runtimeState: RuntimeState;
@@ -21,7 +22,7 @@ export type HostRuntimeDependencies = {
   sessionProjects: Map<string, string | null>;
   plugins: PluginRuntime;
   userMcp: UserMcpRuntime;
-  githubSessionPullRequest?: ReturnType<typeof createGitHubSessionPullRequestTool>;
+  githubSessionTools?: ReturnType<typeof createGitHubSessionTools>;
   pluginActiveInProject: (pluginId: string, projectPath: string | null | undefined) => boolean;
   sendToRenderer: (channel: string, payload: unknown) => void;
   /** Settles the session mode of a run that closed; true when it changed. */
@@ -61,7 +62,7 @@ export function createHostRuntime({
   sessionProjects,
   plugins,
   userMcp,
-  githubSessionPullRequest,
+  githubSessionTools,
   pluginActiveInProject,
   sendToRenderer,
   settleModeReturn,
@@ -88,6 +89,9 @@ export function createHostRuntime({
     isCurrent: () => runtimeState.host === h,
     isTurnDispatchable: (sessionId, turnId) => isTurnDispatchable(sessionId, turnId),
     log: (message, error) => logger.app("diagnostics", "warn", message, { data: String(error) }),
+    beforeExecute: async (request) => getRemoteRepositorySessions()?.workspaces.prepareTool({
+      sessionId: request.sessionId, hostKey: request.remoteWorkspace.hostKey, toolName: request.toolName,
+    }),
   });
 
   h.onNotification((method, params) => {
@@ -192,11 +196,10 @@ export function createHostRuntime({
           : null;
         const tool = plugins.getTools().find((t) => t.fullName === q.toolName);
         let payload: Record<string, unknown>;
-        if (githubSessionPullRequest && q.toolName === githubSessionPullRequestTool.name) {
+        if (githubSessionTools?.owns(q.toolName)) {
           try {
-            const settings = await h.call<AppSettings>("settings.get");
-            const result = await githubSessionPullRequest.execute({
-              ...q, settings,
+            const result = await githubSessionTools.execute({
+              ...q,
               isCurrent: () => runtimeState.host === h && isTurnDispatchable(q.sessionId ?? "", q.turnId),
             });
             payload = { executionId: q.executionId, ok: true, content: result };
