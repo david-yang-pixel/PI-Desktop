@@ -3,6 +3,7 @@ import type {
   AgentMessage,
 } from "@earendil-works/pi-agent-core";
 import type { CompactionEntry, MessageEntry } from "./pi-runtime-types.js";
+import { estimateContextTokens } from "./pi-runtime-estimates.js";
 import { buildSessionContext } from "./session-context.js";
 
 function user(id: string, text: string, seq: number): MessageEntry {
@@ -112,6 +113,31 @@ describe("buildSessionContext", () => {
     expect(JSON.stringify(messages)).toContain("keep me");
     expect(JSON.stringify(messages)).toContain("next");
     expect(JSON.stringify(messages)).not.toContain("old answer");
+  });
+
+  it("estimates a retained checkpoint from its content until the next request reports usage", () => {
+    const previous = assistant("a0", "Retained answer", 1).message;
+    if (previous.role !== "assistant") throw new Error("Expected an assistant fixture");
+    previous.usage = {
+      ...previous.usage,
+      input: 591,
+      output: 146,
+      cacheRead: 577_800,
+      totalTokens: 578_537,
+    };
+    const checkpoint = compaction("c1", 2, [user("u0", "Earlier request", 0).message, previous]);
+    const nextPrompt = user("u1", "Continue the task", 3);
+    const compacted = buildSessionContext([checkpoint, nextPrompt]);
+    const estimate = estimateContextTokens(compacted.messages);
+    expect(estimate).toMatchObject({ usageTokens: 0, lastUsageIndex: null });
+    expect(estimate.tokens).toBeGreaterThan(0);
+    expect(estimate.tokens).toBeLessThan(100);
+    expect(compacted.messages).toContainEqual(expect.objectContaining({ content: previous.content }));
+    expect(previous.usage.totalTokens).toBe(578_537);
+
+    const newest = assistant("a1", "Continued answer", 4);
+    const resumed = buildSessionContext([checkpoint, nextPrompt, newest]);
+    expect(estimateContextTokens(resumed.messages).usageTokens).toBe(2);
   });
 
   it("replays retained reasoning between the summary and the user tail", () => {
