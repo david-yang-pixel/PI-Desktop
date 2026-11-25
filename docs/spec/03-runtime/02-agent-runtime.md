@@ -602,11 +602,14 @@ thinking shares the same character budget as text. Answer text is reserved
 first; a thinking block that has to be shortened drops its provider signature,
 so the replay is not a mutated signed trace. A block that still fits keeps its
 signature, and redacted thinking is left unchanged. The retained tail
-is re-estimated with the summary before persistence and before continuation, so
-an oversized request still cannot pass the guard. A fallback also records
-`details.failureReason` — `no_new_history`, `summary_budget`,
-`summary_provider`, or `checkpoint_oversized` — a closed vocabulary rather than
-provider error text, which can carry endpoint details.
+is re-estimated with the summary before persistence and before continuation.
+Replayed assistant messages contribute their retained content to the estimate.
+Their historical request usage stays in the transcript, and the next provider
+report supplies the measured occupancy for the new context. The hard budget
+still applies. A fallback also records `details.failureReason` using the values
+`no_new_history`, `summary_budget`, `summary_provider`, or `checkpoint_oversized`.
+This keeps provider error text, which can carry endpoint details, out of the
+checkpoint.
 
 **Two compaction families.** Both run the same lifecycle — budget
 re-estimation, host-core append, `compaction_end`, transcript row, warning:

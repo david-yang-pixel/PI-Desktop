@@ -4606,6 +4606,13 @@ command, a delegate, and an explicit Stop. Accepted input is delivered once.
   between a tool result and the next request.
 - **Specs:** `03-runtime/02-agent-runtime.md` §5.1.
 
+A restored retained-tail checkpoint can contain a short assistant reply whose
+original request exceeded the window. Continue the restored conversation and
+check that the request includes the retained reply and the new prompt without
+another compaction. The retained content determines occupancy until the next
+provider usage report. Verify with `session-context.test.ts` and
+`context-usage-compaction.test.ts`.
+
 ## E2E-IMAGE-generation-and-editing
 
 - **Preconditions:** Built task candidate containing latest origin/main; isolated

@@ -1,6 +1,6 @@
 import { createServer, type ServerResponse } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentEventEnvelope, UiMessage } from "@pi-desktop/shared";
+import type { AgentEventEnvelope, ContextCompactionRecord, UiMessage } from "@pi-desktop/shared";
 import { DesktopAgentRuntime } from "./runtime.js";
 import type { RuntimeProviderConfig } from "./provider-binding.js";
 
@@ -50,7 +50,12 @@ function respond(response: ServerResponse, requestNumber: number, usage: WireUsa
   response.end(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""));
 }
 
-async function fixture(history: UiMessage[] = [], usage: WireUsage = highUsage, toolFirst = false) {
+async function fixture(
+  history: UiMessage[] = [],
+  usage: WireUsage = highUsage,
+  toolFirst = false,
+  compaction?: ContextCompactionRecord,
+) {
   const requests: WireRequest[] = [];
   const timeline: string[] = [];
   const events: AgentEventEnvelope[] = [];
@@ -80,6 +85,7 @@ async function fixture(history: UiMessage[] = [], usage: WireUsage = highUsage, 
   };
   const runtime = new DesktopAgentRuntime({
     sessionId: "usage-fixture", mode: "agent", provider, history, thinkingLevel: "off",
+    compaction,
     compactionStrategy: "fresh_window",
     commandShell: { id: "bash", label: "Bash", dialect: "posix", available: true, isDefault: true },
     host: {
@@ -130,6 +136,41 @@ describe("reported context occupancy and compaction", () => {
     expect(f.timeline).toEqual(["checkpoint", "request:1"]);
     expect(f.events.some(({ event }) => event.type === "compaction_end" && event.ok)).toBe(true);
     expect(JSON.stringify(f.requests[0].input)).toContain("Continue the restored task.");
+  });
+
+  it("continues a restored retained-tail checkpoint without compacting stale cache usage again", async () => {
+    const createdAt = "2026-10-01T00:00:00Z";
+    const usage = { inputTokens: 591, outputTokens: 146, cacheReadTokens: 577_800, totalTokens: 578_537 };
+    const previous = "The last decision was to keep the current schema.";
+    const f = await fixture([
+      { id: "old-user", role: "user", content: "Review the schema.", createdAt },
+      { id: "old-answer", role: "assistant", content: previous, createdAt, status: "complete", usage },
+    ], { input_tokens: 100, output_tokens: 10, total_tokens: 110 }, false, {
+      id: "old-checkpoint",
+      throughMessageId: "old-answer",
+      summary: "Previous context.",
+      tokensBefore: usage.totalTokens,
+      createdAt: "2026-10-01T00:01:00Z",
+      details: { fallback: "retained_tail", retainedTailShape: "recent_window" },
+      retainedTail: [
+        { role: "user", content: "Review the schema.", timestamp: Date.parse(createdAt) },
+        {
+          role: "assistant", api: "openai-responses", provider: "openai", model: "fixture-model",
+          content: [{ type: "text", text: previous }], stopReason: "stop", timestamp: Date.parse(createdAt),
+          usage: { input: 591, output: 146, cacheRead: 577_800, cacheWrite: 0, totalTokens: 578_537,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        },
+      ],
+    });
+
+    await f.runtime.prompt("Continue with the migration.", "new-user", "new-turn");
+
+    expect(f.timeline).toEqual(["request:1"]);
+    const input = JSON.stringify(f.requests[0].input);
+    expect(input).toContain(previous);
+    expect(input).toContain("Continue with the migration.");
+    expect(f.events.find(({ event }) => event.type === "message_end" && event.message.role === "assistant")?.event)
+      .toMatchObject({ type: "message_end", message: { status: "complete", usage: { totalTokens: 110 } } });
   });
 
   it("compacts between a tool result and the next provider request", async () => {

@@ -1,3 +1,4 @@
+import { usageToPi } from "./agent-messages.js";
 import { readSystemMessage } from "./system-transcript-journal.js";
 import { recoverMalformedToolCalls } from "./tool-call-recovery.js";
 /**
@@ -74,8 +75,13 @@ export function sessionEntryToContextMessages(
               entry.timestamp,
               identity,
             )),
-        ...entry.retainedTail.filter((message) => isContextMessage(message) &&
-          !(message.role === "system" && entry.details && typeof entry.details === "object" && "systemMessageJson" in entry.details)),
+        ...entry.retainedTail
+          .filter((message) => isContextMessage(message) &&
+            !(message.role === "system" && entry.details && typeof entry.details === "object" && "systemMessageJson" in entry.details))
+          // Replayed responses were measured with the old request prefix.
+          .map((message) => message.role === "assistant"
+            ? { ...message, usage: usageToPi(undefined) }
+            : message),
       ];
     case "branch_summary":
       return entry.summary
